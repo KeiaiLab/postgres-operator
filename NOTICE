@@ -1,0 +1,17 @@
+keiailab/postgres-operator
+Copyright 2026 keiailab
+
+This product includes software developed at keiailab (https://github.com/keiailab).
+
+This product is built on top of and integrates with the following open-source projects:
+
+- Citus (https://github.com/citusdata/citus) — distributed PostgreSQL extension, AGPL-3.0
+- PostgreSQL (https://www.postgresql.org/) — PostgreSQL License
+- Kubernetes (https://github.com/kubernetes/kubernetes) — Apache-2.0
+- controller-runtime / kubebuilder (https://github.com/kubernetes-sigs) — Apache-2.0
+- pgBackRest (https://pgbackrest.org/) — MIT
+- PgBouncer (https://www.pgbouncer.org/) — ISC
+
+The MongoDB sharded cluster topology (mongos / config server replica set / shard
+replica set) is referenced as an architectural model only. No MongoDB code or
+proprietary specifications are incorporated.

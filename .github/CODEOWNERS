@@ -1,0 +1,29 @@
+# 디렉토리/파일별 자동 리뷰어 매핑
+# 형식: <pattern> <owner>
+# 참고: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# 전체 기본 소유자
+* @keiailab/maintainers
+
+# 핵심 도메인
+/api/                       @keiailab/maintainers
+/internal/controller/       @keiailab/maintainers
+/internal/instance/         @keiailab/maintainers
+/internal/citus/            @keiailab/maintainers
+/internal/backup/           @keiailab/maintainers
+/internal/balancer/         @keiailab/maintainers
+/internal/version/          @keiailab/maintainers
+
+# 빌드/배포
+/build/                     @keiailab/maintainers
+/charts/                    @keiailab/maintainers
+/bundles/                   @keiailab/maintainers
+/.github/                   @keiailab/maintainers
+
+# 문서/거버넌스
+/docs/                      @keiailab/maintainers
+/MAINTAINERS.md             @keiailab/maintainers
+/GOVERNANCE.md              @keiailab/maintainers
+/SECURITY.md                @keiailab/maintainers
+/LICENSE                    @keiailab/maintainers
+/NOTICE                     @keiailab/maintainers

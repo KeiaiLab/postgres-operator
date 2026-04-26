@@ -1,0 +1,59 @@
+name: 🐛 Bug Report
+description: 재현 가능한 버그를 신고합니다
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        보안 취약점은 **공개 이슈로 올리지 마세요**. [SECURITY.md](../SECURITY.md)를 참조하세요.
+  - type: input
+    id: version
+    attributes:
+      label: Operator 버전
+      placeholder: v0.x.y
+    validations:
+      required: true
+  - type: input
+    id: k8s
+    attributes:
+      label: Kubernetes 버전
+      placeholder: v1.30.x
+    validations:
+      required: true
+  - type: dropdown
+    id: pg
+    attributes:
+      label: PostgreSQL major
+      options: ['16', '17', '18']
+    validations:
+      required: true
+  - type: input
+    id: citus
+    attributes:
+      label: Citus 버전
+      placeholder: 13.0
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 재현 절차
+      placeholder: |
+        1. `kubectl apply -f ...`
+        2. 30초 대기
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작 / 로그
+      render: shell
+    validations:
+      required: true

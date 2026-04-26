@@ -1,0 +1,24 @@
+name: ✨ Feature Request
+description: 새 기능 제안
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        아키텍처 영향이 있는 변경은 [`docs/rfcs/`](../docs/rfcs)에 RFC를 제출해주세요.
+  - type: textarea
+    id: problem
+    attributes:
+      label: 어떤 문제를 해결하나요?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 제안 (가능하면 CRD 변경 sketch 포함)
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 검토한 대안

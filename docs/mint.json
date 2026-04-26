@@ -1,0 +1,73 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "keiailab/postgres-operator",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#2563eb",
+    "light": "#60a5fa",
+    "dark": "#1e40af"
+  },
+  "topbarLinks": [
+    { "name": "GitHub", "url": "https://github.com/keiailab/postgres-operator" }
+  ],
+  "topbarCtaButton": {
+    "name": "Quickstart",
+    "url": "/tutorials/quickstart"
+  },
+  "anchors": [
+    { "name": "API Reference", "icon": "code", "url": "reference" },
+    { "name": "ADR", "icon": "scroll", "url": "adr" },
+    { "name": "RFC", "icon": "lightbulb", "url": "rfcs" }
+  ],
+  "navigation": [
+    {
+      "group": "시작하기",
+      "pages": ["index", "tutorials/quickstart", "tutorials/production-cluster"]
+    },
+    {
+      "group": "개념",
+      "pages": [
+        "concepts/topology-mongo-shard-on-citus",
+        "concepts/css-ss-router",
+        "concepts/metadata-sync",
+        "concepts/version-matrix"
+      ]
+    },
+    {
+      "group": "How-to",
+      "pages": [
+        "how-to/backup-pitr",
+        "how-to/shard-rebalance",
+        "how-to/zone-sharding",
+        "how-to/upgrade",
+        "how-to/migrate-from-cnpg"
+      ]
+    },
+    {
+      "group": "Reference",
+      "pages": ["reference/crd-overview", "reference/cli", "reference/metrics"]
+    },
+    {
+      "group": "ADR",
+      "pages": [
+        "adr/0001-mongodb-sharded-topology-on-citus",
+        "adr/0002-no-patroni-instance-manager",
+        "adr/0003-three-tier-rs-responsibility-split"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/keiailab/postgres-operator"
+  },
+  "i18n": {
+    "defaultLanguage": "ko",
+    "languages": [
+      { "code": "ko", "name": "한국어" },
+      { "code": "en", "name": "English" }
+    ]
+  }
+}
