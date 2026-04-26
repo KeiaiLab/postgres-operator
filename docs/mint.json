@@ -31,8 +31,8 @@
     {
       "group": "개념",
       "pages": [
-        "concepts/topology-mongo-shard-on-citus",
-        "concepts/css-ss-router",
+        "concepts/topology-citus-plus-router",
+        "concepts/coordinator-worker-router",
         "concepts/metadata-sync",
         "concepts/version-matrix"
       ]
@@ -54,9 +54,9 @@
     {
       "group": "ADR",
       "pages": [
-        "adr/0001-mongodb-sharded-topology-on-citus",
+        "adr/0001-stateless-query-router-on-citus",
         "adr/0002-no-patroni-instance-manager",
-        "adr/0003-three-tier-rs-responsibility-split"
+        "adr/0003-queryrouter-stateless-design"
       ]
     }
   ],

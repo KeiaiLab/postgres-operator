@@ -1,69 +1,84 @@
 # keiailab/postgres-operator
 
-> **MongoDB Sharded Cluster 아키텍처를 차용한 Citus 분산 PostgreSQL Kubernetes Operator**
+> **Citus 분산 PostgreSQL을 K8s native로 만드는 오퍼레이터 — 핵심 차별화는 Stateless QueryRouter 계층**
 
-Apache 2.0 라이선스의 오픈소스 프로젝트입니다. PostgreSQL + Citus extension을 기반으로 하되, 토폴로지 모델은 MongoDB의 **3계층 sharded cluster**(`mongos / config server replica set / shard replica set`)를 차용해 책임 분리와 운영 단순성을 달성합니다.
+Apache 2.0 라이선스의 오픈소스 프로젝트. PostgreSQL + Citus extension 기반 분산 클러스터를 단일 `PostgresCluster` CR로 선언적으로 운영합니다. Citus 표준 토폴로지(coordinator + workers)에 **stateless QueryRouter 계층** 하나를 추가해 라우팅을 무상태로 수평확장 가능하게 만든 것이 본 프로젝트의 본질적 기여입니다.
 
 상태: **alpha (개발 중, Phase 0)**. PR/Issue 환영합니다.
 
 ---
 
-## 왜 또 다른 PostgreSQL Operator인가
+## 정직한 포지셔닝
 
-기존 PG 오퍼레이터(CloudNativePG, Zalando, Crunchy PGO, StackGres, Percona)는 모두 단일/스트리밍 복제 모델에 초점이 맞춰져 있고, **Citus 분산 토폴로지를 1급 시민으로 다루는 Apache 2.0 + Go 오퍼레이터는 비어 있습니다**. 본 프로젝트는 그 공백을 채우되, 단순히 "Citus를 K8s에 배포"하는 수준이 아니라 **MongoDB가 production에서 검증한 3계층 책임분리 모델**을 가져옵니다.
+본 프로젝트는 두 가지 일을 한다:
 
-| 비교 대상 | Citus 통합 수준 | 토폴로지 1급 표현 | 라이선스/스택 |
-|---|---|---|---|
-| CloudNativePG | 플러그인(여러 Cluster CR 묶음) | ✗ | Apache 2.0 / Go |
-| Zalando postgres-operator | `citus.{group, cluster}` 필드 | ✗ | MIT / Go |
-| StackGres `SGShardedCluster` | 1급 표현 | ○ | **AGPL-3.0** / Java |
-| **keiailab/postgres-operator** | **1급 표현 + Mongo 토폴로지** | **○** | **Apache 2.0 / Go** |
+1. **Citus를 K8s에서 1급 시민으로 운영** — `PostgresCluster` CR, 메타데이터 자동 sync, 선언적 분산 테이블, PITR 정합성, shard rebalance 등 전부 declarative.
+2. **Stateless QueryRouter 계층 추가** — Citus 표준엔 없는, HPA로 수평확장 가능한 무상태 라우터 풀. 본 프로젝트의 진짜 새로움.
+
+> 초기 설계에서 "MongoDB sharded cluster on Citus"라는 토폴로지 모델을 차용했으나, 자체 비판적 검토 결과 (a) "shard"라는 단어의 의미 충돌, (b) Config Server Set / Shard Set은 사실상 Citus 표준의 재명명에 불과한 점이 드러나 폐기했습니다. 자세한 사유는 [ADR 0001](docs/adr/0001-stateless-query-router-on-citus.md) 참조.
 
 ---
 
-## 아키텍처 — MongoDB Sharded Cluster on Citus
+## 왜 또 다른 PostgreSQL Operator인가
+
+| 비교 대상 | Citus 통합 | Stateless 라우터 분리 | 라이선스/스택 |
+|---|---|---|---|
+| CloudNativePG | 플러그인(여러 Cluster CR 묶음) | ✗ | Apache 2.0 / Go |
+| Zalando postgres-operator | `citus.{group, cluster}` 필드 | ✗ | MIT / Go |
+| Crunchy PGO / Percona | ✗ | ✗ | Apache 2.0 / Go |
+| StackGres `SGShardedCluster` | 1급 표현 | ✗ | **AGPL-3.0** / Java |
+| **keiailab/postgres-operator** | **1급 표현** | **○** | **Apache 2.0 / Go** |
+
+차별화의 무게중심은 **Stateless QueryRouter** 한 곳입니다. 그 외 declarative 분산 테이블, PITR 정합성, 자동 메타데이터 sync 등은 Citus를 K8s native로 만들기 위한 필수 기능이지 차별화 자체는 아닙니다.
+
+---
+
+## 토폴로지 (Citus 표준 + QueryRouter 계층)
 
 ```
-                    ┌──────────────────────────┐
-                    │   App / Client           │
-                    └───────────┬──────────────┘
-                                │ libpq
-                ┌───────────────▼───────────────┐
-                │   Router (mongos analog)      │  무상태, HPA, PgBouncer 사이드카
-                │   metadata_synced=true PG     │  pg_dist_* 캐시, 데이터 0
-                └───────────────┬───────────────┘
-                                │
-       ┌────────────────────────┼────────────────────────┐
-       │                        │                        │
-┌──────▼──────┐         ┌───────▼───────┐         ┌──────▼──────┐
-│ ConfigSvr   │         │  Shard Set A  │         │ Shard Set B │
-│  Set (CSS)  │ ◀──────▶│  (PG RS×N)    │         │ (PG RS×N)   │
-│  PG RS×3    │ metadata│  shouldhave-  │         │ shouldhave- │
-│  pg_dist_*  │  sync   │  shards=true  │         │ shards=true │
-│  권위        │         │  실제 shard   │         │ 실제 shard  │
-└─────────────┘         └───────────────┘         └─────────────┘
+                      ┌──────────────────────────┐
+                      │   App / Client           │
+                      └───────────┬──────────────┘
+                                  │ libpq (TLS)
+                  ┌───────────────▼───────────────┐
+                  │   QueryRouter (stateless)     │  무상태, HPA, PgBouncer 사이드카
+                  │   metadata_synced=true PG     │  pg_dist_* 캐시, PVC 없음
+                  │   본 프로젝트의 핵심 차별화   │  본 프로젝트가 추가한 신규 계층
+                  └───────────────┬───────────────┘
+                                  │
+       ┌──────────────────────────┼─────────────────────────┐
+       │                          │                         │
+┌──────▼──────────┐       ┌───────▼────────┐        ┌───────▼────────┐
+│  Coordinator    │       │  Worker pool A │        │  Worker pool B │
+│  (HA RS)        │       │  (HA RS)       │        │  (HA RS)       │
+│  pg_dist_* 권위 │       │  shard 보유    │        │  shard 보유    │
+│  DDL 게이트웨이 │       │  자체 election │        │  자체 election │
+└─────────────────┘       └────────────────┘        └────────────────┘
+   sync replication        streaming replication       streaming replication
 ```
 
-| 계층 | MongoDB 대응 | 역할 |
-|---|---|---|
-| **Router** | `mongos` | 무상태 쿼리 라우터, HPA로 수평확장, PgBouncer 통합 |
-| **Config Server Set (CSS)** | `config server replica set` | 메타데이터 권위 RS (3-member sync), `pg_dist_*` 보유, 데이터 shard 없음 |
-| **Shard Set (SS)** | `shard replica set` | 데이터 RS (각자 election), 실제 shard 보유, zone-aware 가능 |
+| 계층 | 역할 | HA | 출처 |
+|---|---|---|---|
+| **QueryRouter** | 분산 쿼리 라우팅, PgBouncer 통합, HPA 수평확장 | 무상태 (Pod 재기동 무손실) | **본 프로젝트 신규** |
+| **Coordinator** | `pg_dist_*` 메타데이터 권위, DDL 게이트웨이 | streaming replication + lease election | Citus 표준 |
+| **Worker** | 분산 테이블 shard 보유 | streaming replication + lease election | Citus 표준 |
+
+자세한 책임 경계는 [ADR 0003](docs/adr/0003-queryrouter-stateless-design.md) 참조.
 
 ---
 
 ## 핵심 기능 (계획)
 
-- **선언적 분산 토폴로지**: `PostgresCluster` CR 하나로 CSS + SS[] + Router 전체 표현
+- **선언적 토폴로지**: `PostgresCluster` 단일 CR로 Coordinator + Worker pools + QueryRouter 표현
 - **자동 메타데이터 동기화**: `pg_dist_node` ↔ K8s Endpoints drift 감지/복원
-- **RS 단위 자동 failover**: K8s API as DCS, Patroni 미사용 (CNPG 모델)
+- **HA**: K8s API as DCS (Patroni 미사용, [ADR 0002](docs/adr/0002-no-patroni-instance-manager.md))
 - **PITR 정합성**: `citus_create_restore_point` 2PC로 분산 named restore point 강제
-- **Shard rebalancer**: Mongo balancer 모델 (window 스케줄, online/blocking)
-- **Zone-aware sharding**: tag→SS 매핑 (Mongo zone 차용)
+- **`RebalanceJob`**: `citus_rebalance_start` 래퍼 + window 스케줄
+- **`ShardPlacementPolicy`**: `citus_set_node_property` + tag-aware placement
 - **선언적 분산 테이블**: `DistributedTable` / `ReferenceTable` CRD
 - **Schema-based sharding**: Citus 12+ 자동 SaaS 멀티테넌시
-- **백업 plugin 인터페이스**: pgBackRest / WAL-G / Barman 추상화
-- **PG 16/17/18 지원**: Citus 호환 매트릭스 자동 추적
+- **백업 plugin**: pgBackRest / WAL-G / Barman 추상화
+- **PG 16/17/18 지원**: Citus 호환 매트릭스 자동 추적 (`upstream-watch.yml`)
 
 ---
 
@@ -83,7 +98,7 @@ PG18 활성화: `--feature-gates=PostgresEighteen=true`. Citus 호환 발표는 
 
 ```bash
 kubectl apply -f https://github.com/keiailab/postgres-operator/releases/latest/download/install.yaml
-kubectl apply -f examples/dev-cluster.yaml
+kubectl apply -f examples/dev-cluster.yaml      # Coordinator×1 + Worker×1 + QueryRouter×1 (5분 quickstart)
 kubectl port-forward svc/orders-router 5432:5432
 psql "host=localhost port=5432 dbname=app user=app sslmode=require"
 ```
@@ -111,5 +126,3 @@ psql "host=localhost port=5432 dbname=app user=app sslmode=require"
 ## 라이선스
 
 [Apache License 2.0](LICENSE) © 2026 keiailab. 자세한 내용은 [NOTICE](NOTICE) 참조.
-
-> 본 프로젝트는 MongoDB의 sharded cluster 아키텍처를 **모델**로 참조하지만, MongoDB의 코드나 독점 사양을 포함하지 않습니다.
