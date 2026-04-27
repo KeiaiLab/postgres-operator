@@ -15,41 +15,55 @@ You may obtain a copy of the License at
 // 메커니즘으로 사용하며, 모든 PG 인스턴스(coordinator/worker)에서 동일 코드가
 // 동작한다.
 //
-// 본 파일은 Pillar P1-T3의 골격이다. 현재는 다음만 보유한다:
+// 본 파일의 현 책임 (P2-T1까지):
 //   - 신호 처리(SIGTERM/SIGINT graceful shutdown)
-//   - HTTP healthz/readyz 엔드포인트
+//   - HTTP healthz/readyz 엔드포인트 (readyz는 election Status 반영)
+//   - K8s lease 기반 leader election (RFC 0003, internal/instance/election/)
 //   - 구조화 로깅
 //
 // 후속 task에서 추가될 책임:
-//   - postgres 자식 프로세스 fork + 감독 + restart 정책 (P1-T3 보강)
-//   - K8s lease 기반 election 참여 (P2-T1, internal/instance/election/)
+//   - postgres 자식 프로세스 fork + 감독 + restart 정책 (P2-T3 + P1-T3 보강)
 //   - PVC fencing 검사 (P2-T2)
 //   - pg_rewind 자동화 (P2-T4)
-//   - failover 시 citus_update_node 호출 (P11-T8, internal/instance/citus/)
-//
-// 빌드:
-//
-//	docker buildx build --builder masblue-builder \
-//	  -t ghcr.io/keiailab/postgres-operator-instance:<rev> \
-//	  -f build/images/instance/Dockerfile .
+//   - failover 시 citus_update_node 호출 (P11-T8)
 package main
 
 import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"github.com/keiailab/postgres-operator/internal/instance/election"
 )
 
 func main() {
-	var probeAddr string
+	var (
+		probeAddr        string
+		electionDisabled bool
+		leaseDuration    time.Duration
+		renewDeadline    time.Duration
+		retryPeriod      time.Duration
+	)
 	flag.StringVar(&probeAddr, "probe-bind-address", ":8080",
 		"The address the healthz/readyz endpoints bind to.")
+	flag.BoolVar(&electionDisabled, "election-disabled", false,
+		"Disable K8s lease leader election (use Null election — always Leader). For dev mode only.")
+	flag.DurationVar(&leaseDuration, "lease-duration", election.DefaultLeaseDuration,
+		"Lease duration for leader election (RFC 0003 §2).")
+	flag.DurationVar(&renewDeadline, "renew-deadline", election.DefaultRenewDeadline,
+		"Renew deadline for leader election. Must be < lease-duration.")
+	flag.DurationVar(&retryPeriod, "retry-period", election.DefaultRetryPeriod,
+		"Retry period for leader election. Must be < renew-deadline.")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -57,24 +71,90 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	// downward API 환경 변수 (RFC 0003 §3).
+	podName := envOrDie("POD_NAME")
+	namespace := envOrDie("POD_NAMESPACE")
+	cluster := envOrDie("POSTGRES_CLUSTER")
+	role := envOrDie("POSTGRES_ROLE")
+	pool := os.Getenv("POSTGRES_POOL") // worker만 의미 있음
+
 	logger.Info("Instance manager starting",
-		"version", "v0.0.0-pillar-p1-t3-skeleton",
+		"version", "v0.0.0-pillar-p2-t1",
 		"probeAddr", probeAddr,
+		"podName", podName,
+		"namespace", namespace,
+		"cluster", cluster,
+		"role", role,
+		"pool", pool,
+		"electionDisabled", electionDisabled,
 	)
+
+	leaseName := election.PrimaryLeaseName(cluster, role, pool)
+	logger.Info("Resolved lease name", "lease", leaseName)
+
+	// Election 인스턴스 결정 (Real | Null).
+	var elect election.Election
+	cb := election.Callbacks{
+		OnStartedLeading: func(_ context.Context) {
+			logger.Info("Leadership acquired — would promote postgres to primary",
+				"identity", podName, "lease", leaseName,
+				"todo", "P2-T3 + P11-T8 supervise postgres + citus_update_node")
+		},
+		OnStoppedLeading: func() {
+			logger.Warn("Leadership lost — would demote postgres to standby",
+				"identity", podName, "lease", leaseName)
+		},
+		OnNewLeader: func(id string) {
+			logger.Info("Observed new leader", "identity", id, "self", podName)
+		},
+	}
+
+	if electionDisabled {
+		elect = election.NewNull(podName, cb)
+		logger.Warn("Election disabled — Null election (always Leader). Use only in development.")
+	} else {
+		clientset, err := buildKubernetesClient()
+		if err != nil {
+			logger.Error("Failed to build K8s client", "error", err)
+			os.Exit(1)
+		}
+		real, err := election.NewReal(election.RealConfig{
+			Client:    clientset,
+			LeaseName: leaseName,
+			Namespace: namespace,
+			Identity:  podName,
+			Callbacks: cb,
+			Durations: election.Durations{
+				LeaseDuration: leaseDuration,
+				RenewDeadline: renewDeadline,
+				RetryPeriod:   retryPeriod,
+			},
+		})
+		if err != nil {
+			logger.Error("Failed to construct election", "error", err)
+			os.Exit(1)
+		}
+		elect = real
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		// 현재는 프로세스 생존만 보고. P1-T3 후속에서 postgres 자식 PID alive
-		// 검사로 보강.
+		// 현재는 프로세스 생존만 보고. P2-T3 보강 시 postgres 자식 PID alive
+		// 검사 추가.
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		// P1-T3 후속에서 postgres가 SQL 쿼리에 응답 가능한지 검사.
-		// 또한 P12 라우터 사이드카에 한해 router_metadata_lag_seconds 임계
-		// 초과 시 503 반환(ADR 0003).
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		// election 부트스트랩 중에는 503, leader/follower 결정 후에는 200.
+		// (P12 라우터 사이드카는 별도로 router_metadata_lag_seconds 임계 검사)
+		switch elect.Status() {
+		case election.StatusStarting:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = fmt.Fprintf(w, "starting election\n")
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, "%s\n", elect.Status())
+		}
 	})
 
 	srv := &http.Server{
@@ -83,10 +163,10 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// 종료 신호를 처리할 컨텍스트.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// HTTP 서버 goroutine
 	srvErrCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -94,14 +174,26 @@ func main() {
 		}
 		close(srvErrCh)
 	}()
-
 	logger.Info("Probe endpoints listening", "addr", probeAddr)
+
+	// Election goroutine
+	electErrCh := make(chan error, 1)
+	go func() {
+		if err := elect.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			electErrCh <- err
+		}
+		close(electErrCh)
+	}()
+	logger.Info("Election started", "identity", elect.Identity(), "lease", leaseName)
 
 	select {
 	case <-ctx.Done():
 		logger.Info("Received shutdown signal")
 	case err := <-srvErrCh:
 		logger.Error("Probe server failed", "error", err)
+		os.Exit(1)
+	case err := <-electErrCh:
+		logger.Error("Election failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -112,4 +204,30 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("Instance manager exited cleanly")
+}
+
+// envOrDie는 필수 환경변수를 읽고 미설정 시 즉시 실패한다.
+// downward API로 주입되어야 할 변수들이 누락된 상태로 부팅하면 election lease
+// 명명이 깨지므로 fail-fast가 옳다.
+func envOrDie(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		fmt.Fprintf(os.Stderr, "instance: required env %s is empty (set via downward API)\n", key)
+		os.Exit(1)
+	}
+	return v
+}
+
+// buildKubernetesClient는 Pod 안에서 InClusterConfig를 사용해 clientset을 만든다.
+// Pod 외부 실행 환경(예: 로컬 디버그)은 후속 task에서 KUBECONFIG 폴백 추가.
+func buildKubernetesClient() (kubernetes.Interface, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("InClusterConfig: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("NewForConfig: %w", err)
+	}
+	return cs, nil
 }
