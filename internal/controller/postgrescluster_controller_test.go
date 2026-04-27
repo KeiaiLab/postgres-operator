@@ -172,6 +172,38 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 			return updated.Status.Channel
 		}, timeout, interval).Should(Equal("stable"))
 
+		By("[P11-T1] verifying Citus desired topology is surfaced in Workers[].DistNode")
+		// RFC 0002 §10 Status 반영. NullExecutor 사용 중이므로 SQL은 호출되지
+		// 않지만 desired state는 Status에 표면화되어야 함.
+		Eventually(func() *postgresv1alpha1.DistNodeRef {
+			updated := &postgresv1alpha1.PostgresCluster{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: namespace, Name: clusterName,
+			}, updated); err != nil {
+				return nil
+			}
+			if len(updated.Status.Topology.Workers) == 0 {
+				return nil
+			}
+			return updated.Status.Topology.Workers[0].DistNode
+		}, timeout, interval).ShouldNot(BeNil())
+
+		// 정확한 형식 검증.
+		updated := &postgresv1alpha1.PostgresCluster{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: namespace, Name: clusterName,
+		}, updated)).To(Succeed())
+
+		Expect(updated.Status.Topology.Workers).To(HaveLen(1))
+		dn := updated.Status.Topology.Workers[0].DistNode
+		Expect(dn).NotTo(BeNil())
+		Expect(dn.GroupID).To(Equal(int32(1)), "first worker pool must have groupid=1 (RFC 0002 §2)")
+		Expect(dn.NodePort).To(Equal(int32(5432)))
+		Expect(dn.ShouldHaveShards).To(BeTrue(), "worker default ShouldHaveShards must be true (RFC 0002 §3)")
+		Expect(dn.NodeName).To(ContainSubstring("worker-pool-a-0"),
+			"NodeName must follow Pod DNS pattern (RFC 0002 §1)")
+		Expect(dn.NodeName).To(ContainSubstring(".svc.cluster.local"))
+
 		By("verifying ObservedGeneration tracks spec generation")
 		Eventually(func() int64 {
 			updated := &postgresv1alpha1.PostgresCluster{}

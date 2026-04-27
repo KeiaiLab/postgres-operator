@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/citus"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 )
 
@@ -55,6 +56,12 @@ type PostgresClusterReconciler struct {
 	// FeatureGates는 PG18 같은 격리 채널 활성화 결정에 사용된다.
 	// nil이면 빈 맵으로 취급(기본 비활성).
 	FeatureGates map[string]bool
+
+	// CitusExec는 pg_dist_node 동기화 SQL을 실 PG에 적용하는 실행기다(RFC 0002).
+	// nil이면 NullExecutor를 사용 — Pillar P11-M0(spike)의 기본값으로, desired
+	// state는 Status.Topology에 표면화되지만 실 SQL은 호출되지 않는다.
+	// Pillar P11-M1에서 LibPQExecutor가 cmd/main.go에서 주입된다.
+	CitusExec citus.SQLExecutor
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -345,11 +352,61 @@ func (r *PostgresClusterReconciler) refreshStatus(ctx context.Context, cluster *
 		allReady = false
 	}
 
-	// MetadataInSync는 P11-T2에서 활성화. 현재는 NotApplicable.
-	setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionUnknown, ReasonNotApplicable,
-		"Citus metadata sync not yet implemented (Pillar P11)")
+	// P11-T1 spike — DesiredNodes 계산 결과를 Workers[].DistNode로 표면화.
+	// 실 SQL 적용은 NullExecutor(M0 기본) 또는 LibPQExecutor(M1)에 위임.
+	// 현재 reconcile에서는 SQL 호출까지 가지만 NullExecutor가 no-op이므로 안전.
+	desiredNodes := citus.DesiredNodes(cluster)
+	for _, node := range desiredNodes {
+		if node.Role != "worker" {
+			continue
+		}
+		// 같은 pool의 첫 번째 멤버(Index=0) 정보만 Status에 노출 — 추가 멤버는
+		// 같은 group에 속하므로 P2 election 후 primary 추적으로 갱신된다.
+		if node.Index != 0 {
+			continue
+		}
+		for i := range workerStatuses {
+			if workerStatuses[i].Name == node.Pool {
+				workerStatuses[i].DistNode = &postgresv1alpha1.DistNodeRef{
+					GroupID:          node.Group,
+					NodeName:         node.Name,
+					NodePort:         node.Port,
+					ShouldHaveShards: node.ShouldHaveShards,
+				}
+				break
+			}
+		}
+	}
 
-	// Topology — 현재는 readyReplicas만 채움(Primary/lease는 P2).
+	// SQL Apply — NullExecutor(spike 기본) 또는 LibPQExecutor(M1).
+	// Apply 호출은 모든 자원 ready일 때만 의미가 있으나, NullExecutor는 항상
+	// 안전하므로 조건 분기 없이 호출한다.
+	exec := r.CitusExec
+	if exec == nil {
+		exec = citus.NullExecutor{}
+	}
+	// 현재 pg_dist_node 조회는 P11-M1(LibPQExecutor)에서 추가됨. M0 spike에서는
+	// 빈 슬라이스를 current로 가정 → 모든 desired가 add로 계산됨.
+	actions := citus.ComputeActions(nil, desiredNodes)
+	if err := exec.Apply(ctx, actions); err != nil {
+		setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionFalse, ReasonProgressing,
+			fmt.Sprintf("Citus SQL apply failed: %v", err))
+	} else {
+		// NullExecutor 또는 성공한 LibPQExecutor 모두 여기.
+		// NullExecutor 사용 중인지 사용자에게 분명한 신호:
+		if _, isNull := exec.(citus.NullExecutor); isNull {
+			setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionUnknown, ReasonNotApplicable,
+				"Pillar P11-M0 spike: desired Citus topology surfaced in Status; SQL execution requires LibPQExecutor (P11-M1)")
+		} else if allReady {
+			setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionTrue, ReasonAvailable,
+				fmt.Sprintf("%d Citus actions applied successfully", len(actions)))
+		} else {
+			setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionFalse, ReasonProgressing,
+				"Subresources not yet ready; metadata sync deferred")
+		}
+	}
+
+	// Topology — DistNode는 위에서 채움. Primary/lease는 P2에서 보강.
 	cluster.Status.Topology = postgresv1alpha1.TopologyStatus{
 		Coordinator: postgresv1alpha1.NodeStatus{},
 		Workers:     workerStatuses,
