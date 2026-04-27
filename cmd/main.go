@@ -39,6 +39,12 @@ import (
 	"github.com/keiailab/postgres-operator/internal/controller"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 	pluginextcitus "github.com/keiailab/postgres-operator/internal/plugin/extension/citus"
+	pluginextpgaudit "github.com/keiailab/postgres-operator/internal/plugin/extension/pgaudit"
+	pluginextpgcron "github.com/keiailab/postgres-operator/internal/plugin/extension/pgcron"
+	pluginextpgnodemx "github.com/keiailab/postgres-operator/internal/plugin/extension/pgnodemx"
+	pluginextpgvector "github.com/keiailab/postgres-operator/internal/plugin/extension/pgvector"
+	pluginextpostgis "github.com/keiailab/postgres-operator/internal/plugin/extension/postgis"
+	pluginextsetuser "github.com/keiailab/postgres-operator/internal/plugin/extension/setuser"
 	webhookv1alpha1 "github.com/keiailab/postgres-operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -185,9 +191,18 @@ func main() {
 	// 참조하며, 구체 플러그인 패키지는 본 함수에서만 명시적으로 등록된다.
 	// 외부 컨트리뷰터의 새 플러그인 추가 = 인터페이스 구현 + 본 위치에 한 줄 추가.
 	plugins := plugin.NewRegistry()
-	pluginextcitus.Register(plugins)
-	// 향후 P4(BackupPlugin), P6(ExporterPlugin), P7(AuthPlugin), P10(나머지
-	// ExtensionPlugin), P12(RouterPlugin) 등록 위치.
+	// ADR 0005 권장 SharedPreloadOrder 표 + RFC 0011(P10-T2) 화이트리스트.
+	// 추가 ExtensionPlugin 등록은 본 위치에서만, internal/plugin/extension/<name>/
+	// 패키지의 Register() 함수만 호출 (구체 import는 depguard로 차단됨).
+	pluginextcitus.Register(plugins)    // order=0 — must be first (PGO Issue #3194)
+	pluginextpgaudit.Register(plugins)  // order=100
+	pluginextpgvector.Register(plugins) // order=100 (AI 차별화)
+	pluginextpgcron.Register(plugins)   // order=200
+	pluginextpgnodemx.Register(plugins) // order=300 (pgMonitor 의존)
+	pluginextpostgis.Register(plugins)  // order=300
+	pluginextsetuser.Register(plugins)  // order=300 (PgUser 권한 모델)
+	// 향후 P4(BackupPlugin), P6(ExporterPlugin), P7(AuthPlugin), P12(RouterPlugin)
+	// 등록 위치.
 
 	// Feature gates는 현재 placeholder. P10-T4(extension version pinning)에서
 	// CLI 플래그로 노출된다. PG18 활성화 시 "PostgresEighteen": true 추가.

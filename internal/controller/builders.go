@@ -16,7 +16,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -50,16 +49,6 @@ const (
 	// pgConfigMountPath는 ConfigMap이 마운트되는 위치다.
 	pgConfigMountPath = "/etc/postgres-operator/conf"
 )
-
-// imageForVersion은 PostgresClusterSpec.Version 조합에 매칭되는 컨테이너 이미지
-// 태그를 internal/version/matrix.go에서 가져온다. 매트릭스에 없으면 빈 문자열.
-func imageForVersion(spec postgresv1alpha1.VersionSpec, gates map[string]bool) string {
-	combo, ok := lookupCombo(spec, gates)
-	if !ok {
-		return ""
-	}
-	return combo.Image
-}
 
 // renderSharedPreloadLibraries는 등록된 모든 ExtensionPlugin을 우선순위 순으로
 // 직렬화하여 shared_preload_libraries 값을 만든다.
@@ -277,24 +266,4 @@ func buildRouterDeployment(
 			},
 		},
 	}
-}
-
-// hasResources는 ResourceRequirements가 비어 있는지 검사한다(테스트 보조).
-//
-//nolint:unused // Will be used in P1-M1 status reconcile defaults.
-func hasResources(r corev1.ResourceRequirements) bool {
-	if r.Requests == nil && r.Limits == nil {
-		return false
-	}
-	return true
-}
-
-// quantityOrDefault는 nil 안전 헬퍼다.
-//
-//nolint:unused // Reserved for P1-M1 default sizing.
-func quantityOrDefault(q *resource.Quantity, def string) resource.Quantity {
-	if q == nil {
-		return resource.MustParse(def)
-	}
-	return *q
 }

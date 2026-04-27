@@ -5,6 +5,7 @@ linters:
   default: none
   enable:
     - copyloopvar
+    - depguard
     - dupl
     - errcheck
     - ginkgolinter
@@ -35,6 +36,30 @@ linters:
     modernize:
       disable:
         - omitzero
+    # P13-T2 — Plugin SDK 우회 차단 (ADR 0005 §강제 메커니즘).
+    # 핵심 reconciler/webhook은 internal/plugin (인터페이스 SOT)만 import 가능하며,
+    # 구체 플러그인 패키지(internal/plugin/<kind>/<impl>/)를 직접 import 하면
+    # PR이 자동 reject된다. 등록은 cmd/main.go 단일 위치에서만 수행한다.
+    depguard:
+      rules:
+        sdk-bypass-block:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/cmd/**"
+            - "!**/internal/plugin/**"
+          deny:
+            - pkg: github.com/keiailab/postgres-operator/internal/plugin/extension
+              desc: "Concrete ExtensionPlugin implementations must not be imported by core reconcilers (ADR 0005). Register in cmd/main.go and access via *plugin.Registry."
+            - pkg: github.com/keiailab/postgres-operator/internal/plugin/backup
+              desc: "Concrete BackupPlugin implementations must not be imported by core reconcilers (ADR 0005)."
+            - pkg: github.com/keiailab/postgres-operator/internal/plugin/router
+              desc: "Concrete RouterPlugin implementations must not be imported by core reconcilers (ADR 0005)."
+            - pkg: github.com/keiailab/postgres-operator/internal/plugin/auth
+              desc: "Concrete AuthPlugin implementations must not be imported by core reconcilers (ADR 0005)."
+            - pkg: github.com/keiailab/postgres-operator/internal/plugin/exporter
+              desc: "Concrete ExporterPlugin implementations must not be imported by core reconcilers (ADR 0005)."
   exclusions:
     generated: lax
     rules:
