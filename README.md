@@ -1,35 +1,37 @@
 # keiailab/postgres-operator
 
-> **Citus 분산 PostgreSQL을 K8s native로 만드는 오퍼레이터 — 핵심 차별화는 Stateless QueryRouter 계층**
+> **PGO 수준의 단일 PG HA 운영 품질 + Citus 분산 토폴로지 1급 + 플러그인 SDK 기반 확장성을 한 번에 제공하는 Apache-2.0 Go 오퍼레이터**
 
-Apache 2.0 라이선스의 오픈소스 프로젝트. PostgreSQL + Citus extension 기반 분산 클러스터를 단일 `PostgresCluster` CR로 선언적으로 운영합니다. Citus 표준 토폴로지(coordinator + workers)에 **stateless QueryRouter 계층** 하나를 추가해 라우팅을 무상태로 수평확장 가능하게 만든 것이 본 프로젝트의 본질적 기여입니다.
+상용 제품 수준의 오픈소스 PostgreSQL 쿠버네티스 오퍼레이터를 목표로 합니다. 단일 PG HA 운영(HA, 백업/PITR, 풀러, 모니터링, 보안, 업그레이드)은 Crunchy PGO 수준 품질을 자체 코드로 제공하며, 그 위에 **Citus 분산 토폴로지 1급 지원**과 **플러그인 SDK 기반 확장성**을 차별화로 둡니다.
 
-상태: **alpha (개발 중, Phase 0)**. PR/Issue 환영합니다.
+상태: **alpha (개발 중, Phase 0)**. 외부 PR/Issue/Pillar 오너 컨트리뷰터 환영.
+
+> **단일 PG HA만 필요한 경우** Crunchy PGO 또는 CloudNativePG 사용을 권장합니다. **Citus 분산 PG가 1급으로 필요하거나, 백업·exporter·extension·라우터를 플러그인으로 확장하고 싶은 팀**이 본 프로젝트의 청중입니다.
 
 ---
 
-## 정직한 포지셔닝
+## 미션 — 3축
 
-본 프로젝트는 두 가지 일을 한다:
+본 프로젝트는 다음 세 가지 일을 한다 ([ADR 0001 v2](docs/adr/0001-stateless-query-router-on-citus.md), [ADR 0004](docs/adr/0004-build-not-fork-or-layer.md) 참조):
 
-1. **Citus를 K8s에서 1급 시민으로 운영** — `PostgresCluster` CR, 메타데이터 자동 sync, 선언적 분산 테이블, PITR 정합성, shard rebalance 등 전부 declarative.
-2. **Stateless QueryRouter 계층 추가** — Citus 표준엔 없는, HPA로 수평확장 가능한 무상태 라우터 풀. 본 프로젝트의 진짜 새로움.
-
-> 초기 설계에서 "MongoDB sharded cluster on Citus"라는 토폴로지 모델을 차용했으나, 자체 비판적 검토 결과 (a) "shard"라는 단어의 의미 충돌, (b) Config Server Set / Shard Set은 사실상 Citus 표준의 재명명에 불과한 점이 드러나 폐기했습니다. 자세한 사유는 [ADR 0001](docs/adr/0001-stateless-query-router-on-citus.md) 참조.
+1. **PGO-class 풀스택 (기본 품질)** — HA, pgBackRest 백업/PITR, PgBouncer 풀러, pgMonitor 호환 관측, TLS/mTLS, in-place + blue/green 업그레이드, 멀티 K8s standby. **모두 자체 코드** (Pillar P1~P10, P14).
+2. **Citus 1급 (차별화 1)** — `coordinator + workers[]` 단일 CR, `pg_dist_node` 자동 sync, 선언적 `DistributedTable`/`ReferenceTable`/`RebalanceJob`/`ShardPlacementPolicy`, **분산 PITR 2PC 조정자**, **Stateless QueryRouter** 계층 (Pillar P11~P12).
+3. **Plugin SDK (차별화 2, 메타)** — `BackupPlugin`/`ExporterPlugin`/`ExtensionPlugin`/`RouterPlugin`/`AuthPlugin` 5종 Go 인터페이스. 새 백업 도구 추가 = 인터페이스 구현 1주. in-process + gRPC over UDS 두 모델 (Pillar P13).
 
 ---
 
 ## 왜 또 다른 PostgreSQL Operator인가
 
-| 비교 대상 | Citus 통합 | Stateless 라우터 분리 | 라이선스/스택 |
-|---|---|---|---|
-| CloudNativePG | 플러그인(여러 Cluster CR 묶음) | ✗ | Apache 2.0 / Go |
-| Zalando postgres-operator | `citus.{group, cluster}` 필드 | ✗ | MIT / Go |
-| Crunchy PGO / Percona | ✗ | ✗ | Apache 2.0 / Go |
-| StackGres `SGShardedCluster` | 1급 표현 | ✗ | **AGPL-3.0** / Java |
-| **keiailab/postgres-operator** | **1급 표현** | **○** | **Apache 2.0 / Go** |
+| 비교 대상 | 단일 PG HA | Citus 1급 | Stateless 라우터 | Plugin SDK | 라이선스/스택 |
+|---|---|---|---|---|---|
+| **Crunchy PGO** | ✅ Patroni, pgBackRest, pgMonitor — **단일 PG HA의 사실상 표준** | ✗ (README에 Citus 언급 0) | ✗ | ✗ | Apache 2.0 / Go |
+| CloudNativePG | ✅ K8s API as DCS | 플러그인(여러 Cluster CR 묶음) | ✗ | 부분(외부 plugin) | Apache 2.0 / Go |
+| Zalando postgres-operator | ✅ Patroni | `citus.{group, cluster}` 필드 | ✗ | ✗ | MIT / Go |
+| Percona | ✅ | ✗ | ✗ | ✗ | Apache 2.0 / Go |
+| StackGres `SGShardedCluster` | ✅ | 1급 표현 | ✗ | ✗ | **AGPL-3.0** / Java |
+| **keiailab/postgres-operator** | **✅ PGO-class 자체 구현** | **✅ 1급 표현** | **✅** | **✅ 5종 인터페이스** | **Apache 2.0 / Go** |
 
-차별화의 무게중심은 **Stateless QueryRouter** 한 곳입니다. 그 외 declarative 분산 테이블, PITR 정합성, 자동 메타데이터 sync 등은 Citus를 K8s native로 만들기 위한 필수 기능이지 차별화 자체는 아닙니다.
+본 프로젝트의 차별화 무게중심은 **Citus 1급 + Plugin SDK** 두 곳입니다. 단일 PG HA는 PGO 수준 품질을 약속하는 "기본 품질"이지 차별화 자체는 아닙니다. 자세한 결정 근거는 [ADR 0004](docs/adr/0004-build-not-fork-or-layer.md) 참조 (PGO fork·soft layer 옵션을 모두 거부한 사유 기록).
 
 ---
 
