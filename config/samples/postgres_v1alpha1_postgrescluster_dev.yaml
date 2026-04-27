@@ -1,0 +1,38 @@
+# keiailab/postgres-operator — quickstart 샘플 (dev 모드)
+#
+# RFC 0001 부록 A의 동결된 발췌이며, 변경 시 RFC 갱신 필요. 본 파일이 코드와
+# 분리되어 표류하지 않도록 e2e 테스트(Pillar P1-M1)가 본 파일을 직접 적용한다.
+#
+# 적용:
+#   kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
+#
+# 기대 결과:
+#   - PostgresCluster CR이 생성됨
+#   - reconciler가 coordinator/worker/router StatefulSet+Deployment+Service+ConfigMap 생성
+#   - status.channel = "stable" (PG17+Citus13.0은 internal/version/matrix.go의 Stable Tier 1)
+#   - 모든 하위 자원 ready 시 status.conditions[type=Ready].status = "True"
+#
+# dev 모드 의미: webhook이 members=1을 허용 (production은 ≥3 강제, ADR 0003)
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresCluster
+metadata:
+  name: quickstart
+  namespace: default
+spec:
+  deployment: development
+  version:
+    postgres: "17"
+    citus: "13.0"
+  coordinator:
+    members: 1
+    storage:
+      size: 10Gi
+  workers:
+  - name: pool-a
+    members: 1
+    storage:
+      size: 20Gi
+  routers:
+    replicas: 1
+  extensions:
+  - name: citus

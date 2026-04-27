@@ -28,9 +28,9 @@ func (d *dummyBackup) Validate(_ *BackupSpec) error                             
 
 type dummyExporter struct{ name string }
 
-func (d *dummyExporter) Name() string                  { return d.name }
-func (d *dummyExporter) SidecarSpec() corev1.Container { return corev1.Container{Name: d.name} }
-func (d *dummyExporter) DashboardJSON() ([]byte, error) { return nil, nil }
+func (d *dummyExporter) Name() string                    { return d.name }
+func (d *dummyExporter) SidecarSpec() corev1.Container   { return corev1.Container{Name: d.name} }
+func (d *dummyExporter) DashboardJSON() ([]byte, error)  { return nil, nil }
 func (d *dummyExporter) AlertRulesYAML() ([]byte, error) { return nil, nil }
 
 type dummyExtension struct {
@@ -38,11 +38,11 @@ type dummyExtension struct {
 	order int
 }
 
-func (d *dummyExtension) Name() string                                      { return d.name }
-func (d *dummyExtension) SharedPreloadOrder() int                           { return d.order }
-func (d *dummyExtension) PreInstall(_ context.Context, _ *sql.DB) error     { return nil }
-func (d *dummyExtension) PostInstall(_ context.Context, _ *sql.DB) error    { return nil }
-func (d *dummyExtension) Validate(_ string) error                           { return nil }
+func (d *dummyExtension) Name() string                                   { return d.name }
+func (d *dummyExtension) SharedPreloadOrder() int                        { return d.order }
+func (d *dummyExtension) PreInstall(_ context.Context, _ *sql.DB) error  { return nil }
+func (d *dummyExtension) PostInstall(_ context.Context, _ *sql.DB) error { return nil }
+func (d *dummyExtension) Validate(_ string) error                        { return nil }
 
 type dummyRouter struct{ name string }
 
@@ -54,9 +54,9 @@ func (d *dummyRouter) HealthProbe(_ context.Context, _, _ string) error { return
 
 type dummyAuth struct{ name string }
 
-func (d *dummyAuth) Name() string                                  { return d.name }
+func (d *dummyAuth) Name() string                                       { return d.name }
 func (d *dummyAuth) Configure(_ context.Context, _ ClusterTarget) error { return nil }
-func (d *dummyAuth) SecretSchemaJSON() ([]byte, error)             { return nil, nil }
+func (d *dummyAuth) SecretSchemaJSON() ([]byte, error)                  { return nil, nil }
 
 // ----------------------------------------------------------------------------
 // 인터페이스 만족 컴파일 가드 (interface satisfaction guards)

@@ -1,0 +1,8 @@
+# config/samples kustomization은 e2e 테스트가 단일 entrypoint로 샘플 CR을 적용할 때
+# 사용한다. dev 샘플만 디폴트로 활성, production 샘플은 주석 처리(StorageClass 의존
+# 때문에 클러스터별 활성 결정).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- postgres_v1alpha1_postgrescluster_dev.yaml
+# - postgres_v1alpha1_postgrescluster_prod.yaml  # production: storageClassName "fast-ssd" 필요

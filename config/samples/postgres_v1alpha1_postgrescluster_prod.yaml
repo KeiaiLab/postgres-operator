@@ -1,0 +1,50 @@
+# keiailab/postgres-operator — production 샘플 (RFC 0001 부록 B)
+#
+# 적용 전 다음을 확인:
+#   - StorageClass "fast-ssd"가 클러스터에 존재 (없으면 storageClassName 제거 또는 변경)
+#   - 노드 리소스가 요청 충족 가능
+#
+# 본 샘플은 webhook 검증이 강화된 production 모드를 시연한다:
+#   - coordinator.members ≥3 강제
+#   - workers[].members ≥3 강제
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresCluster
+metadata:
+  name: prod-cluster
+  namespace: pg-system
+spec:
+  deployment: production
+  version:
+    postgres: "17"
+    citus: "13.0"
+  coordinator:
+    members: 3
+    storage:
+      size: 100Gi
+      storageClassName: fast-ssd
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+  workers:
+  - name: pool-a
+    members: 3
+    storage:
+      size: 500Gi
+      storageClassName: fast-ssd
+    resources:
+      requests:
+        cpu: "4"
+        memory: 16Gi
+  - name: pool-b
+    members: 3
+    storage:
+      size: 500Gi
+      storageClassName: fast-ssd
+  routers:
+    replicas: 3
+    pgbouncer:
+      poolMode: transaction
+      maxClientConn: 1000
+  extensions:
+  - name: citus
