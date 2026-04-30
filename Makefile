@@ -108,6 +108,11 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: audit
+audit: ## Run vulnerability scan (trivy fs, HIGH+CRITICAL severity, ignore-unfixed). RFC 0002 / ADR 0009.
+	@command -v trivy >/dev/null 2>&1 || { echo "[error] trivy not installed: brew install trivy (or apt install trivy)"; exit 1; }
+	trivy fs --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --skip-dirs vendor,bin,tmp .
+
 ##@ Build
 
 .PHONY: build

@@ -1,0 +1,63 @@
+# Local 4-tier gate (RFC 0002 — GH Actions 영구 금지). ADR 0009 참조.
+#
+# 도입:
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
+#
+# 우회:
+#   `--no-verify`는 사고 보고 의무 (incident-kb.md). 남용 금지.
+#
+# 매핑:
+#   L1 pre-commit  — lint (빠른 피드백)
+#   L2 pre-push    — test (unit + envtest), audit (trivy fs), secrets (gitleaks),
+#                    go.mod drift check
+#   L3 Makefile    — e2e (kind), matrix-build (docker buildx) — 수동 실행
+#   L4 PR review   — PR body의 "로컬 게이트 PASS" 증거 블록 확인
+
+repos:
+  - repo: local
+    hooks:
+      # ================================================================
+      # L1 pre-commit — fast feedback (< 30s 목표)
+      # ================================================================
+      - id: golangci-lint
+        name: golangci-lint (with .custom-gcl)
+        language: system
+        entry: bash -c 'make lint-config && make lint'
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # ================================================================
+      # L2 pre-push — comprehensive verification (1-3 min 목표)
+      # ================================================================
+      - id: go-mod-tidy-drift
+        name: go.mod / go.sum drift check
+        language: system
+        entry: bash -c 'go mod tidy && git diff --exit-code go.mod go.sum'
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: go-test
+        name: Unit + envtest (make test)
+        language: system
+        entry: make test
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: trivy-fs-audit
+        name: Trivy fs (HIGH+CRITICAL — make audit)
+        language: system
+        entry: make audit
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: gitleaks
+        name: gitleaks (staged secrets scan)
+        language: system
+        entry: bash -c 'command -v gitleaks >/dev/null 2>&1 && gitleaks protect --staged --redact || { echo "[warn] gitleaks 미설치 — brew install gitleaks 권장"; exit 0; }'
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

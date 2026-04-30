@@ -113,6 +113,47 @@ psql "host=localhost port=5432 dbname=app user=app sslmode=require"
 
 ---
 
+## Development (로컬 게이트)
+
+본 프로젝트는 [ADR 0009](docs/adr/0009-no-github-actions-rfc-0002.md)에 따라 **GitHub Actions를 사용하지 않습니다** (글로벌 RFC 0002, 2026-04-29 사고 트리거). 모든 게이트(lint·test·audit·secrets)는 *로컬 4 계층*으로 일원화됐습니다.
+
+### 1회 셋업
+
+```bash
+# 보안 도구 설치 (macOS)
+brew install gitleaks trivy
+# Linux는 apt/공식 binary 참조: https://aquasecurity.github.io/trivy/
+
+# pre-commit hook 활성화 (1회 실행)
+pip install pre-commit  # 또는 brew install pre-commit
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+### 4 계층 게이트
+
+| 계층 | 시점 | 명령 | 차단 기준 |
+|---|---|---|---|
+| **L1 pre-commit** | `git commit` | `make lint` | lint error 1건 이상 |
+| **L2 pre-push** | `git push` | `make test`, `make audit`, gitleaks, go.mod drift | error 1건 이상 |
+| **L3 Makefile** | 개발자 수시 | `make test-e2e` (kind 7-9분), `make build` | 로컬 명시 검증 |
+| **L4 PR review** | merge 전 | PR body의 "로컬 게이트 PASS" 증거 블록 | 증거 부재 시 머지 차단 |
+
+### PR 머지 증거 블록 (필수)
+
+PR 본문 또는 첫 commit 메시지에 다음 형식 포함 (`standards/ci.md §2`):
+
+```
+로컬 게이트 PASS:
+- pre-commit run --all-files: PASS
+- pre-push hooks: PASS
+- make test: PASS
+- make audit: PASS  (HIGH+CRITICAL = 0)
+```
+
+부재 시 리뷰어가 머지를 차단합니다. 우회(`--no-verify`)는 사고 보고 의무 (`incident-kb.md`).
+
+---
+
 ## 기여하기
 
 - 행동강령: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1)
