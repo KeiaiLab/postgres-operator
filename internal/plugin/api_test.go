@@ -115,6 +115,33 @@ func TestRegistry_DuplicatePanics(t *testing.T) {
 	r.RegisterBackup(&dummyBackup{name: "dup"})
 }
 
+// TestBackupOptions_ExecutionModeField는 P1-6 추가의 컴파일 가드다.
+// ADR 0005 §변경 정책에 따라 추가 필드만 허용되며, 본 테스트는 ExecutionMode
+// 가 BackupOptions struct에 정의되고 string 타입으로 사용 가능함을 회귀 차단한다.
+//
+// 향후 누군가 ExecutionMode를 제거하거나 타입을 바꾸면 본 테스트가 즉시 fail.
+func TestBackupOptions_ExecutionModeField(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		mode string
+	}{
+		{"sidecar", "sidecar"},
+		{"job", "job"},
+		{"empty (plugin default)", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			o := BackupOptions{ExecutionMode: tc.mode}
+			if o.ExecutionMode != tc.mode {
+				t.Errorf("ExecutionMode: want %q, got %q", tc.mode, o.ExecutionMode)
+			}
+		})
+	}
+}
+
 // TestExtensions_PreloadOrder는 Crunchy PGO Issue #3194 회귀 방지 테스트다.
 // "Citus는 shared_preload_libraries의 첫 번째여야 한다"는 규약을 본 SDK가
 // SharedPreloadOrder()=0 정책으로 강제하는지 검증한다.
