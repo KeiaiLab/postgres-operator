@@ -1,0 +1,24 @@
+# 본 NetworkPolicy는 본 operator가 생성한 모든 데이터플레인 Pod
+# (coordinator, worker, router)에 default-deny를 적용한다.
+#
+# Bitnami `templates/networkpolicy.yaml` 패턴 차용 + ADR(post-RFC 0006 §NetworkPolicy).
+# 다른 NetworkPolicy(allow-cluster-internal, allow-router-ingress)와 함께 적용되어
+# *명시적으로 허용된 트래픽만* 통과하도록 강제한다.
+#
+# selector: SelectorLabels의 `app.kubernetes.io/managed-by=keiailab-postgres-operator`.
+# operator manager Pod은 control-plane=controller-manager 라벨이라 본 정책 영향 없음
+# (별도 allow-metrics-traffic.yaml로 보호).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-operator-dataplane-default-deny
+  labels:
+    app.kubernetes.io/managed-by: keiailab-postgres-operator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: keiailab-postgres-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  # ingress/egress 비어있음 → default-deny 효과 (allow 정책이 별도 추가)
