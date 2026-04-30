@@ -1,0 +1,28 @@
+# 본 NetworkPolicy는 *router Pod*에 한해 외부 namespace로부터의 5432 ingress를
+# 허용한다. 즉 응용 namespace의 client → router 5432가 가능.
+#
+# 다른 데이터플레인 Pod(coordinator, worker)은 외부 ingress가 *차단된 상태*로
+# 유지되며, *router를 거쳐서만* 접근 가능 → 라우팅 계층의 격리 보장.
+#
+# selector: component=router (SelectorLabels에 의해 router Pod 전용).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-operator-dataplane-allow-router-ingress
+  labels:
+    app.kubernetes.io/managed-by: keiailab-postgres-operator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: keiailab-postgres-operator
+      app.kubernetes.io/component: router
+  policyTypes:
+    - Ingress
+  ingress:
+    # 모든 namespace의 client Pod에서 router 5432 ingress 허용 (Service 통한 접근).
+    # 추가 격리(예: 특정 app namespace만)는 운영자가 본 manifest 사본 후 namespaceSelector 좁힘으로 적용.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 5432
+          protocol: TCP

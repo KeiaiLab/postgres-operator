@@ -1,0 +1,55 @@
+# 본 NetworkPolicy는 데이터플레인 Pod 간 *내부* 5432 통신을 허용한다.
+#
+# 허용 트래픽:
+#   - coordinator ↔ workers (5432) — Citus 분산 쿼리 + metadata sync
+#   - workers ↔ workers (5432) — pool 내 streaming replication
+#   - router → coordinator/workers (5432) — 클라이언트 쿼리 라우팅
+#   - egress: kube-dns (53/UDP) — Service 이름 해석
+#
+# selector는 `managed-by=keiailab-postgres-operator` 단일 라벨 — 본 namespace
+# 안의 모든 keiailab Pod이 서로 5432 통신 가능. *cluster instance별 격리*는
+# 후속 PR(reconciler 동적 NetworkPolicy 생성)에서 처리.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-operator-dataplane-allow-internal
+  labels:
+    app.kubernetes.io/managed-by: keiailab-postgres-operator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: keiailab-postgres-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 같은 operator가 관리하는 Pod 간 5432 ingress 허용
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: keiailab-postgres-operator
+      ports:
+        - port: 5432
+          protocol: TCP
+  egress:
+    # 같은 operator가 관리하는 Pod 간 5432 egress 허용
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: keiailab-postgres-operator
+      ports:
+        - port: 5432
+          protocol: TCP
+    # kube-dns egress 허용 (Service 이름 해석)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

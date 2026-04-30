@@ -1,2 +1,6 @@
 resources:
 - allow-metrics-traffic.yaml
+# 데이터플레인 NetworkPolicy (P0-3, ADR 0006 §NetworkPolicy)
+- dataplane-default-deny.yaml
+- dataplane-allow-cluster-internal.yaml
+- dataplane-allow-router-ingress.yaml
