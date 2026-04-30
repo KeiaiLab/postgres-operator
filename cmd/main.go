@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/citus"
 	"github.com/keiailab/postgres-operator/internal/controller"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 	pluginextcitus "github.com/keiailab/postgres-operator/internal/plugin/extension/citus"
@@ -208,11 +210,38 @@ func main() {
 	// CLI 플래그로 노출된다. PG18 활성화 시 "PostgresEighteen": true 추가.
 	featureGates := map[string]bool{}
 
+	// P0-6 phase 2 — LibPQExecutor 환경 변수 기반 opt-in.
+	//
+	// CITUS_LIBPQ_DSN이 설정되어 있으면 LibPQExecutor를 reconciler에 주입.
+	// 미설정 시 reconciler가 NullExecutor를 자동 fallback (P11-M0 spike default,
+	// postgrescluster_controller.go:refreshStatus의 r.CitusExec == nil 분기).
+	//
+	// 본 phase 2a는 single-cluster 환경에 한정. 다중 cluster 지원(ctx-based
+	// DSN lookup)은 phase 2b에서. P7 Security/TLS 통합 후 admin Secret 자동
+	// 합성으로 환경 변수 의존 제거 예정.
+	//
+	// 사용 예 (Helm values 또는 Deployment.spec.containers[0].env):
+	//   - name: CITUS_LIBPQ_DSN
+	//     value: "host=<coord-svc-dns> port=5432 user=postgres dbname=postgres sslmode=require connect_timeout=5"
+	//   (실 production은 sslrootcert, password file, application_name 등 추가)
+	var citusExec citus.SQLExecutor // nil이면 reconciler가 NullExecutor 자동 사용
+	if dsn := os.Getenv("CITUS_LIBPQ_DSN"); dsn != "" {
+		setupLog.Info("CITUS_LIBPQ_DSN detected — LibPQExecutor enabled (single-cluster mode, P0-6 phase 2a)")
+		citusExec = &citus.LibPQExecutor{
+			DSNFunc: func(_ context.Context) (string, error) {
+				return dsn, nil
+			},
+		}
+	} else {
+		setupLog.Info("CITUS_LIBPQ_DSN not set — using NullExecutor (P11-M0 spike default; pg_dist_node SQL not applied)")
+	}
+
 	if err := (&controller.PostgresClusterReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
 		Plugins:      plugins,
 		FeatureGates: featureGates,
+		CitusExec:    citusExec,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "PostgresCluster")
 		os.Exit(1)
