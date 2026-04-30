@@ -103,13 +103,29 @@ var _ = Describe("Manager", Ordered, Label("p1"), func() {
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
 		if specReport.Failed() {
-			By("Fetching controller manager pod logs")
-			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
+			// 현재 컨테이너 + 이전 컨테이너 log를 모두 시도. CrashLoopBackOff
+			// 상태에서는 *current* container가 not running이라 `kubectl logs`가
+			// 빈 결과를 줌 — `--previous`로 직전 instance의 startup error를 확보.
+			By("Fetching controller manager pod logs (current)")
+			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace,
+				"--all-containers=true", "--tail=500")
 			controllerLogs, err := utils.Run(cmd)
-			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs)
+			if err == nil && controllerLogs != "" {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs (current):\n%s\n", controllerLogs)
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s", err)
+				_, _ = fmt.Fprintf(GinkgoWriter, "Current container logs unavailable: err=%v len=%d\n",
+					err, len(controllerLogs))
+			}
+
+			By("Fetching controller manager pod logs (previous instance)")
+			cmd = exec.Command("kubectl", "logs", controllerPodName, "-n", namespace,
+				"--previous", "--all-containers=true", "--tail=500")
+			prevLogs, perr := utils.Run(cmd)
+			if perr == nil && prevLogs != "" {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs (previous instance — CrashLoopBackOff startup):\n%s\n", prevLogs)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Previous container logs unavailable: err=%v len=%d\n",
+					perr, len(prevLogs))
 			}
 
 			By("Fetching Kubernetes events")
