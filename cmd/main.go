@@ -20,7 +20,9 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -55,6 +57,22 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+// hasAnyCitusLibPQEnv는 CITUS_LIBPQ_DSN 또는 CITUS_LIBPQ_DSN_<...> 환경 변수가
+// 하나라도 설정되어 있는지 검사한다. P0-6 phase 2b multi-cluster aware 활성화
+// 게이트.
+func hasAnyCitusLibPQEnv() bool {
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "CITUS_LIBPQ_DSN=") || strings.HasPrefix(kv, "CITUS_LIBPQ_DSN_") {
+			// "CITUS_LIBPQ_DSN=" 또는 "CITUS_LIBPQ_DSN_<...>="으로 시작하면 ok.
+			// 단 빈 값(예: "CITUS_LIBPQ_DSN=") 인 경우는 미설정으로 간주.
+			if eq := strings.IndexByte(kv, '='); eq >= 0 && eq < len(kv)-1 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -210,30 +228,43 @@ func main() {
 	// CLI 플래그로 노출된다. PG18 활성화 시 "PostgresEighteen": true 추가.
 	featureGates := map[string]bool{}
 
-	// P0-6 phase 2 — LibPQExecutor 환경 변수 기반 opt-in.
+	// P0-6 phase 2 — LibPQExecutor 환경 변수 기반 opt-in (multi-cluster aware).
 	//
-	// CITUS_LIBPQ_DSN이 설정되어 있으면 LibPQExecutor를 reconciler에 주입.
-	// 미설정 시 reconciler가 NullExecutor를 자동 fallback (P11-M0 spike default,
-	// postgrescluster_controller.go:refreshStatus의 r.CitusExec == nil 분기).
+	// 환경 변수 우선순위 (DSNFunc 호출 시):
+	//   1. CITUS_LIBPQ_DSN_<namespace>__<name>: cluster별 DSN (phase 2b 추가)
+	//   2. CITUS_LIBPQ_DSN: 모든 cluster fallback (phase 2a)
+	//   3. 둘 다 없으면 error → reconciler가 ConditionMetadataInSync False 표면화
 	//
-	// 본 phase 2a는 single-cluster 환경에 한정. 다중 cluster 지원(ctx-based
-	// DSN lookup)은 phase 2b에서. P7 Security/TLS 통합 후 admin Secret 자동
+	// 둘 다 없는 상태에서 LibPQExecutor가 활성화되면 매 reconcile마다 error.
+	// 따라서 *둘 중 하나라도 설정된 경우*만 LibPQExecutor 주입. 그렇지 않으면
+	// nil 주입 → NullExecutor fallback.
+	//
+	// 본 phase 2b는 *환경 변수 기반*. P7 Security/TLS 통합 후 admin Secret 자동
 	// 합성으로 환경 변수 의존 제거 예정.
 	//
 	// 사용 예 (Helm values 또는 Deployment.spec.containers[0].env):
-	//   - name: CITUS_LIBPQ_DSN
-	//     value: "host=<coord-svc-dns> port=5432 user=postgres dbname=postgres sslmode=require connect_timeout=5"
-	//   (실 production은 sslrootcert, password file, application_name 등 추가)
+	//   - name: CITUS_LIBPQ_DSN_default__my-cluster
+	//     value: "host=my-cluster-coordinator-0.svc.cluster.local port=5432 ..."
 	var citusExec citus.SQLExecutor // nil이면 reconciler가 NullExecutor 자동 사용
-	if dsn := os.Getenv("CITUS_LIBPQ_DSN"); dsn != "" {
-		setupLog.Info("CITUS_LIBPQ_DSN detected — LibPQExecutor enabled (single-cluster mode, P0-6 phase 2a)")
+	if hasAnyCitusLibPQEnv() {
+		setupLog.Info("LibPQExecutor enabled (P0-6 phase 2b — per-cluster DSN via CITUS_LIBPQ_DSN[_<ns>__<name>])")
 		citusExec = &citus.LibPQExecutor{
-			DSNFunc: func(_ context.Context) (string, error) {
-				return dsn, nil
+			DSNFunc: func(ctx context.Context) (string, error) {
+				// 1. cluster별 env (multi-cluster, phase 2b)
+				if cl, ok := citus.ClusterFromContext(ctx); ok {
+					if dsn := os.Getenv("CITUS_LIBPQ_DSN_" + cl.SafeKey()); dsn != "" {
+						return dsn, nil
+					}
+				}
+				// 2. global fallback (single-cluster, phase 2a)
+				if dsn := os.Getenv("CITUS_LIBPQ_DSN"); dsn != "" {
+					return dsn, nil
+				}
+				return "", fmt.Errorf("no CITUS_LIBPQ_DSN env var configured (cluster-specific or global)")
 			},
 		}
 	} else {
-		setupLog.Info("CITUS_LIBPQ_DSN not set — using NullExecutor (P11-M0 spike default; pg_dist_node SQL not applied)")
+		setupLog.Info("No CITUS_LIBPQ_DSN* set — using NullExecutor (P11-M0 spike default)")
 	}
 
 	if err := (&controller.PostgresClusterReconciler{

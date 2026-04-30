@@ -388,7 +388,10 @@ func (r *PostgresClusterReconciler) refreshStatus(ctx context.Context, cluster *
 	// 현재 pg_dist_node 조회는 P11-M1(LibPQExecutor)에서 추가됨. M0 spike에서는
 	// 빈 슬라이스를 current로 가정 → 모든 desired가 add로 계산됨.
 	actions := citus.ComputeActions(nil, desiredNodes)
-	if err := exec.Apply(ctx, actions); err != nil {
+	// P0-6 phase 2b — ctx에 ClusterID 주입. LibPQExecutor.DSNFunc가
+	// citus.ClusterFromContext로 추출하여 cluster별 DSN을 lookup 가능.
+	ctxWithCluster := citus.WithCluster(ctx, cluster.Namespace, cluster.Name)
+	if err := exec.Apply(ctxWithCluster, actions); err != nil {
 		setCondition(&cluster.Status.Conditions, ConditionMetadataInSync, metav1.ConditionFalse, ReasonProgressing,
 			fmt.Sprintf("Citus SQL apply failed: %v", err))
 	} else {
