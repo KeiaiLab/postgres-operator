@@ -27,6 +27,19 @@ import (
 //
 // Condition Reason은 본 파일의 상수 집합으로 통일한다. 새 reason 추가는 본
 // 파일에 추가하는 것이 단일 출처(SOT) 규약이다.
+//
+// Reason 카탈로그 (사용 영역):
+//   - 일반 lifecycle: Reconciling / Available / Progressing / NotApplicable
+//   - 입력 검증: VersionRejected / ResourcesCreated
+//   - HA / Failover (P2-T3 이후 사용):
+//       Promoting     — replica → primary 전환 중
+//       Demoting      — primary → replica 강등 중
+//       ElectionWon   — election lease holder 획득
+//       ElectionLost  — election lease holder 상실(다른 후보로 전환)
+//   - Citus topology (P11-M1 이후 사용):
+//       TopologyDrift — pg_dist_node ↔ desired 사이 drift 검출
+//   - Auth / 인증 (P7 이후 사용):
+//       Rotating      — Secret/credential 회전 진행 중
 
 const (
 	// Condition types
@@ -36,13 +49,25 @@ const (
 	ConditionRoutersReady     = "RoutersReady"
 	ConditionMetadataInSync   = "MetadataInSync"
 
-	// Reasons
+	// Reasons — 일반 lifecycle
 	ReasonReconciling      = "Reconciling"
 	ReasonResourcesCreated = "ResourcesCreated"
 	ReasonVersionRejected  = "VersionRejected"
 	ReasonAvailable        = "Available"
 	ReasonProgressing      = "Progressing"
 	ReasonNotApplicable    = "NotApplicable"
+
+	// Reasons — HA / Failover (P2-T3 이후 활성)
+	ReasonPromoting    = "Promoting"
+	ReasonDemoting     = "Demoting"
+	ReasonElectionWon  = "ElectionWon"
+	ReasonElectionLost = "ElectionLost"
+
+	// Reasons — Citus topology (P11-M1 이후 활성)
+	ReasonTopologyDrift = "TopologyDrift"
+
+	// Reasons — Auth / 인증 (P7 이후 활성)
+	ReasonRotating = "Rotating"
 )
 
 // setCondition은 지정된 type/status/reason/message로 Condition을 추가/갱신한다.
