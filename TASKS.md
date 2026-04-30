@@ -49,16 +49,16 @@
 > 19 권장사항을 P0(즉시) / P1(중기) / P2(장기) 우선순위로 분해.
 > *영향 Pillar* 컬럼은 기존 F01~F14에 매핑.
 
-### P0 (1-2 sprint, 즉시) — 6개
+### P0 (1-2 sprint, 즉시) — 6개 — **6/6 완료 (P0-6은 phase 1+2a, phase 3은 kind e2e 후속)**
 
-| ID | 권장 | 영향 Pillar | 단계 | 의존 | 비고 |
-|----|------|------------|------|------|------|
-| P0-1 | Status.Conditions reason 어휘 확장 (Promoting/Demoting/Election*/TopologyDrift/Rotating) | F04(P2), F03(P11), F09(P7) | **완료** | — | `internal/controller/status.go` 본 PR. P2-T3 신호 채널. |
-| P0-2 | 데이터플레인 PodSecurityContext defaults (runAsUser=70, readOnlyRootFs, seccomp RuntimeDefault) | F01(P1) | 설계 | — | ADR 0006. `builders.go:184-198, 243-256`. |
-| P0-3 | NetworkPolicy 데이터플레인 표준 템플릿 (coordinator↔workers, router→coordinator/workers) | F01(P1), F09(P7) | 설계 | P0-2 | RFC 0006 §NetworkPolicy. `config/network-policy/`. |
-| P0-4 | Cascade Delete 회귀 테스트 (Finalizer 회피 정책) | F01(P1) | 설계 | — | ADR 0008. `test/e2e/cascade_delete_test.go`. |
-| P0-5 | AuthPlugin.RotateSecret 인터페이스 추가 (additive, ADR 0005 §alpha rule) | F13(P13), F09(P7) | **완료** | — | `internal/plugin/api.go:205-` 본 PR. RFC 0006 §Auth Rotation Hook. |
-| P0-6 | LibPQExecutor 구현 (Citus 차별화 코드 차원 잠금, P2 → P0 승격) | F03(P11) | 설계 | P0-1 | RFC 0002 Draft → Implemented. `internal/citus/exec.go`. |
+| ID | 권장 | 영향 Pillar | 단계 | 의존 | 완료 commit |
+|----|------|------------|------|------|-------------|
+| P0-1 | Status.Conditions reason 어휘 확장 (Promoting/Demoting/Election*/TopologyDrift/Rotating) | F04(P2), F03(P11), F09(P7) | **완료** | — | `4ec8162` (PR #1) |
+| P0-2 | 데이터플레인 PodSecurityContext defaults (runAsUser=70, readOnlyRootFs, seccomp RuntimeDefault) | F01(P1) | **완료** | — | `ae3e4e6` (PR #3, ADR 0006) |
+| P0-3 | NetworkPolicy 데이터플레인 표준 템플릿 (coordinator↔workers, router→coordinator/workers) | F01(P1), F09(P7) | **완료** | P0-2 | `5bc0199` (PR #5, ADR 0006 §NetworkPolicy) |
+| P0-4 | Cascade Delete 회귀 테스트 (Finalizer 회피 정책) | F01(P1) | **완료** | — | `fa24a66` (PR #4, ADR 0008) |
+| P0-5 | AuthPlugin.RotateSecret 인터페이스 추가 (additive, ADR 0005 §alpha rule) | F13(P13), F09(P7) | **완료** | — | `4623277` (PR #1) |
+| P0-6 | LibPQExecutor 구현 (Citus 차별화 코드 차원 잠금, P2 → P0 승격) | F03(P11) | **phase 1+2a 완료** | P0-1 | `33fef9a` (PR #6 — SQL 매핑 + 7 단위 테스트), `7efbdaf` (PR #8 — env-based opt-in 주입). phase 2b(다중 cluster) + phase 3(kind e2e) → RFC 0002 Implemented 승격은 후속. |
 
 ### P1 (3-6 sprint, 중기) — 6개
 
