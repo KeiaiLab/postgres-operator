@@ -48,7 +48,79 @@ const (
 
 	// pgConfigMountPath는 ConfigMap이 마운트되는 위치다.
 	pgConfigMountPath = "/etc/postgres-operator/conf"
+
+	// postgresUserUID는 PostgreSQL 표준 postgres user의 UID/GID다.
+	// ADR 0006에 의해 동결된 데이터플레인 Pod의 runAsUser/runAsGroup/fsGroup 기본값.
+	postgresUserUID int64 = 70
 )
+
+// ptrBool/ptrInt64는 외부 의존 없이 inline pointer를 만드는 헬퍼다.
+// (K8s API의 *bool/*int64 필드용. k8s.io/utils/ptr import 회피로 SDK 의존 최소화.)
+func ptrBool(b bool) *bool    { return &b }
+func ptrInt64(i int64) *int64 { return &i }
+
+// dataplanePodSecurityContext는 데이터플레인 Pod(PG StatefulSet, Router Deployment)
+// 의 PodSecurityContext 기본값을 반환한다. ADR 0006 §결정에 의해 동결.
+//
+// 구성:
+//   - runAsNonRoot=true (root 거부)
+//   - runAsUser/Group/FSGroup=70 (PG postgres user)
+//   - seccompProfile=RuntimeDefault (커널 syscall 화이트리스트)
+//
+// 사용자 override는 향후 PostgresCluster.Spec.SecurityContext 필드 + webhook에서
+// 처리한다(ADR 0006 §트레이드오프). 현 시점은 *opt-out 강제* — 운영자가 잊으면
+// root 가능 상태로 떨어지지 않도록 default를 항상 강제한다.
+func dataplanePodSecurityContext() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot: ptrBool(true),
+		RunAsUser:    ptrInt64(postgresUserUID),
+		RunAsGroup:   ptrInt64(postgresUserUID),
+		FSGroup:      ptrInt64(postgresUserUID),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+}
+
+// dataplaneContainerSecurityContext는 데이터플레인 Container의 SecurityContext
+// 기본값을 반환한다. ADR 0006 §결정.
+//
+// 구성:
+//   - allowPrivilegeEscalation=false (suid/setuid 비활성)
+//   - readOnlyRootFilesystem=true (컨테이너 내 임의 바이너리 작성 차단 — 공급망 공격 완화)
+//   - capabilities.drop=[ALL] (모든 Linux capability 제거)
+//
+// readOnlyRootFilesystem 동반: PG가 /tmp, /run, /var/run/postgresql에 socket/lock
+// 작성하므로 emptyDir mount 3개 추가(dataplaneEphemeralVolumeMounts/Volumes).
+func dataplaneContainerSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptrBool(false),
+		ReadOnlyRootFilesystem:   ptrBool(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+}
+
+// dataplaneEphemeralVolumeMounts는 readOnlyRootFilesystem=true 동반에 필요한
+// 쓰기 가능 mount point들을 반환한다(/tmp, /run, /var/run/postgresql).
+func dataplaneEphemeralVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{Name: "ephemeral-tmp", MountPath: "/tmp"},
+		{Name: "ephemeral-run", MountPath: "/run"},
+		{Name: "ephemeral-pg-run", MountPath: "/var/run/postgresql"},
+	}
+}
+
+// dataplaneEphemeralVolumes는 dataplaneEphemeralVolumeMounts와 짝이 되는
+// emptyDir Volume 정의를 반환한다.
+func dataplaneEphemeralVolumes() []corev1.Volume {
+	return []corev1.Volume{
+		{Name: "ephemeral-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "ephemeral-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "ephemeral-pg-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+	}
+}
 
 // renderSharedPreloadLibraries는 등록된 모든 ExtensionPlugin을 우선순위 순으로
 // 직렬화하여 shared_preload_libraries 값을 만든다.
@@ -182,28 +254,30 @@ func buildPGStatefulSet(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					SecurityContext: dataplanePodSecurityContext(),
 					Containers: []corev1.Container{{
-						Name:      pgContainerName,
-						Image:     image,
-						Resources: resources,
+						Name:            pgContainerName,
+						Image:           image,
+						Resources:       resources,
+						SecurityContext: dataplaneContainerSecurityContext(),
 						Ports: []corev1.ContainerPort{{
 							Name:          "postgres",
 							ContainerPort: pgPort,
 							Protocol:      corev1.ProtocolTCP,
 						}},
-						VolumeMounts: []corev1.VolumeMount{
+						VolumeMounts: append([]corev1.VolumeMount{
 							{Name: "data", MountPath: pgDataMountPath},
 							{Name: "config", MountPath: pgConfigMountPath, ReadOnly: true},
-						},
+						}, dataplaneEphemeralVolumeMounts()...),
 					}},
-					Volumes: []corev1.Volume{{
+					Volumes: append([]corev1.Volume{{
 						Name: "config",
 						VolumeSource: corev1.VolumeSource{
 							ConfigMap: &corev1.ConfigMapVolumeSource{
 								LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
 							},
 						},
-					}},
+					}}, dataplaneEphemeralVolumes()...),
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
@@ -241,27 +315,29 @@ func buildRouterDeployment(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					SecurityContext: dataplanePodSecurityContext(),
 					Containers: []corev1.Container{{
-						Name:      "router",
-						Image:     image,
-						Resources: resources,
+						Name:            "router",
+						Image:           image,
+						Resources:       resources,
+						SecurityContext: dataplaneContainerSecurityContext(),
 						Ports: []corev1.ContainerPort{{
 							Name:          "postgres",
 							ContainerPort: pgPort,
 							Protocol:      corev1.ProtocolTCP,
 						}},
-						VolumeMounts: []corev1.VolumeMount{
+						VolumeMounts: append([]corev1.VolumeMount{
 							{Name: "config", MountPath: pgConfigMountPath, ReadOnly: true},
-						},
+						}, dataplaneEphemeralVolumeMounts()...),
 					}},
-					Volumes: []corev1.Volume{{
+					Volumes: append([]corev1.Volume{{
 						Name: "config",
 						VolumeSource: corev1.VolumeSource{
 							ConfigMap: &corev1.ConfigMapVolumeSource{
 								LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
 							},
 						},
-					}},
+					}}, dataplaneEphemeralVolumes()...),
 				},
 			},
 		},
