@@ -1,0 +1,44 @@
+============================================================================
+keiailab/postgresql-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.AppVersion }}) installed!
+============================================================================
+
+📦 Operator Manager:
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "postgresql-operator.fullname" . }}-controller-manager
+
+📋 ServiceAccount + RBAC:
+  kubectl get sa,clusterrole,clusterrolebinding -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{ if .Values.installCRDs -}}
+🧬 CRDs (PostgresCluster):
+  kubectl get crd postgresclusters.postgres.keiailab.io
+{{- else -}}
+⚠️ CRDs are NOT installed by this chart (installCRDs=false). Apply manually:
+  kubectl apply -f https://github.com/keiailab/postgres-operator/releases/download/v{{ .Chart.AppVersion }}/install.yaml
+{{- end }}
+
+{{ if .Values.networkPolicies.enabled -}}
+🔒 NetworkPolicies (data plane default-deny + cluster-internal allow):
+  kubectl get networkpolicy -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- end }}
+
+{{ if eq .Values.replicas 1.0 -}}
+⚠️  replicas=1 — alpha default. For HA (P2-M1 leader election), set replicas=2+:
+  helm upgrade {{ .Release.Name }} keiailab/postgresql-operator --set replicas=3
+{{- end }}
+
+{{ if not .Values.citusLibPQ.dsn -}}
+ℹ️  CITUS_LIBPQ_DSN not set — using NullExecutor (P11-M0 spike default).
+   pg_dist_node SQL는 적용되지 않으며, desired state는 Status.Topology에만 표면화됨.
+   실 SQL apply를 활성화하려면 (P0-6 phase 2a):
+     helm upgrade {{ .Release.Name }} keiailab/postgresql-operator \
+       --set citusLibPQ.dsn="host=<coord-svc-dns> port=5432 user=postgres dbname=postgres sslmode=require"
+{{- else -}}
+✅ LibPQExecutor enabled (P0-6 phase 2a) — pg_dist_node 변경이 실 PG에 적용됨 (single-cluster mode).
+{{- end }}
+
+📚 다음 단계:
+  - PostgresCluster 샘플:  kubectl apply -f https://raw.githubusercontent.com/keiailab/postgres-operator/main/config/samples/postgres_v1alpha1_postgrescluster.yaml
+  - 문서 / ADR:            https://github.com/keiailab/postgres-operator/tree/main/docs
+  - 로드맵:                https://github.com/keiailab/postgres-operator/blob/main/docs/roadmap.md
+
+📦 Plan/Bug 리포트:    https://github.com/keiailab/postgres-operator/issues

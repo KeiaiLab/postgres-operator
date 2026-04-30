@@ -1,0 +1,45 @@
+{{- if .Values.rbac.create -}}
+# 본 ClusterRole은 cmd/main.go의 +kubebuilder:rbac 마커와 정합한다.
+# config/rbac/role.yaml의 결과를 chart에 통합. controller-gen 결과 변경 시
+# 본 파일도 동기화 필요 (Makefile chart-rbac-sync 타겟 — 후속).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "postgresql-operator.fullname" . }}-manager-role
+  labels:
+    {{- include "postgresql-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [postgres.keiailab.io]
+    resources: [postgresclusters]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [postgres.keiailab.io]
+    resources: [postgresclusters/status, postgresclusters/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, configmaps, secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "postgresql-operator.fullname" . }}-manager-rolebinding
+  labels:
+    {{- include "postgresql-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "postgresql-operator.fullname" . }}-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "postgresql-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

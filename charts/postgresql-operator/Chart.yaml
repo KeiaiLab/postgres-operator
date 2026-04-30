@@ -1,0 +1,44 @@
+# Chart metadata for keiailab/postgres-operator (P1-4, ADR 0007).
+# 본 chart는 operator deployment + RBAC + CRD + NetworkPolicy를 포함한다.
+# PostgresCluster CR 인스턴스는 별도 chart(charts/postgrescluster, 후속) 또는
+# kubectl apply -f examples/<sample>.yaml로 배포한다.
+apiVersion: v2
+name: postgresql-operator
+description: |
+  Apache-2.0 PostgreSQL Kubernetes operator with first-class Citus distributed
+  topology + 5-interface Plugin SDK + stateless QueryRouter. PGO-class single-PG
+  HA quality is delivered as built-in baseline; differentiation focuses on Citus
+  topology + plugin extensibility.
+type: application
+
+# Chart 자체 버전 — alpha 단계, breaking change 가능. SemVer 준수.
+version: 0.1.0-alpha
+
+# 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
+appVersion: "0.1.0-alpha"
+
+home: https://github.com/keiailab/postgres-operator
+sources:
+  - https://github.com/keiailab/postgres-operator
+keywords:
+  - postgresql
+  - postgres
+  - citus
+  - operator
+  - kubernetes
+  - keiailab
+  - distributed-sql
+  - stateless-router
+  - plugin-sdk
+maintainers:
+  - name: keiailab
+    url: https://github.com/keiailab
+icon: https://raw.githubusercontent.com/keiailab/postgres-operator/main/docs/assets/logo.png
+annotations:
+  # 본 chart의 alpha 신호. Helm hub/artifacthub에 alpha 라벨로 표시되도록.
+  artifacthub.io/maturity: alpha
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: database
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Basic Install
+  artifacthub.io/prerelease: "true"
