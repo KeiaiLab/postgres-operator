@@ -60,16 +60,16 @@
 | P0-5 | AuthPlugin.RotateSecret 인터페이스 추가 (additive, ADR 0005 §alpha rule) | F13(P13), F09(P7) | **완료** | — | `4623277` (PR #1) |
 | P0-6 | LibPQExecutor 구현 (Citus 차별화 코드 차원 잠금, P2 → P0 승격) | F03(P11) | **phase 1+2a 완료** | P0-1 | `33fef9a` (PR #6 — SQL 매핑 + 7 단위 테스트), `7efbdaf` (PR #8 — env-based opt-in 주입). phase 2b(다중 cluster) + phase 3(kind e2e) → RFC 0002 Implemented 승격은 후속. |
 
-### P1 (3-6 sprint, 중기) — 6개
+### P1 (3-6 sprint, 중기) — 6개 — **2/6 완료**
 
-| ID | 권장 | 영향 Pillar | 단계 | 의존 |
+| ID | 권장 | 영향 Pillar | 단계 | 완료 commit |
 |----|------|------------|------|------|
-| P1-1 | BackupJob CRD + reconciler (BackupPlugin 첫 호출자) | F06(P4) | 설계 | P0-2 |
-| P1-2 | PgBouncer 사이드카 + cmd/router 통합 | F07(P5), F12(P12) | 설계 | P0-2 |
-| P1-3 | Monitoring/Exporter 표준 통합 (ExporterPlugin 호출자) | F08(P6) | 설계 | P0-2 |
-| P1-4 | Helm chart 패키징 (P14 → P1 앞당김, ADR 0007) | **신규 P1 트랙** (F14에서 분리) | 설계 | — |
-| P1-5 | ClusterUpgrade CRD 시그니처 (in-place + blue/green) | F11(P9) | 설계 | P1-1 |
-| P1-6 | pgBackRest 실행 모델 (BackupOptions.ExecutionMode: sidecar\|job) | F06(P4), F13(P13) | 설계 | P1-1 |
+| P1-1 | BackupJob CRD + reconciler (BackupPlugin 첫 호출자) | F06(P4) | 설계 | (후속 PR) |
+| P1-2 | PgBouncer 사이드카 + cmd/router 통합 | F07(P5), F12(P12) | 설계 | (후속 PR) |
+| P1-3 | Monitoring/Exporter 표준 통합 (ExporterPlugin 호출자) | F08(P6) | 설계 | (후속 PR) |
+| P1-4 | Helm chart 패키징 (P14 → P1 앞당김, ADR 0007) | **신규 P1 트랙** (F14에서 분리) | **완료** (골격) | `613e6f4` (PR #11) — Chart + values + 7 templates |
+| P1-5 | ClusterUpgrade CRD 시그니처 (in-place + blue/green) | F11(P9) | 설계 | (후속 PR) |
+| P1-6 | pgBackRest 실행 모델 (BackupOptions.ExecutionMode: sidecar\|job) | F06(P4), F13(P13) | **완료** | `947653c` (PR #10) |
 
 ### P2 (6+ sprint, 장기 차별화) — 7개
 
