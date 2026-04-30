@@ -96,6 +96,29 @@ PG18 활성화: `--feature-gates=PostgresEighteen=true`. Citus 호환 발표는 
 
 ---
 
+## Quickstart (Helm — P1-4 alpha)
+
+```bash
+# 1. Helm chart 설치 (operator + RBAC + NetworkPolicy 보안 baseline 한 번에)
+helm install my-operator ./charts/postgresql-operator \
+  --namespace postgres-operator-system --create-namespace
+
+# 2. (선택) LibPQExecutor 활성화 — single-cluster (P0-6 phase 2a)
+helm upgrade my-operator ./charts/postgresql-operator \
+  --reuse-values \
+  --set citusLibPQ.dsn="host=<coord-svc-dns> port=5432 user=postgres dbname=postgres sslmode=require"
+
+# 3. 또는 multi-cluster (P0-6 phase 2b — cluster별 환경 변수)
+#    Deployment.spec.containers[0].env에 직접 추가:
+#    - name: CITUS_LIBPQ_DSN_<namespace>__<cluster-name>
+#      value: "host=..."
+
+# 4. Sample PostgresCluster 적용
+kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster.yaml
+```
+
+NOTES.txt가 install 직후 다음 단계를 안내합니다 (NullExecutor 사용 중 인지, HA replicas 권장 등).
+
 ## Quickstart (계획, Phase 1 완료 시 활성화)
 
 ```bash

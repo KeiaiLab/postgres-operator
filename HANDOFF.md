@@ -2,12 +2,12 @@
 
 > 다음 세션이 *대화 컨텍스트 없이* 재개 가능하도록 유지. 작업 시작 시 가장 먼저 읽고, 종료 시 갱신.
 
-## 현재 상태 (2026-04-30, P0 100% 완료 후)
+## 현재 상태 (2026-04-30, P0 100% + 차별화 1 phase 2 완성)
 
-- 마지막 커밋 (main): `33fef9a feat(citus): LibPQExecutor phase 1 (P0-6, RFC 0002 §6 production path 토대)`
-- 본 세션(2026-04-30) 누적: **6 PR 머지 + P0 권장 100% 완료 + 글로벌 §2 정합 달성**
+- 마지막 커밋 (main): `682dd12 feat(citus): 다중 cluster ctx-based DSN lookup (P0-6 phase 2b)`
+- 본 세션(2026-04-30) 누적: **12 PR 머지 + P0 100% + P1 33% + 차별화 1 phase 2 완성 + 글로벌 §2 정합**
 
-### 본 세션 머지된 PR 6개 (모두 admin merge, rebase, branch 자동 삭제)
+### 본 세션 머지된 PR 12개 (모두 admin merge, rebase, branch 자동 삭제)
 
 | # | merge commit | 영역 | 권장 ID |
 |---|--------------|------|---------|
@@ -17,6 +17,20 @@
 | 4 | `fa24a66` | Cascade delete envtest 회귀 차단 (ADR 0008) | P0-4 |
 | 5 | `5bc0199` | NetworkPolicy 3개 활성화 (ADR 0006 §NetworkPolicy) | P0-3 |
 | 6 | `33fef9a` | LibPQExecutor phase 1 (RFC 0002 §6 토대) | P0-6 phase 1 |
+| 7 | `cc285a4` | HANDOFF.md 갱신 (workflow.md §2 종료 의식) | docs |
+| 8 | `7efbdaf` | LibPQExecutor cmd/main.go 주입 (env-based) | P0-6 phase 2a |
+| 9 | `d28085e` | TASKS.md P0 완료 마킹 + 8 PR commit hash 매핑 | docs |
+| 10 | `947653c` | BackupOptions.ExecutionMode 필드 추가 | P1-6 |
+| 11 | `613e6f4` | Helm chart 골격 (Chart + values + 7 templates) | P1-4 |
+| 12 | `682dd12` | 다중 cluster ctx-based DSN lookup | P0-6 phase 2b |
+
+### 권장 완료율
+
+- **P0**: 6/6 (100%) — Status reason / SecurityContext / NetworkPolicy / Cascade test / AuthPlugin Rotate / LibPQExecutor (phase 1+2a+2b)
+- **P1**: 2/6 (33%) — P1-4 Helm chart 골격, P1-6 BackupOptions.ExecutionMode
+- **P2**: 0/7
+- **차별화 1 (Citus)**: phase 1+2 완성 — phase 3(kind e2e → RFC 0002 → Implemented)만 남음
+- **거버넌스**: ADR 0006/0007/0008/0009 (4 신설), HANDOFF/TASKS 동기화
 
 ## 도달 마일스톤
 
@@ -37,30 +51,41 @@
 
 ```bash
 cd /Users/phil/WorkSpace/public/postgresql-operator
-make lint && make test         # 회귀 0 확인 (internal/citus 74.0%, internal/controller 82.9%)
+make lint && make test         # 회귀 0 확인 (internal/citus 75.2%, internal/controller 82.5%)
 make audit                     # 0 vulnerabilities 확인
+helm lint charts/postgresql-operator/    # 0 failed (P1-4 검증)
 
-# 후보 1 (가치 큼): P0-6 phase 2 — cmd/main.go에서 LibPQExecutor 주입
-git checkout -b feat/p0-6-phase2-cmd-injection
-# DSNFunc 구현(election holder lookup + Secret 통합), reconciler.CitusExec에 주입.
-# 후속 phase 3에서 RFC 0002 → Implemented 승격.
-
-# 후보 2 (필요): e2e cert-manager 통합 (PR #1의 e2e fail 진짜 fix)
+# 후보 1 (가장 큰 다음 가치): e2e cert-manager 통합 — PR #1 e2e fail 진짜 fix
 git checkout -b feat/p7-cert-manager-integration
-# config/certmanager/ 신설 (Issuer + Certificate CR) + kustomization 갱신
-# + e2e_test.go BeforeAll에 webhook secret ready wait.
+# config/certmanager/ 신설 (Issuer + Certificate CR) + config/default/kustomization
+# 의 cert-manager replacements 활성화 + e2e_test.go BeforeAll webhook secret wait.
+# manager Pod의 webhook serving cert 발급 대기 → e2e PASS.
 
-# 후보 3 (사용자 채널): P1-4 Helm chart (ADR 0007 결정대로 P14에서 P1으로 앞당김)
-git checkout -b feat/p1-4-helm-chart-skeleton
-# charts/postgresql-operator/ 신설 (Chart.yaml, values.yaml, templates/...).
+# 후보 2: P0-6 phase 3 — kind e2e → RFC 0002 → Implemented 승격
+git checkout -b feat/p0-6-phase3-kind-e2e
+# kind 클러스터 + 실 PG container build + LibPQExecutor 실 SQL apply 시나리오.
+# pg_dist_node 자동 등재 검증 → RFC 0002 Draft → Implemented 승격.
+# 차별화 1 *완전 완료* — README 차별화 표 "Citus 1급" 코드 입증.
 
-# 후보 4 (Plugin SDK 호출자): P1-1 BackupJob CRD
+# 후보 3: P1-1 BackupJob CRD — Plugin SDK 첫 호출자
 git checkout -b feat/p1-1-backupjob-crd
 # api/v1alpha1/backupjob_types.go + internal/controller/backupjob_controller.go
-# + RFC 0004 작성.
+# + RFC 0004 작성. BackupOptions.ExecutionMode (P1-6) 첫 사용처.
+
+# 후보 4: P1-2 PgBouncer + cmd/router 통합
+git checkout -b feat/p1-2-pgbouncer-router
+
+# 후보 5: P1-3 Monitoring/Exporter 표준 통합
+git checkout -b feat/p1-3-monitoring-exporter
+
+# 후보 6: P1-5 ClusterUpgrade CRD
+git checkout -b feat/p1-5-clusterupgrade-crd
+
+# 후보 7+: P2 7개 (Citus rebalance, worker scale, Plugin SDK golden, gRPC,
+# declarative DB/Role, multi-region, Citus PGUpgrade) — sprint 단위
 ```
 
-권장 진입: **후보 1 (P0-6 phase 2)** — 차별화 1 코드 차원 잠금의 *완전성*이 다음 단계의 토대.
+권장 진입: **후보 1 (e2e cert-manager 통합)** — 본 세션 PR #1의 e2e fail의 *진짜 fix* + P7 Security 영역 진입.
 
 ## 차단점
 
