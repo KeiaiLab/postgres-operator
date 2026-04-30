@@ -98,6 +98,20 @@ type BackupOptions struct {
 	Repo string
 	// Labels는 백업 결과 메타데이터에 첨부될 K8s 스타일 레이블.
 	Labels map[string]string
+
+	// ExecutionMode는 plugin이 백업을 *어디서 실행*할지 결정한다.
+	// (P1-6, RFC 0004 §실행 모델, 2026-04-30 추가)
+	//
+	// 값:
+	//   - "sidecar": pgBackRest 같이 PG Pod에 동거하는 long-running tool에 명령
+	//                전달. operator는 sidecar 컨테이너의 lifecycle만 관리.
+	//   - "job":     WAL-G 같이 standalone process로 실행. operator가 K8s Job을
+	//                생성하여 plugin binary를 호출.
+	//   - "":        plugin default 사용 (각 plugin이 정의).
+	//
+	// 추가 모드는 ADR 0005 §변경 정책 "alpha 단계 추가만 허용"에 따라 *값*만
+	// 추가 가능 (시그니처 변경 없음). RFC 0004 §실행 모델 참조.
+	ExecutionMode string
 }
 
 // BackupResult는 단일 백업 호출의 결과다. PITR 색인 및 retention 정책의 입력.
