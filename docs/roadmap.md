@@ -34,7 +34,7 @@ title: "Roadmap"
 | **P11** | ⭐ Citus Topology | coord+workers, `pg_dist_node` sync, 4종 분산 CRD | P1, P2, P10 |
 | **P12** | ⭐ QueryRouter | stateless 라우터 풀, PgBouncer 사이드카, HPA, metadata lag 메트릭 | P11, P5, P6 |
 | **P13** | ⭐ Plugin SDK | 5종 Go 인터페이스 + gRPC out-of-process | P4, P6, P10 |
-| **P14** | Distribution | Helm, install.yaml, OLM bundle, multi-arch 이미지 | 모두 |
+| **P14** | Distribution | install.yaml, OLM bundle, multi-arch 이미지 (※ Helm chart는 ADR 0007에 따라 **P1 트랙으로 분리 — alpha 사용자 채널 조기 확보**) | 모두 |
 
 ## 의존 그래프
 

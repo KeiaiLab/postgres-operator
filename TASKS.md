@@ -40,3 +40,63 @@
 4. F07 P5-M1 — PgBouncer 사이드카 + 독립 Deployment.
 5. F08 P6-M1 — exporter + Grafana + PrometheusRule.
 6. F02 P10-M1 — extension lifecycle e2e.
+
+---
+
+## 품질 개선 plan (2026-04-30 — Bitnami + Crunchy PGO 교차검증)
+
+> 출처: `/Users/phil/.claude/plans/1-https-artifacthub-io-packages-helm-bit-sunny-wozniak.md` (사용자 승인 plan)
+> 19 권장사항을 P0(즉시) / P1(중기) / P2(장기) 우선순위로 분해.
+> *영향 Pillar* 컬럼은 기존 F01~F14에 매핑.
+
+### P0 (1-2 sprint, 즉시) — 6개
+
+| ID | 권장 | 영향 Pillar | 단계 | 의존 | 비고 |
+|----|------|------------|------|------|------|
+| P0-1 | Status.Conditions reason 어휘 확장 (Promoting/Demoting/Election*/TopologyDrift/Rotating) | F04(P2), F03(P11), F09(P7) | **완료** | — | `internal/controller/status.go` 본 PR. P2-T3 신호 채널. |
+| P0-2 | 데이터플레인 PodSecurityContext defaults (runAsUser=70, readOnlyRootFs, seccomp RuntimeDefault) | F01(P1) | 설계 | — | ADR 0006. `builders.go:184-198, 243-256`. |
+| P0-3 | NetworkPolicy 데이터플레인 표준 템플릿 (coordinator↔workers, router→coordinator/workers) | F01(P1), F09(P7) | 설계 | P0-2 | RFC 0006 §NetworkPolicy. `config/network-policy/`. |
+| P0-4 | Cascade Delete 회귀 테스트 (Finalizer 회피 정책) | F01(P1) | 설계 | — | ADR 0008. `test/e2e/cascade_delete_test.go`. |
+| P0-5 | AuthPlugin.RotateSecret 인터페이스 추가 (additive, ADR 0005 §alpha rule) | F13(P13), F09(P7) | **완료** | — | `internal/plugin/api.go:205-` 본 PR. RFC 0006 §Auth Rotation Hook. |
+| P0-6 | LibPQExecutor 구현 (Citus 차별화 코드 차원 잠금, P2 → P0 승격) | F03(P11) | 설계 | P0-1 | RFC 0002 Draft → Implemented. `internal/citus/exec.go`. |
+
+### P1 (3-6 sprint, 중기) — 6개
+
+| ID | 권장 | 영향 Pillar | 단계 | 의존 |
+|----|------|------------|------|------|
+| P1-1 | BackupJob CRD + reconciler (BackupPlugin 첫 호출자) | F06(P4) | 설계 | P0-2 |
+| P1-2 | PgBouncer 사이드카 + cmd/router 통합 | F07(P5), F12(P12) | 설계 | P0-2 |
+| P1-3 | Monitoring/Exporter 표준 통합 (ExporterPlugin 호출자) | F08(P6) | 설계 | P0-2 |
+| P1-4 | Helm chart 패키징 (P14 → P1 앞당김, ADR 0007) | **신규 P1 트랙** (F14에서 분리) | 설계 | — |
+| P1-5 | ClusterUpgrade CRD 시그니처 (in-place + blue/green) | F11(P9) | 설계 | P1-1 |
+| P1-6 | pgBackRest 실행 모델 (BackupOptions.ExecutionMode: sidecar\|job) | F06(P4), F13(P13) | 설계 | P1-1 |
+
+### P2 (6+ sprint, 장기 차별화) — 7개
+
+| ID | 권장 | 영향 Pillar | 단계 | 의존 |
+|----|------|------------|------|------|
+| P2-1 | Citus rebalance / RebalanceJob CRD | F03(P11) | 설계 | P0-6 |
+| P2-2 | Worker pool zero-downtime scale | F03(P11) | 설계 | P0-6, P2-1 |
+| P2-3 | Plugin SDK wire-format golden test (reflect 기반 시그니처 hash) | F13(P13) | 설계 | — |
+| P2-4 | gRPC out-of-process plugin + reference plugin (UDS, cosign) | F13(P13) | 설계 | P2-3, P0-2 |
+| P2-5 | Declarative PgDatabase / PgRole CRD (PGO 미지원 차별화) | F10(P8), F03(P11) | 설계 | P0-5, P0-6 |
+| P2-6 | Multi-region Standby Cluster (PGO Standby 차용 + Citus geo) | F14(P14)→독립 | 설계 | P1-1, P1-6 |
+| P2-7 | Citus PGUpgrade orchestration | F11(P9), F03(P11) | 설계 | P1-5, P1-1, P2-6 |
+
+### 거버넌스 산출물 매트릭스
+
+| ID | 제목 | 트리거 권장 | 시작 상태 |
+|----|------|-----------|----------|
+| RFC 0002 | metadata-sync (기존) | P0-6 | Draft → **Implemented 예정** |
+| RFC 0004 | Backup/PITR | P1-1, P1-6 | Draft (작성 예정) |
+| RFC 0005 | QueryRouter | P1-2 | Draft (작성 예정) |
+| RFC 0006 | Security/TLS (NetworkPolicy + Auth Rotation + Role/RBAC) | P0-3, P0-5, P2-5 | Draft (작성 예정) |
+| RFC 0007 | Observability | P1-3 | Draft (작성 예정) |
+| RFC 0008 | DistributedTable 의미론 | P2-1 | Draft (작성 예정) |
+| RFC 0010 | Upgrade (Citus 절 포함) | P1-5, P2-2, P2-7 | Draft (작성 예정) |
+| RFC 0012 | Plugin SDK 안정화 | P2-3, P2-4 | Draft (작성 예정) |
+| RFC 0013 | Declarative DB/Role | P2-5 | Draft (작성 예정) |
+| RFC 0014 | Multi-region & Standby | P2-6 | Draft (작성 예정) |
+| ADR 0006 | Security Defaults Rationale | P0-2 | **Accepted (본 PR)** |
+| ADR 0007 | Helm을 P14에서 P1로 분리 | P1-4 | **Accepted (본 PR)** |
+| ADR 0008 | Finalizer 회피 정책 | P0-4 | **Accepted (본 PR)** |
