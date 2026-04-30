@@ -1,0 +1,114 @@
+# Default values for postgresql-operator chart (P1-4, ADR 0007).
+#
+# 본 chart는 *operator 자체*만 배포한다. PostgresCluster CR 인스턴스는 별도로
+# 배포 (helm 외부의 kubectl apply, 또는 후속 charts/postgrescluster).
+#
+# 변경 절차:
+# 1. 본 파일에서 default 값 변경
+# 2. helm install --values custom-values.yaml ...로 override 가능
+
+# ============================================================================
+# Operator container image
+# ============================================================================
+image:
+  # 운영 시 사용자 registry로 override 권장.
+  repository: ghcr.io/keiailab/postgresql-operator
+  # 비워두면 Chart.yaml의 appVersion이 자동 적용됨 (templates/_helpers.tpl).
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# ============================================================================
+# Deployment topology
+# ============================================================================
+# Operator manager Pod replica 수. HA를 위해 2+ 권장 (leader election 자동).
+# alpha 단계는 1로 시작 (단일 인스턴스도 reconcile 정합성 보장).
+replicas: 1
+
+# Pod-level SecurityContext (operator manager 자체).
+# config/manager/manager.yaml과 일치. 변경 시 kustomize 결과와 정합 유지 필요.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level SecurityContext.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# Resource requests/limits. alpha 기본값은 *작음*. production은 측정 후 조정.
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Pod scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+# ============================================================================
+# Service Account + RBAC
+# ============================================================================
+serviceAccount:
+  # false면 사용자가 직접 ServiceAccount를 생성·관리해야 함.
+  create: true
+  # 빈 문자열이면 chart가 fullname helper로 자동 생성.
+  name: ""
+  annotations: {}
+
+rbac:
+  # ClusterRole + ClusterRoleBinding을 chart가 생성할지 여부.
+  # multi-tenant 환경에서 false로 두고 별도 RBAC 적용 가능.
+  create: true
+
+# ============================================================================
+# CRD 설치
+# ============================================================================
+# CRD를 chart가 같이 설치할지 여부. 별도 lifecycle 관리(예: ArgoCD CRD sync)
+# 시 false로 두고 사용자가 kubectl apply로 별도 적용.
+installCRDs: true
+
+# ============================================================================
+# NetworkPolicy (P0-3, ADR 0006 §NetworkPolicy)
+# ============================================================================
+networkPolicies:
+  # 데이터플레인 default-deny + cluster-internal allow + router ingress allow
+  enabled: true
+
+# ============================================================================
+# Metrics endpoint
+# ============================================================================
+metrics:
+  # /metrics endpoint를 8443에서 expose. Prometheus가 scrape.
+  enabled: true
+  port: 8443
+  # ServiceMonitor (prometheus-operator) 자동 생성. CRD 부재 시 install fail
+  # 회피 위해 helm install --skip-tests 또는 별도 disable.
+  serviceMonitor:
+    enabled: false
+
+# ============================================================================
+# LibPQExecutor (P0-6 phase 2a, RFC 0002)
+# ============================================================================
+# CITUS_LIBPQ_DSN 환경 변수 주입 — LibPQExecutor가 실 PG에 pg_dist_node 변경
+# 적용. 미설정(빈 문자열)이면 NullExecutor fallback (P11-M0 spike default).
+# 주의: alpha 단계 single-cluster 환경 한정. 다중 cluster 지원은 phase 2b.
+citusLibPQ:
+  dsn: ""
+  # 예: "host=my-cluster-coordinator-0.svc.cluster.local port=5432 ..."
+
+# ============================================================================
+# Logging
+# ============================================================================
+log:
+  # zap encoder. "console"(개발용 가독성) | "json"(production 파싱)
+  encoder: json
+  level: info
