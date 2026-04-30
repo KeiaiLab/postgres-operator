@@ -213,4 +213,22 @@ type AuthPlugin interface {
 	// 반환한다. webhook이 사용자가 작성한 Secret을 검증할 때 사용한다.
 	// 빈 슬라이스는 "Secret 불요" 의미.
 	SecretSchemaJSON() ([]byte, error)
+
+	// RotateSecret은 oldRef의 인증 자격(password/cert/token 등)을 새로 발급하여
+	// newRef로 반환한다. 운영 자동화(Bitnami 의 update-password CronJob 패턴을
+	// operator 내재화)의 SDK 토대다.
+	//
+	// 의미론:
+	//   - oldRef == nil: 초기 생성(첫 부트스트랩). plugin이 새 Secret을 만들고
+	//     newRef로 가리킨다.
+	//   - oldRef != nil: 회전. plugin이 새 자격을 발급하고 *기존 oldRef는 caller
+	//     가 책임지고 cleanup* 한다(즉시 삭제 / grace period 보존 등 정책은 본
+	//     SDK 외부의 P7 reconciler 결정).
+	//
+	// 멱등성은 plugin의 책임이다. 본 인터페이스는 단일 호출만 보장한다.
+	//
+	// 본 메서드는 ADR 0005 §변경 정책의 "alpha 단계 추가 메서드(non-breaking) 허용"
+	// 에 부합하도록 후속 추가됐다(P0-5 권장, 2026-04-30). 첫 구현은 P7 reconciler
+	// 가 SCRAM-SHA-256 회전을 위해 추가하며, 인터페이스는 본 시점에 동결된다.
+	RotateSecret(ctx context.Context, target ClusterTarget, oldRef *corev1.SecretReference) (newRef *corev1.SecretReference, err error)
 }

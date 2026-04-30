@@ -57,6 +57,9 @@ type dummyAuth struct{ name string }
 func (d *dummyAuth) Name() string                                       { return d.name }
 func (d *dummyAuth) Configure(_ context.Context, _ ClusterTarget) error { return nil }
 func (d *dummyAuth) SecretSchemaJSON() ([]byte, error)                  { return nil, nil }
+func (d *dummyAuth) RotateSecret(_ context.Context, _ ClusterTarget, _ *corev1.SecretReference) (*corev1.SecretReference, error) {
+	return nil, nil
+}
 
 // ----------------------------------------------------------------------------
 // 인터페이스 만족 컴파일 가드 (interface satisfaction guards)
