@@ -278,6 +278,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// P1-1 phase 1 — BackupJob reconciler 골격 등록 (RFC 0004 §3).
+	// BackupPlugin 실 호출은 phase 2 (별도 PR)에서.
+	if err := (&controller.BackupJobReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Plugins: plugins,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "BackupJob")
+		os.Exit(1)
+	}
+
 	// 본 webhook 등록은 webhookCertPath가 설정된 경우(즉 매니페스트 배포 시)에만
 	// 의미가 있다. 로컬 `make run` 실행 시에는 webhook 서버가 시작되지 않아도
 	// reconciler는 정상 동작한다(K8s API server가 webhook 호출을 시도하지 않으므로).

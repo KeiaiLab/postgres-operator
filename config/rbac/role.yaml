@@ -53,6 +53,7 @@ rules:
 - apiGroups:
   - postgres.keiailab.io
   resources:
+  - backupjobs
   - postgresclusters
   verbs:
   - create
@@ -65,12 +66,14 @@ rules:
 - apiGroups:
   - postgres.keiailab.io
   resources:
+  - backupjobs/finalizers
   - postgresclusters/finalizers
   verbs:
   - update
 - apiGroups:
   - postgres.keiailab.io
   resources:
+  - backupjobs/status
   - postgresclusters/status
   verbs:
   - get
