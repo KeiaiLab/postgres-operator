@@ -68,17 +68,31 @@ func TestValidate_VersionRejected_NotInMatrix(t *testing.T) {
 	}
 }
 
-func TestValidate_PG18_RequiresFeatureGate(t *testing.T) {
+// 0.2.0-alpha 이후 (ADR 0010): PG18은 Stable, vanilla(Citus="") 조합이 default.
+// PG18 + Citus 13.2 조합은 매트릭스에 등록되지 않은 상태(Citus가 PG18 아직 미지원)이므로
+// feature gate가 아닌 supported matrix 부재로 거절된다.
+func TestValidate_PG18_VanillaAccepted(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Version.Postgres = "18"
+	c.Spec.Version.Citus = ""
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err != nil {
+		t.Fatalf("PG18 vanilla은 stable이어야 하나 거절됨: %v", err)
+	}
+}
+
+func TestValidate_PG18_CitusRejected_NotInMatrix(t *testing.T) {
 	w := newWebhook(t)
 	c := validBaseCluster()
 	c.Spec.Version.Postgres = "18"
 	c.Spec.Version.Citus = "13.2"
 	_, err := w.ValidateCreate(context.Background(), c)
 	if err == nil {
-		t.Fatal("expected rejection for PG18 without feature gate")
+		t.Fatal("PG18 + Citus 13.2은 매트릭스 미등록이라 거절되어야 함")
 	}
-	if !strings.Contains(err.Error(), "PostgresEighteen") {
-		t.Errorf("error message lacks PostgresEighteen hint: %v", err)
+	if !strings.Contains(err.Error(), "supported matrix") {
+		t.Errorf("error message lacks 'supported matrix' hint: %v", err)
 	}
 }
 

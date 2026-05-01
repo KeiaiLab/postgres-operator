@@ -28,19 +28,22 @@ const (
 	DeploymentDevelopment DeploymentMode = "development"
 )
 
-// VersionSpec은 PostgreSQL × Citus 버전 조합을 지정한다.
+// VersionSpec은 PostgreSQL × (선택적) Citus 버전 조합을 지정한다.
 // (postgres, citus) 쌍은 internal/version/matrix.go의 IsSupported를 통과해야 한다.
+//
+// 0.2.0-alpha 이후 (ADR 0010): Citus 필드는 선택. 미지정 또는 빈 문자열이면
+// vanilla PostgreSQL (Stable 채널). 값을 지정하면 Citus 통합(Beta) 활성화 — 사용자가
+// AGPL-3.0 §13 SaaS 의무를 명시 수용.
 type VersionSpec struct {
-	// Postgres는 메이저 버전 문자열("16" | "17" | "18").
-	// "18"은 feature gate "PostgresEighteen" 활성 시에만 허용된다.
+	// Postgres는 메이저 버전 문자열("16" | "17" | "18"). 0.2.0-alpha 이후 "18"이 default 권장.
 	// +kubebuilder:validation:Enum="16";"17";"18"
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
 
-	// Citus는 minor 단위 버전 문자열(예: "12.1", "13.0").
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=3
-	Citus string `json:"citus"`
+	// Citus는 minor 단위 버전 문자열(예: "12.1", "13.0"). 0.2.0-alpha부터 선택 필드.
+	// 빈 문자열 또는 누락 시 vanilla PostgreSQL (Citus 없음). 명시 시 AGPL-3.0 라이센스 수용.
+	// +optional
+	Citus string `json:"citus,omitempty"`
 }
 
 // StorageSpec은 PVC 생성 파라미터다(RFC 0001 §3).

@@ -22,10 +22,10 @@ You may obtain a copy of the License at
 //  2. workers[].members 홀수 + ≥1
 //  3. workers[].name DNS-1123 + 동일 클러스터 내 unique
 //  4. routers.replicas ≥1 (CRD minimum과 중복이지만 명시적 강제)
-//  5. (postgres, citus) ∈ matrix.IsSupported(+ feature gates)
-//  6. PG="18"은 feature gate "PostgresEighteen" 활성 시에만
-//  7. deployment=production이면 coordinator.members ≥3, workers[].members ≥3
-//  8. extensions[].name 화이트리스트 — 본 webhook은 P10-T2 시점에 활성화
+//  5. (postgres, citus) ∈ matrix.IsSupported (vanilla PG는 citus="").
+//     0.2.0-alpha (ADR 0010) 이후 PG18+vanilla이 Stable. Citus 조합은 Beta.
+//  6. deployment=production이면 coordinator.members ≥3, workers[].members ≥3
+//  7. extensions[].name 화이트리스트 — 본 webhook은 P10-T2 시점에 활성화
 //     (현재는 ExtensionPlugin Registry에 등록된 이름만 허용)
 package v1alpha1
 
@@ -101,13 +101,8 @@ func (w *PostgresClusterWebhook) ValidateDelete(_ context.Context, _ *postgresv1
 func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (admission.Warnings, error) {
 	gv := schema.GroupKind{Group: postgresv1alpha1.GroupVersion.Group, Kind: "PostgresCluster"}
 
-	// 1) 버전 매트릭스 + feature gate
+	// 1) 버전 매트릭스 검증 (ADR 0010 이후 PG18 Stable, Citus 조합은 Beta opt-in).
 	if _, ok := version.IsSupported(c.Spec.Version.Postgres, c.Spec.Version.Citus, w.FeatureGates); !ok {
-		// PG18 + gate 미활성 케이스를 분리해 사용자에게 더 명확한 메시지 제공.
-		if c.Spec.Version.Postgres == "18" && !w.FeatureGates["PostgresEighteen"] {
-			return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.version.postgres",
-				`PG18 requires --feature-gates=PostgresEighteen=true on the manager`))
-		}
 		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.version",
 			fmt.Sprintf("(postgres=%q, citus=%q) is not in supported matrix (see internal/version/matrix.go)",
 				c.Spec.Version.Postgres, c.Spec.Version.Citus)))

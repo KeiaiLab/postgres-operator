@@ -1,7 +1,9 @@
-# keiailab/postgres-operator — quickstart 샘플 (dev 모드)
+# keiailab/postgres-operator — quickstart 샘플 (dev 모드, vanilla PG18)
 #
-# RFC 0001 부록 A의 동결된 발췌이며, 변경 시 RFC 갱신 필요. 본 파일이 코드와
-# 분리되어 표류하지 않도록 e2e 테스트(Pillar P1-M1)가 본 파일을 직접 적용한다.
+# 0.2.0-alpha (ADR 0010) 이후 default stack은 vanilla PostgreSQL이다.
+# Citus 통합은 opt-in (Beta 채널, AGPL-3.0 §13 SaaS 의무를 사용자가 부담).
+# 분산 SQL이 필요한 경우 RFC 0005 (Native sharding plugin) 진행 상황을 참조하거나
+# 의식적으로 Citus를 활성화한다.
 #
 # 적용:
 #   kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
@@ -9,10 +11,10 @@
 # 기대 결과:
 #   - PostgresCluster CR이 생성됨
 #   - reconciler가 coordinator/worker/router StatefulSet+Deployment+Service+ConfigMap 생성
-#   - status.channel = "stable" (PG17+Citus13.0은 internal/version/matrix.go의 Stable Tier 1)
+#   - status.channel = "stable" (PG18 vanilla은 internal/version/matrix.go의 Stable)
 #   - 모든 하위 자원 ready 시 status.conditions[type=Ready].status = "True"
 #
-# dev 모드 의미: webhook이 members=1을 허용 (production은 ≥3 강제, ADR 0003)
+# dev 모드 의미: webhook이 members=1을 허용 (production은 ≥3 강제, ADR 0003).
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresCluster
 metadata:
@@ -21,8 +23,9 @@ metadata:
 spec:
   deployment: development
   version:
-    postgres: "17"
-    citus: "13.0"
+    postgres: "18"
+    # citus 필드 미지정 = vanilla PostgreSQL (권장 default).
+    # Citus 활성화 시: citus: "13.0" + extensions에 citus 추가 + AGPL-3.0 §13 의무 수용.
   coordinator:
     members: 1
     storage:
@@ -34,5 +37,4 @@ spec:
       size: 20Gi
   routers:
     replicas: 1
-  extensions:
-  - name: citus
+  # extensions: []  # vanilla PG는 확장 없음. 필요 시 pgaudit/pgcron/pgvector 등 plugin 추가.

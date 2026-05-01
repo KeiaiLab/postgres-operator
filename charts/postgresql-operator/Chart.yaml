@@ -5,18 +5,18 @@
 apiVersion: v2
 name: postgresql-operator
 description: |
-  Apache-2.0 PostgreSQL Kubernetes operator with first-class Citus distributed
-  topology + 5-interface Plugin SDK + stateless QueryRouter. PGO-class single-PG
-  HA quality is delivered as built-in baseline; differentiation focuses on Citus
-  topology + plugin extensibility.
+  Apache-2.0 PostgreSQL Kubernetes operator. Vanilla PostgreSQL (default, Stable) +
+  5-interface Plugin SDK + stateless QueryRouter. PGO-class single-PG HA quality
+  is delivered as built-in baseline. Distributed SQL via opt-in Citus extension
+  (AGPL-3.0, Beta) or upcoming native sharding plugin (RFC 0005). See ADR 0010.
 type: application
 kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — alpha 단계, breaking change 가능. SemVer 준수.
-version: 0.1.1-alpha
+version: 0.2.0-alpha
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
-appVersion: "0.1.1-alpha"
+appVersion: "0.2.0-alpha"
 
 home: https://github.com/keiailab/postgres-operator
 sources:
@@ -24,11 +24,10 @@ sources:
 keywords:
   - postgresql
   - postgres
-  - citus
+  - postgres-18
   - operator
   - kubernetes
   - keiailab
-  - distributed-sql
   - stateless-router
   - plugin-sdk
 maintainers:
@@ -55,7 +54,7 @@ annotations:
       version: v1alpha1
       name: postgresclusters.postgres.keiailab.io
       displayName: PostgresCluster
-      description: coordinator, worker pool, stateless router로 구성된 PostgreSQL/Citus 토폴로지를 선언한다
+      description: coordinator, worker pool, stateless router로 구성된 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, Citus 통합은 ADR 0010 opt-in)
     - kind: BackupJob
       version: v1alpha1
       name: backupjobs.postgres.keiailab.io
@@ -70,8 +69,8 @@ annotations:
       spec:
         deployment: development
         version:
-          postgres: "17"
-          citus: "13.0"
+          postgres: "18"
+          # citus: 미지정 — vanilla PG (Stable). Citus opt-in 시 AGPL §13 의무 발생.
         coordinator:
           members: 1
           storage:
@@ -83,8 +82,6 @@ annotations:
               size: 20Gi
         routers:
           replicas: 1
-        extensions:
-          - name: citus
     - apiVersion: postgres.keiailab.io/v1alpha1
       kind: BackupJob
       metadata:
@@ -99,7 +96,11 @@ annotations:
         executionMode: job
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.1.1-alpha
+      image: ghcr.io/keiailab/postgres-operator:0.2.0-alpha
   artifacthub.io/changes: |
+    - kind: changed
+      description: "0.2.0-alpha (ADR 0010) — default stack을 vanilla PG18로 전환. Citus 통합은 Beta opt-in으로 격리 (AGPL-3.0 §13 SaaS 의무를 사용자가 부담). Native sharding plugin RFC 0005 진행 중."
     - kind: added
-      description: alpha 배포 품질을 위해 로컬 릴리스 게이트, Helm CRD bundle sync, install.yaml 검증을 추가했다.
+      description: PG 18.3 Stable 채널 진입 (vanilla). PG 16/17 vanilla도 Stable 유지.
+    - kind: added
+      description: ADR 0010 (license + sharding strategy) + RFC 0005 (native sharding plugin design draft).

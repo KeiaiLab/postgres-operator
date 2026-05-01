@@ -529,20 +529,19 @@ spec:
                 description: Version은 PG × Citus 버전 조합.
                 properties:
                   citus:
-                    description: 'Citus는 minor 단위 버전 문자열(예: "12.1", "13.0").'
-                    minLength: 3
+                    description: |-
+                      Citus는 minor 단위 버전 문자열(예: "12.1", "13.0"). 0.2.0-alpha부터 선택 필드.
+                      빈 문자열 또는 누락 시 vanilla PostgreSQL (Citus 없음). 명시 시 AGPL-3.0 라이센스 수용.
                     type: string
                   postgres:
-                    description: |-
-                      Postgres는 메이저 버전 문자열("16" | "17" | "18").
-                      "18"은 feature gate "PostgresEighteen" 활성 시에만 허용된다.
+                    description: Postgres는 메이저 버전 문자열("16" | "17" | "18"). 0.2.0-alpha
+                      이후 "18"이 default 권장.
                     enum:
                     - "16"
                     - "17"
                     - "18"
                     type: string
                 required:
-                - citus
                 - postgres
                 type: object
               workers:
@@ -1072,7 +1071,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/keiailab/postgres-operator:0.1.1-alpha
+        image: ghcr.io/keiailab/postgres-operator:0.2.0-alpha
         livenessProbe:
           httpGet:
             path: /healthz

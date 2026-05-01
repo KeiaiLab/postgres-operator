@@ -1,4 +1,4 @@
-# keiailab/postgres-operator — production 샘플 (RFC 0001 부록 B)
+# keiailab/postgres-operator — production 샘플 (vanilla PG18, RFC 0001 부록 B + ADR 0010)
 #
 # 적용 전 다음을 확인:
 #   - StorageClass "fast-ssd"가 클러스터에 존재 (없으면 storageClassName 제거 또는 변경)
@@ -7,6 +7,9 @@
 # 본 샘플은 webhook 검증이 강화된 production 모드를 시연한다:
 #   - coordinator.members ≥3 강제
 #   - workers[].members ≥3 강제
+#
+# 0.2.0-alpha (ADR 0010) 이후 vanilla PostgreSQL이 default. Citus 분산 SQL이 필요한 경우
+# AGPL-3.0 §13 SaaS 의무를 검토 후 명시 활성화 (citus version 필드 + extensions에 citus).
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresCluster
 metadata:
@@ -15,8 +18,8 @@ metadata:
 spec:
   deployment: production
   version:
-    postgres: "17"
-    citus: "13.0"
+    postgres: "18"
+    # vanilla PG18 (default). Citus 활성화는 ADR 0010의 license 영향 평가 후 결정.
   coordinator:
     members: 3
     storage:
@@ -46,5 +49,4 @@ spec:
     pgbouncer:
       poolMode: transaction
       maxClientConn: 1000
-  extensions:
-  - name: citus
+  # extensions: []  # vanilla PG. 분산 SQL 필요 시 ADR 0010 검토 후 citus opt-in.

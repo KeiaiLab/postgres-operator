@@ -10,6 +10,29 @@ You may obtain a copy of the License at
 
 // Package citus는 Citus extension의 ExtensionPlugin 구현이다.
 //
+// ============================================================================
+// 라이센스 경고 (ADR 0010, 0.2.0-alpha 이후 강제):
+// ============================================================================
+//
+// 본 plugin은 Citus extension(https://github.com/citusdata/citus)을 PostgreSQL
+// 인스턴스에 활성화한다. **Citus는 AGPL-3.0** (GNU Affero General Public License v3)
+// 라이센스다. 본 operator(Apache-2.0) 자체는 Citus 소스를 포함하지 않으며 별도
+// 프로세스로 실행되는 PostgreSQL extension을 *제어*만 하므로 mere aggregation으로
+// 본 plugin 패키지는 Apache-2.0 으로 유지된다.
+//
+// 그러나 본 plugin을 **활성화하여 운영하는 사용자**는 다음을 부담한다:
+//
+//   - AGPL-3.0 §13 (network use clause): Citus를 SaaS 형태로 사용자에게 제공하면
+//     사용자에게 Citus 소스 코드(수정분 포함)를 제공할 의무가 발생한다.
+//   - 사용자가 Citus를 수정한 경우 그 수정분도 AGPL-3.0으로 공개해야 한다.
+//   - 결합 서비스(operator + Citus + 사용자 코드)의 라이센스 호환성을 사용자가 검토.
+//
+// 0.2.0-alpha 이후 default stack은 vanilla PostgreSQL이며, Citus는 의식적 opt-in.
+// 분산 SQL이 필요하나 AGPL 부담을 회피하려면 RFC 0005 (Native sharding plugin)
+// 진행 상황을 참조하라.
+//
+// ============================================================================
+//
 // 본 패키지는 Pillar P13(Plugin SDK)의 첫 실사용 사례다. 5종 인터페이스
 // (BackupPlugin, ExporterPlugin, ExtensionPlugin, RouterPlugin, AuthPlugin)
 // 중 ExtensionPlugin을 구현하며, 다음을 강제한다.

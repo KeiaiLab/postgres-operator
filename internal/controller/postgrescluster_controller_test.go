@@ -161,7 +161,9 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 		Expect(routerSvc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 		Expect(routerSvc.Spec.ClusterIP).NotTo(Equal(corev1.ClusterIPNone))
 
-		By("verifying status.channel == stable for PG17+Citus13.0")
+		By("verifying status.channel == beta for PG17+Citus13.0 (ADR 0010)")
+		// 0.2.0-alpha 이후 Citus 조합은 Beta 채널로 강등됨 (license 격리).
+		// vanilla PG18은 Stable. 본 테스트는 Citus opt-in 경로 검증.
 		Eventually(func() string {
 			updated := &postgresv1alpha1.PostgresCluster{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -170,7 +172,7 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 				return ""
 			}
 			return updated.Status.Channel
-		}, timeout, interval).Should(Equal("stable"))
+		}, timeout, interval).Should(Equal("beta"))
 
 		By("[P11-T1] verifying Citus desired topology is surfaced in Workers[].DistNode")
 		// RFC 0002 §10 Status 반영. NullExecutor 사용 중이므로 SQL은 호출되지
