@@ -12,8 +12,10 @@ package controller
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
@@ -69,11 +71,13 @@ var _ = BeforeSuite(func() {
 	// runtime.Caller로 호출 위치 기준 경로를 만들어 KUBEBUILDER_ASSETS와 같이
 	// 사용자가 어디서 `go test`를 실행해도 일관되게 CRD를 찾는다.
 	_, thisFile, _, _ := runtime.Caller(0)
-	crdPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "config", "crd", "bases")
+	projectRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	crdPath := filepath.Join(projectRoot, "config", "crd", "bases")
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{crdPath},
 		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: envtestAssetsPath(projectRoot),
 	}
 
 	var err error
@@ -119,3 +123,30 @@ var _ = AfterSuite(func() {
 		Expect(testEnv.Stop()).To(Succeed())
 	}
 })
+
+func envtestAssetsPath(projectRoot string) string {
+	if assetsPath := os.Getenv("KUBEBUILDER_ASSETS"); assetsPath != "" {
+		return assetsPath
+	}
+
+	candidates, err := filepath.Glob(filepath.Join(projectRoot, "bin", "k8s", "*-"+runtime.GOOS+"-"+runtime.GOARCH))
+	if err != nil || len(candidates) == 0 {
+		return ""
+	}
+	sort.Strings(candidates)
+	for i := len(candidates) - 1; i >= 0; i-- {
+		if hasEnvtestBinaries(candidates[i]) {
+			return candidates[i]
+		}
+	}
+	return ""
+}
+
+func hasEnvtestBinaries(dir string) bool {
+	for _, name := range []string{"etcd", "kube-apiserver", "kubectl"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			return false
+		}
+	}
+	return true
+}
