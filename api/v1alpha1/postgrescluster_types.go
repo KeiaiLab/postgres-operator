@@ -171,10 +171,70 @@ type PostgresClusterSpec struct {
 	// +optional
 	Extensions []ExtensionSpec `json:"extensions,omitempty"`
 
+	// Sharding은 분산 sharding 백엔드 설정 (RFC 0005, ADR 0010).
+	// 미지정 시 single-node PostgreSQL (default). 지정 시 등록된 ShardingPlugin
+	// 백엔드(예: "citus" — AGPL opt-in, "native-fdw" — Phase 2A 후속)가 활성화된다.
+	// +optional
+	Sharding *ShardingSpec `json:"sharding,omitempty"`
+
 	// Deployment는 production|development 모드(디폴트 production).
 	// +kubebuilder:default=production
 	// +optional
 	Deployment DeploymentMode `json:"deployment,omitempty"`
+}
+
+// ShardingSpec은 분산 sharding 백엔드 설정 (RFC 0005 Phase 2A entry).
+//
+// 본 구조체는 internal/plugin/sharding.ShardingSpec과 의미 1:1 매핑이지만, CRD
+// schema 노출용으로 별도 정의한다(controller-gen이 internal package를 schema로
+// 직렬화하지 않음). reconciler가 본 구조체를 sharding.ShardingSpec으로 변환한다.
+type ShardingSpec struct {
+	// Backend는 ShardingPlugin.Name 식별자.
+	// "citus": Citus extension 백엔드 (AGPL-3.0 opt-in, ADR 0010 §13 의무 발생).
+	// "native-fdw": postgres_fdw 기반 hash sharding (Apache-2.0, RFC 0005 Phase 2A — 후속).
+	// +kubebuilder:validation:Enum=citus;native-fdw
+	// +kubebuilder:validation:Required
+	Backend string `json:"backend"`
+
+	// DistributedTables는 distributed table 정의 목록.
+	// +optional
+	DistributedTables []DistributedTableSpec `json:"distributedTables,omitempty"`
+
+	// ReferenceTables는 broadcast 테이블 이름 목록 (스키마 포함, e.g. "public.dim_country").
+	// +optional
+	ReferenceTables []string `json:"referenceTables,omitempty"`
+
+	// DefaultShardCount는 DistributedTableSpec.ShardCount=0 일 때 fallback. 0이면 백엔드 default.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	DefaultShardCount int32 `json:"defaultShardCount,omitempty"`
+}
+
+// DistributedTableSpec은 단일 distributed table 정의.
+type DistributedTableSpec struct {
+	// Name은 스키마 포함 테이블 이름 (e.g. "public.events").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// DistributionCol은 shard key column 이름.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	DistributionCol string `json:"distributionCol"`
+
+	// ShardCount는 shard 개수. 0이면 ShardingSpec.DefaultShardCount 또는 백엔드 default.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	ShardCount int32 `json:"shardCount,omitempty"`
+
+	// ColocateWith는 같은 distribution을 갖는 다른 테이블과 collocate. 빈 문자열이면 standalone.
+	// +optional
+	ColocateWith string `json:"colocateWith,omitempty"`
+
+	// Strategy는 shard 분배 전략 ("hash" | "range"). 빈 문자열이면 "hash" default.
+	// +kubebuilder:validation:Enum=hash;range
+	// +optional
+	Strategy string `json:"strategy,omitempty"`
 }
 
 // NodeStatus는 단일 PG 인스턴스(coordinator 또는 worker pool)의 상태다.
