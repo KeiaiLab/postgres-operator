@@ -1,0 +1,569 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: postgresclusters.postgres.keiailab.io
+spec:
+  group: postgres.keiailab.io
+  names:
+    kind: PostgresCluster
+    listKind: PostgresClusterList
+    plural: postgresclusters
+    shortNames:
+    - pgc
+    singular: postgrescluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.version.postgres
+      name: PG
+      type: string
+    - jsonPath: .spec.version.citus
+      name: Citus
+      type: string
+    - jsonPath: .spec.workers[*].members
+      name: Workers
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.channel
+      name: Channel
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PostgresCluster는 Citus 분산 PostgreSQL 클러스터의 선언적 표현이다.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PostgresClusterSpec은 PostgresCluster CR의 Spec이다.
+            properties:
+              coordinator:
+                description: Coordinator는 Citus coordinator HA RS.
+                properties:
+                  members:
+                    description: |-
+                      Members는 RS 멤버 수. 홀수만 허용(split-brain 방지, ADR 0003).
+                      production 모드는 ≥3, development 모드는 ≥1.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources는 컨테이너 리소스 요구사항.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                  shouldHaveShards:
+                    description: |-
+                      ShouldHaveShards는 coordinator가 분산 테이블 shard를 보유할지 여부.
+                      nil이면 false(ADR 0003 권장).
+                    type: boolean
+                  storage:
+                    description: Storage는 PVC 사양.
+                    properties:
+                      accessModes:
+                        description: AccessModes는 PVC 접근 모드(빈 배열이면 ReadWriteOnce).
+                        items:
+                          type: string
+                        type: array
+                      size:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: 'Size는 PVC 요청 크기(예: "100Gi").'
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storageClassName:
+                        description: StorageClassName은 PVC StorageClass(nil이면 클러스터
+                          디폴트).
+                        type: string
+                    required:
+                    - size
+                    type: object
+                required:
+                - members
+                - storage
+                type: object
+              deployment:
+                default: production
+                description: Deployment는 production|development 모드(디폴트 production).
+                enum:
+                - production
+                - development
+                type: string
+              extensions:
+                description: Extensions는 활성화할 확장 목록.
+                items:
+                  description: |-
+                    ExtensionSpec은 활성화할 PG/Citus extension 하나를 지정한다.
+                    본 SDK의 ExtensionPlugin Registry에 등록된 이름이어야 한다.
+                  properties:
+                    name:
+                      type: string
+                    version:
+                      description: Version은 extension의 minor 단위 버전. 빈 문자열이면 호환 매트릭스
+                        기본값.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              routers:
+                description: Routers는 stateless QueryRouter 풀.
+                properties:
+                  pgbouncer:
+                    description: PgBouncer는 사이드카 설정.
+                    properties:
+                      maxClientConn:
+                        description: MaxClientConn은 per-Pod 클라이언트 연결 상한. nil이면 PgBouncer
+                          기본값.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      poolMode:
+                        default: transaction
+                        description: PoolMode는 transaction|session|statement 중 하나(디폴트
+                          transaction).
+                        enum:
+                        - transaction
+                        - session
+                        - statement
+                        type: string
+                    type: object
+                  replicas:
+                    description: |-
+                      Replicas는 라우터 Pod 수. ≥1.
+                      HPA를 부착하는 경우에도 본 필드는 minimum 역할.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources는 라우터 컨테이너 리소스 요구사항.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                required:
+                - replicas
+                type: object
+              version:
+                description: Version은 PG × Citus 버전 조합.
+                properties:
+                  citus:
+                    description: 'Citus는 minor 단위 버전 문자열(예: "12.1", "13.0").'
+                    minLength: 3
+                    type: string
+                  postgres:
+                    description: |-
+                      Postgres는 메이저 버전 문자열("16" | "17" | "18").
+                      "18"은 feature gate "PostgresEighteen" 활성 시에만 허용된다.
+                    enum:
+                    - "16"
+                    - "17"
+                    - "18"
+                    type: string
+                required:
+                - citus
+                - postgres
+                type: object
+              workers:
+                description: Workers는 Citus worker pool들. ≥1.
+                items:
+                  description: WorkerPoolSpec은 Citus worker pool(HA RS) 하나를 표현한다.
+                  properties:
+                    members:
+                      description: Members는 RS 멤버 수. 홀수, ≥1.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    name:
+                      description: Name은 pool 식별자. 동일 클러스터 내 unique. DNS-1123 label
+                        형식.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    resources:
+                      description: ResourceRequirements describes the compute resource
+                        requirements.
+                      properties:
+                        claims:
+                          description: |-
+                            Claims lists the names of resources, defined in spec.resourceClaims,
+                            that are used by this container.
+
+                            This field depends on the
+                            DynamicResourceAllocation feature gate.
+
+                            This field is immutable. It can only be set for containers.
+                          items:
+                            description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                            properties:
+                              name:
+                                description: |-
+                                  Name must match the name of one entry in pod.spec.resourceClaims of
+                                  the Pod where this field is used. It makes that resource available
+                                  inside a container.
+                                type: string
+                              request:
+                                description: |-
+                                  Request is the name chosen for a request in the referenced claim.
+                                  If empty, everything from the claim is made available, otherwise
+                                  only the result of this request.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        limits:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: |-
+                            Limits describes the maximum amount of compute resources allowed.
+                            More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                          type: object
+                        requests:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: |-
+                            Requests describes the minimum amount of compute resources required.
+                            If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                            otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                            More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                          type: object
+                      type: object
+                    storage:
+                      description: StorageSpec은 PVC 생성 파라미터다(RFC 0001 §3).
+                      properties:
+                        accessModes:
+                          description: AccessModes는 PVC 접근 모드(빈 배열이면 ReadWriteOnce).
+                          items:
+                            type: string
+                          type: array
+                        size:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: 'Size는 PVC 요청 크기(예: "100Gi").'
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        storageClassName:
+                          description: StorageClassName은 PVC StorageClass(nil이면 클러스터
+                            디폴트).
+                          type: string
+                      required:
+                      - size
+                      type: object
+                  required:
+                  - members
+                  - name
+                  - storage
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - coordinator
+            - routers
+            - version
+            - workers
+            type: object
+          status:
+            description: PostgresClusterStatus는 PostgresCluster CR의 Status다.
+            properties:
+              channel:
+                description: |-
+                  Channel은 활성 릴리즈 채널(stable | beta | preview-pg18).
+                  internal/version/matrix.go의 Combo.Channel 결과를 반영한다.
+                type: string
+              conditions:
+                description: |-
+                  Conditions는 표준 K8s Condition 집합. 권장 종류:
+                  Ready, CoordinatorReady, WorkersReady, RoutersReady, MetadataInSync.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration은 reconcile된 spec의 metadata.generation.
+                format: int64
+                type: integer
+              topology:
+                description: Topology는 reconcile된 현재 토폴로지.
+                properties:
+                  coordinator:
+                    description: NodeStatus는 단일 PG 인스턴스(coordinator 또는 worker pool)의
+                      상태다.
+                    properties:
+                      leaseHolder:
+                        description: LeaseHolder는 K8s lease 보유자(primary와 동일한 것이 정상).
+                        type: string
+                      primary:
+                        description: Primary는 현재 primary Pod 이름.
+                        type: string
+                      replicas:
+                        description: Replicas는 현재 standby Pod 이름들.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  routers:
+                    description: RouterPoolStatus는 라우터 풀 상태다.
+                    properties:
+                      maxMetadataLagSeconds:
+                        description: |-
+                          MaxMetadataLagSeconds는 모든 라우터 Pod 중 router_metadata_lag_seconds
+                          메트릭의 최댓값. 임계치 초과 시 라우터 Pod readiness가 실패한다(ADR 0003).
+                        type: string
+                      readyReplicas:
+                        description: ReadyReplicas는 Ready 조건을 통과한 라우터 Pod 수.
+                        format: int32
+                        type: integer
+                    required:
+                    - readyReplicas
+                    type: object
+                  workers:
+                    items:
+                      description: WorkerPoolStatus는 worker pool 하나의 상태다.
+                      properties:
+                        distNode:
+                          description: DistNode는 pg_dist_node 등록 결과.
+                          properties:
+                            groupId:
+                              format: int32
+                              type: integer
+                            nodeName:
+                              type: string
+                            nodePort:
+                              format: int32
+                              type: integer
+                            shouldHaveShards:
+                              type: boolean
+                          required:
+                          - groupId
+                          - nodeName
+                          - nodePort
+                          - shouldHaveShards
+                          type: object
+                        name:
+                          type: string
+                        node:
+                          description: Node는 본 worker pool의 RS 상태.
+                          properties:
+                            leaseHolder:
+                              description: LeaseHolder는 K8s lease 보유자(primary와 동일한
+                                것이 정상).
+                              type: string
+                            primary:
+                              description: Primary는 현재 primary Pod 이름.
+                              type: string
+                            replicas:
+                              description: Replicas는 현재 standby Pod 이름들.
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                      required:
+                      - name
+                      - node
+                      type: object
+                    type: array
+                required:
+                - coordinator
+                - routers
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

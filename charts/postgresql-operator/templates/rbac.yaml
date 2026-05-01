@@ -10,11 +10,14 @@ metadata:
     {{- include "postgresql-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: [postgres.keiailab.io]
-    resources: [postgresclusters]
+    resources: [backupjobs, postgresclusters]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [postgres.keiailab.io]
-    resources: [postgresclusters/status, postgresclusters/finalizers]
+    resources: [backupjobs/status, postgresclusters/status]
     verbs: [get, update, patch]
+  - apiGroups: [postgres.keiailab.io]
+    resources: [backupjobs/finalizers, postgresclusters/finalizers]
+    verbs: [update]
   - apiGroups: [apps]
     resources: [statefulsets, deployments]
     verbs: [get, list, watch, create, update, patch, delete]

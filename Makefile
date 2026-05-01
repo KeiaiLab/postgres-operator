@@ -1,5 +1,12 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMAGE_REPOSITORY ?= ghcr.io/keiailab/postgres-operator
+IMAGE_TAG ?= $(shell awk '/^appVersion:/ { gsub(/"/, "", $$2); print $$2; exit }' charts/postgresql-operator/Chart.yaml 2>/dev/null)
+IMG ?= $(IMAGE_REPOSITORY):$(IMAGE_TAG)
+
+HELM_CHART ?= charts/postgresql-operator
+HELM_REPO_URL ?= https://keiailab.github.io/postgres-operator
+RELEASE_TMP ?= /tmp/postgres-operator-release
+GHPAGES_TMP ?= /tmp/postgres-operator-gh-pages
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -44,6 +51,15 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(MAKE) sync-crds
+
+.PHONY: sync-crds
+sync-crds: ## config/crd/bases를 Helm chart crds로 동기화.
+	@echo "=== sync CRD bundles (config/crd/bases -> $(HELM_CHART)/crds) ==="
+	@rm -rf "$(HELM_CHART)/crds"
+	@mkdir -p "$(HELM_CHART)/crds"
+	@cp config/crd/bases/*.yaml "$(HELM_CHART)/crds/"
+	@echo "CRD bundles synced"
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -112,6 +128,103 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 audit: ## Run vulnerability scan (trivy fs, HIGH+CRITICAL severity, ignore-unfixed). RFC 0002 / ADR 0009.
 	@command -v trivy >/dev/null 2>&1 || { echo "[error] trivy not installed: brew install trivy (or apt install trivy)"; exit 1; }
 	trivy fs --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --skip-dirs vendor,bin,tmp .
+
+.PHONY: validate
+validate: manifests generate kustomize build-installer ## CRD, Kustomize, Helm, install bundle을 검증.
+	"$(KUSTOMIZE)" build config/crd >/tmp/postgres-operator-crd.yaml
+	"$(KUSTOMIZE)" build config/default >/tmp/postgres-operator-default.yaml
+	helm lint --strict "$(HELM_CHART)"
+	helm template --include-crds gate "$(HELM_CHART)" >/tmp/postgres-operator-helm.yaml
+	@test "$$(grep -c '^kind: CustomResourceDefinition' /tmp/postgres-operator-helm.yaml)" -ge 2
+	@test "$$(grep -c '^kind: CustomResourceDefinition' dist/install.yaml)" -ge 2
+	@if "$(KUBECTL)" version --request-timeout=5s >/dev/null 2>&1; then \
+		"$(KUBECTL)" apply --dry-run=client --validate=false -f dist/install.yaml >/dev/null; \
+	else \
+		echo "kubectl API server 미연결: dist/install.yaml client dry-run 생략"; \
+	fi
+	@rm -f /tmp/postgres-operator-crd.yaml /tmp/postgres-operator-default.yaml /tmp/postgres-operator-helm.yaml
+
+.PHONY: gate
+gate: lint test audit validate ## 로컬 릴리스 품질 게이트 실행.
+	@echo ""
+	@echo "로컬 게이트 통과"
+
+.PHONY: require-version
+require-version:
+	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION 필수 (예: make release-preflight VERSION=v0.1.0-alpha)"; exit 1; fi
+	@case "$(VERSION)" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "ERROR: VERSION은 vX.Y.Z 형식이어야 함: $(VERSION)"; exit 1;; esac
+
+.PHONY: release-preflight
+release-preflight: require-version gate ## push 없이 릴리스 메타데이터와 산출물 검증.
+	@echo "=== release preflight: version metadata ==="
+	@CHART_VER=$$(awk '/^version:/ { print $$2; exit }' "$(HELM_CHART)/Chart.yaml"); \
+	APP_VER=$$(awk '/^appVersion:/ { gsub(/"/, "", $$2); print $$2; exit }' "$(HELM_CHART)/Chart.yaml"); \
+	TARGET_VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
+	if [ "$$CHART_VER" != "$$TARGET_VER" ]; then echo "ERROR: Chart.yaml version=$$CHART_VER, VERSION=$$TARGET_VER"; exit 1; fi; \
+	if [ "$$APP_VER" != "$$TARGET_VER" ]; then echo "ERROR: Chart.yaml appVersion=$$APP_VER, VERSION=$$TARGET_VER"; exit 1; fi
+	@test -f CHANGELOG.md
+	@grep -q "\[$$(echo "$(VERSION)" | sed 's/^v//')\]" CHANGELOG.md || { echo "ERROR: CHANGELOG.md에 $(VERSION) 항목이 없음"; exit 1; }
+	@git rev-parse -q --verify "refs/tags/$(VERSION)" >/dev/null && { echo "ERROR: tag $(VERSION) 이미 존재"; exit 1; } || true
+	@echo "=== release preflight: helm package ==="
+	@rm -rf "$(RELEASE_TMP)"
+	@mkdir -p "$(RELEASE_TMP)"
+	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"
+	@test -f "$(RELEASE_TMP)/postgresql-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz"
+	@rm -rf "$(RELEASE_TMP)"
+	@echo "=== release preflight: clean tree ==="
+	@git diff --quiet
+	@git diff --cached --quiet
+	@test -z "$$(git status --short --untracked-files=all)"
+	@echo "릴리스 preflight 통과: $(VERSION)"
+
+.PHONY: release
+release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.Y.Z 필수.
+	$(MAKE) release-preflight VERSION="$(VERSION)"
+	@TARGET_VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
+	echo "=== image build/push: $(IMAGE_REPOSITORY):$(VERSION), $(IMAGE_REPOSITORY):$$TARGET_VER ==="; \
+	$(CONTAINER_TOOL) build -t "$(IMAGE_REPOSITORY):$(VERSION)" -t "$(IMAGE_REPOSITORY):$$TARGET_VER" .; \
+	$(CONTAINER_TOOL) push "$(IMAGE_REPOSITORY):$(VERSION)"; \
+	$(CONTAINER_TOOL) push "$(IMAGE_REPOSITORY):$$TARGET_VER"
+	git tag -a "$(VERSION)" -m "$(VERSION)"
+	git push origin "$(VERSION)"
+	@PREFLAG=""; case "$(VERSION)" in *alpha*|*beta*|*rc*) PREFLAG="--prerelease";; esac; \
+	mkdir -p "$(RELEASE_TMP)"; \
+	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"; \
+	gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
+		--title "$(VERSION)" \
+		--notes "Release $(VERSION). 변경 내역은 CHANGELOG.md 참조." \
+		"$(RELEASE_TMP)/postgresql-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz" \
+		dist/install.yaml; \
+	rm -rf "$(RELEASE_TMP)"
+	$(MAKE) helm-publish
+	@echo "릴리스 완료: $(VERSION)"
+
+.PHONY: helm-publish
+helm-publish: ## Helm chart package와 index를 gh-pages에 게시.
+	@echo "=== helm package ==="
+	@rm -rf "$(RELEASE_TMP)" "$(GHPAGES_TMP)"
+	@mkdir -p "$(RELEASE_TMP)"
+	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"
+	@echo "=== gh-pages worktree ==="
+	@if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then \
+		git clone --branch gh-pages --single-branch "$$(git remote get-url origin)" "$(GHPAGES_TMP)"; \
+	else \
+		git clone "$$(git remote get-url origin)" "$(GHPAGES_TMP)"; \
+		cd "$(GHPAGES_TMP)" && git checkout --orphan gh-pages && git rm -rf . >/dev/null 2>&1 || true; \
+	fi
+	@echo "=== helm repo index ==="
+	cp "$(RELEASE_TMP)"/postgresql-operator-*.tgz "$(GHPAGES_TMP)/"
+	@if [ -f "$(GHPAGES_TMP)/index.yaml" ]; then \
+		cd "$(GHPAGES_TMP)" && helm repo index . --merge index.yaml --url "$(HELM_REPO_URL)"; \
+	else \
+		cd "$(GHPAGES_TMP)" && helm repo index . --url "$(HELM_REPO_URL)"; \
+	fi
+	@echo "=== commit + push ==="
+	@cd "$(GHPAGES_TMP)" && git add -A && \
+		(git diff --cached --quiet || git commit -m "chore(helm): publish $$(awk '/^version:/ { print $$2; exit }' "$(CURDIR)/$(HELM_CHART)/Chart.yaml")") && \
+		git push origin gh-pages
+	@rm -rf "$(RELEASE_TMP)" "$(GHPAGES_TMP)"
+	@echo "Helm chart 게시 완료"
 
 ##@ Build
 

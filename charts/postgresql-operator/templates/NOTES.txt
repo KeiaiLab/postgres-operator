@@ -8,13 +8,12 @@ keiailab/postgresql-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.A
 📋 ServiceAccount + RBAC:
   kubectl get sa,clusterrole,clusterrolebinding -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
 
-{{ if .Values.installCRDs -}}
-🧬 CRDs (PostgresCluster):
+🧬 CRDs (PostgresCluster, BackupJob):
   kubectl get crd postgresclusters.postgres.keiailab.io
-{{- else -}}
-⚠️ CRDs are NOT installed by this chart (installCRDs=false). Apply manually:
-  kubectl apply -f https://github.com/keiailab/postgres-operator/releases/download/v{{ .Chart.AppVersion }}/install.yaml
-{{- end }}
+  kubectl get crd backupjobs.postgres.keiailab.io
+
+CRD lifecycle을 별도로 관리하려면 설치 시 Helm 기본 옵션을 사용:
+  helm install {{ .Release.Name }} keiailab/postgresql-operator --skip-crds
 
 {{ if .Values.networkPolicies.enabled -}}
 🔒 NetworkPolicies (data plane default-deny + cluster-internal allow):
@@ -37,7 +36,7 @@ keiailab/postgresql-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.A
 {{- end }}
 
 📚 다음 단계:
-  - PostgresCluster 샘플:  kubectl apply -f https://raw.githubusercontent.com/keiailab/postgres-operator/main/config/samples/postgres_v1alpha1_postgrescluster.yaml
+  - PostgresCluster 샘플:  kubectl apply -f https://raw.githubusercontent.com/keiailab/postgres-operator/main/config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
   - 문서 / ADR:            https://github.com/keiailab/postgres-operator/tree/main/docs
   - 로드맵:                https://github.com/keiailab/postgres-operator/blob/main/docs/roadmap.md
 

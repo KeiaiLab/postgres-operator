@@ -12,11 +12,14 @@
 # ============================================================================
 image:
   # 운영 시 사용자 registry로 override 권장.
-  repository: ghcr.io/keiailab/postgresql-operator
+  repository: ghcr.io/keiailab/postgres-operator
   # 비워두면 Chart.yaml의 appVersion이 자동 적용됨 (templates/_helpers.tpl).
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
 
 # ============================================================================
 # Deployment topology
@@ -68,13 +71,6 @@ rbac:
   # ClusterRole + ClusterRoleBinding을 chart가 생성할지 여부.
   # multi-tenant 환경에서 false로 두고 별도 RBAC 적용 가능.
   create: true
-
-# ============================================================================
-# CRD 설치
-# ============================================================================
-# CRD를 chart가 같이 설치할지 여부. 별도 lifecycle 관리(예: ArgoCD CRD sync)
-# 시 false로 두고 사용자가 kubectl apply로 별도 적용.
-installCRDs: true
 
 # ============================================================================
 # NetworkPolicy (P0-3, ADR 0006 §NetworkPolicy)

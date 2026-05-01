@@ -1,0 +1,12 @@
+# Helm package에서 제외할 로컬 파일 패턴.
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*~
+.idea/
+.vscode/
+tests/
+test/
