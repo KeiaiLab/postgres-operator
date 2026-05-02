@@ -13,44 +13,27 @@ package controller
 import "fmt"
 
 // 본 파일은 reconciler가 생성하는 K8s 자원 이름을 단일 출처로 모은다.
-// 여기서 한 번 정의된 명명 규약은 build/images/Dockerfile, charts/, e2e
-// 테스트, 그리고 사용자 가이드(docs/guides/)의 단일 진실이다.
-//
-// 명명 원칙:
-//   - 모든 자원 이름은 PostgresCluster.metadata.name 접두사를 사용한다.
-//   - 역할(coordinator/worker/router)은 두 번째 토큰.
-//   - worker pool 이름은 세 번째 토큰.
-//   - K8s lease는 ADR 0002 §결과의 명명 규약 "<cluster>-<role>-primary"를 따름.
+// 명명 규약은 RFC 0001 PostgresCluster CRD v2 의 shard ordinal 모델을 따른다:
+//   - 자원 이름은 PostgresCluster.metadata.name 접두사를 사용한다.
+//   - 역할은 "shard" 또는 "router".
+//   - shard 식별자는 0-based ordinal (e.g. shard-0, shard-1).
+//   - K8s lease는 ADR 0002 명명 규약 "<cluster>-<role>-primary"를 따름.
 
-// CoordinatorStatefulSetName은 coordinator StatefulSet의 이름을 반환한다.
-func CoordinatorStatefulSetName(cluster string) string {
-	return fmt.Sprintf("%s-coordinator", cluster)
+// ShardStatefulSetName은 shard ordinal 의 StatefulSet 이름을 반환한다.
+// StatefulSet 의 pod 들은 <name>-0 (primary), <name>-1.. (async replicas) 가 된다.
+func ShardStatefulSetName(cluster string, ordinal int32) string {
+	return fmt.Sprintf("%s-shard-%d", cluster, ordinal)
 }
 
-// CoordinatorServiceName은 coordinator의 headless Service 이름을 반환한다.
-// StatefulSet의 안정적 DNS는 <pod>.<service>.<namespace>.svc.cluster.local 형태.
-func CoordinatorServiceName(cluster string) string {
-	return fmt.Sprintf("%s-coordinator", cluster)
+// ShardServiceName은 shard 의 headless Service 이름을 반환한다.
+// pod 의 안정적 DNS = <pod>.<service>.<ns>.svc.cluster.local.
+func ShardServiceName(cluster string, ordinal int32) string {
+	return fmt.Sprintf("%s-shard-%d-headless", cluster, ordinal)
 }
 
-// CoordinatorConfigMapName은 coordinator의 postgresql.conf 등을 담는 ConfigMap 이름.
-func CoordinatorConfigMapName(cluster string) string {
-	return fmt.Sprintf("%s-coordinator-config", cluster)
-}
-
-// WorkerStatefulSetName은 worker pool의 StatefulSet 이름을 반환한다.
-func WorkerStatefulSetName(cluster, pool string) string {
-	return fmt.Sprintf("%s-worker-%s", cluster, pool)
-}
-
-// WorkerServiceName은 worker pool의 headless Service 이름을 반환한다.
-func WorkerServiceName(cluster, pool string) string {
-	return fmt.Sprintf("%s-worker-%s", cluster, pool)
-}
-
-// WorkerConfigMapName은 worker pool의 ConfigMap 이름을 반환한다.
-func WorkerConfigMapName(cluster, pool string) string {
-	return fmt.Sprintf("%s-worker-%s-config", cluster, pool)
+// ShardConfigMapName은 shard 의 postgresql.conf 등을 담는 ConfigMap 이름.
+func ShardConfigMapName(cluster string, ordinal int32) string {
+	return fmt.Sprintf("%s-shard-%d-config", cluster, ordinal)
 }
 
 // RouterDeploymentName은 QueryRouter Deployment 이름을 반환한다.
@@ -59,7 +42,7 @@ func RouterDeploymentName(cluster string) string {
 	return fmt.Sprintf("%s-router", cluster)
 }
 
-// RouterServiceName은 클라이언트 진입점이 되는 Service 이름을 반환한다.
+// RouterServiceName은 클라이언트 진입점이 되는 ClusterIP Service 이름을 반환한다.
 // 사용자가 "host=<cluster>-router" 형태로 접속.
 func RouterServiceName(cluster string) string {
 	return fmt.Sprintf("%s-router", cluster)
@@ -70,17 +53,20 @@ func RouterConfigMapName(cluster string) string {
 	return fmt.Sprintf("%s-router-config", cluster)
 }
 
-// SelectorLabels는 부모 PostgresCluster + 역할 + (선택) pool 식별 레이블이다.
+// SelectorLabels는 부모 PostgresCluster + 역할 + shard ordinal 식별 레이블이다.
 // reconciler가 Service의 selector와 Pod template label에 동일하게 적용한다.
-func SelectorLabels(cluster, role, pool string) map[string]string {
+//
+// router 처럼 shard 차원이 없는 자원은 ordinal=-1 을 전달한다 — 이때 pool 레이블
+// 자체가 부재한다 (router 의 backend 는 모든 shard 이므로 ordinal 분리 무의미).
+func SelectorLabels(cluster, role string, shardOrdinal int32) map[string]string {
 	out := map[string]string{
 		"app.kubernetes.io/name":       "postgrescluster",
 		"app.kubernetes.io/instance":   cluster,
 		"app.kubernetes.io/component":  role,
 		"app.kubernetes.io/managed-by": "keiailab-postgres-operator",
 	}
-	if pool != "" {
-		out["postgres.keiailab.io/pool"] = pool
+	if shardOrdinal >= 0 {
+		out["postgres.keiailab.io/shard"] = fmt.Sprintf("%d", shardOrdinal)
 	}
 	return out
 }

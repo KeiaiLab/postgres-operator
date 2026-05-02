@@ -79,8 +79,9 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 	}
 	sts := buildPGStatefulSet(
 		cluster,
-		"test-coord", "test-svc", "coordinator", "",
-		"example.com/postgres:18", "test-cm",
+		"test-shard-0", "test-shard-0-headless", "shard",
+		0,
+		"example.com/postgres:18", "test-shard-0-config",
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},

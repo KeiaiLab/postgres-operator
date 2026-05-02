@@ -44,7 +44,8 @@ import (
 // 본 인터페이스는 0.3.0-alpha 시점에 alpha-frozen.
 type ShardingPlugin interface {
 	// Name은 본 플러그인의 고유 식별자.
-	// PostgresClusterSpec.Sharding.Backend 와 일치해야 한다.
+	// PostgresClusterSpec.ShardingMode 가 "native" 일 때 활성화되며, 본 인터페이스의
+	// 단일 native 구현이 reconciler 에 의해 선택된다 (RFC 0001 §3.1, RFC 0005 §2A).
 	Name() string
 
 	// Capabilities는 본 백엔드가 지원하는 기능 집합을 보고한다.
