@@ -5,18 +5,18 @@
 apiVersion: v2
 name: postgresql-operator
 description: |
-  Apache-2.0 PostgreSQL Kubernetes operator. Vanilla PostgreSQL (default, Stable) +
-  5-interface Plugin SDK + stateless QueryRouter. PGO-class single-PG HA quality
-  is delivered as built-in baseline. Distributed SQL via opt-in Citus extension
-  (AGPL-3.0, Beta) or upcoming native sharding plugin (RFC 0005). See ADR 0010.
+  K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
+  dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
+  SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005
+  로 단계 도입 (ADR 0001 keystone).
 type: application
 kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — alpha 단계, breaking change 가능. SemVer 준수.
-version: 0.2.0-alpha
+version: 0.3.0-alpha
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
-appVersion: "0.2.0-alpha"
+appVersion: "0.3.0-alpha"
 
 home: https://github.com/keiailab/postgres-operator
 sources:
@@ -54,7 +54,7 @@ annotations:
       version: v1alpha1
       name: postgresclusters.postgres.keiailab.io
       displayName: PostgresCluster
-      description: coordinator, worker pool, stateless router로 구성된 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, Citus 통합은 ADR 0010 opt-in)
+      description: coordinator, worker pool, stateless router 로 구성된 자체 분산 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, ADR 0001 자체 분산 SQL).
     - kind: BackupJob
       version: v1alpha1
       name: backupjobs.postgres.keiailab.io
@@ -70,7 +70,6 @@ annotations:
         deployment: development
         version:
           postgres: "18"
-          # citus: 미지정 — vanilla PG (Stable). Citus opt-in 시 AGPL §13 의무 발생.
         coordinator:
           members: 1
           storage:
@@ -96,11 +95,11 @@ annotations:
         executionMode: job
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.2.0-alpha
+      image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha
   artifacthub.io/changes: |
     - kind: changed
-      description: "0.2.0-alpha (ADR 0010) — default stack을 vanilla PG18로 전환. Citus 통합은 Beta opt-in으로 격리 (AGPL-3.0 §13 SaaS 의무를 사용자가 부담). Native sharding plugin RFC 0005 진행 중."
+      description: "0.3.0-alpha — 자체 분산 SQL keystone (ADR 0001). AGPL/BUSL 백엔드 의존 영구 제거 (ADR 0003). VersionSpec.Citus + ShardingSpec.Backend=citus 폐기 (BREAKING)."
+    - kind: removed
+      description: "internal/citus/ + internal/plugin/extension/citus/ 패키지 제거. CITUS_LIBPQ_DSN 환경 변수 폐기. citus extension Helm values 제거."
     - kind: added
-      description: PG 18.3 Stable 채널 진입 (vanilla). PG 16/17 vanilla도 Stable 유지.
-    - kind: added
-      description: ADR 0010 (license + sharding strategy) + RFC 0005 (native sharding plugin design draft).
+      description: ADR 0001 (self-built distributed SQL keystone) + ADR 0002~0005 + RFC 0001~0005 (PostgresCluster v2 / ShardRange / ShardSplitJob / pg-router / distributed-tx).

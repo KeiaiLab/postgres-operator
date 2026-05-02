@@ -8,23 +8,24 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 */
 
-// Package sharding은 RFC 0005 Native sharding plugin의 인터페이스 동결 산출물이다.
+// Package sharding은 자체 분산 SQL plugin 인터페이스 동결 산출물이다(RFC 0001~0005).
 //
-// 본 패키지는 ADR 0010 (Citus AGPL 격리) 후속으로 분산 SQL capability를
-// Apache-2.0 호환 plugin path로 제공하기 위한 *인터페이스 동결*만 다룬다.
-// 실제 구현은 Phase 2A~Phase 4의 별도 PR에서 단계적으로 진행된다.
+// 본 패키지는 ADR 0001 keystone (자체 분산 SQL) + ADR 0003 (license policy) 정책
+// 하에서 분산 SQL capability 를 Apache-2.0/BSD/MIT 호환 plugin path로 제공하기
+// 위한 *인터페이스 동결*만 다룬다. 실제 구현은 Phase P3+의 별도 PR에서 단계적으로
+// 진행된다.
 //
 // 인터페이스 동결 정책:
 //   - 본 인터페이스의 메서드 시그니처는 alpha 단계에서 추가만 허용 (non-breaking).
-//   - 기존 메서드 변경/제거는 RFC 0005 v2 또는 후속 RFC에서 일괄.
+//   - 기존 메서드 변경/제거는 후속 RFC에서 일괄.
 //   - 본 패키지는 stdlib + database/sql + context 외 외부 의존을 갖지 않는다.
 //
-// 매핑 (RFC 0005 §3):
+// 매핑 (RFC 0001~0005):
 //   - C3 placement → PreparePlacement, CreateDistributedTable
 //   - C2 executor / C1 planner → RouteQuery (단순 case) 또는 백엔드 위임
 //   - C6 reference → CreateReferenceTable
 //   - C4 rebalance → RebalanceShards
-//   - C5 2PC, C7 columnar → 본 패키지 범위 외 (Phase 3+, 별도 인터페이스로 분리 검토)
+//   - C5 2PC (RFC 0005), C7 columnar → 별도 인터페이스로 분리 검토
 package sharding
 
 import (
@@ -35,12 +36,12 @@ import (
 
 // ShardingPlugin은 분산 sharding 백엔드를 추상화한다.
 //
-// 구현 후보 (RFC 0005 §1.3):
-//   - "citus" — Citus extension 백엔드 (AGPL-3.0 opt-in, ADR 0010)
-//   - "native-fdw" — postgres_fdw 기반 hash sharding (Apache-2.0, Phase 2A)
-//   - "vitess" — 외부 Vitess gateway (Phase 2 후보)
+// 구현 후보 (RFC 0001~0005, ADR 0003 라이선스 정책 준수 필수):
+//   - "native-fdw" — postgres_fdw 기반 hash sharding (Apache-2.0, Phase P3+)
+//   - 자체 hash sharding 백엔드 (BSD/Apache/MIT/PG License 준수, Phase P4+)
+//   - AGPL/BUSL/CSL/SSPL 백엔드는 ADR 0003 에 의해 등록 금지.
 //
-// 본 인터페이스는 RFC 0005 Phase 2A (skeleton) 시점에 alpha-frozen.
+// 본 인터페이스는 0.3.0-alpha 시점에 alpha-frozen.
 type ShardingPlugin interface {
 	// Name은 본 플러그인의 고유 식별자.
 	// PostgresClusterSpec.Sharding.Backend 와 일치해야 한다.
@@ -87,7 +88,8 @@ type Capabilities struct {
 	OnlineRebalance bool
 	// ColumnarStorage: columnar access method 지원.
 	ColumnarStorage bool
-	// NativeQueryPlanner: 백엔드 자체 distributed planner 보유 (true=Citus, false=routing-only).
+	// NativeQueryPlanner: 백엔드 자체 distributed planner 보유. false면 RouterPlugin
+	// 이 자체 routing 으로 처리 (RFC 0004 stateless QueryRouter).
 	NativeQueryPlanner bool
 }
 
@@ -112,7 +114,7 @@ type NodeInfo struct {
 	Host string
 	// Port는 PostgreSQL 포트 (5432).
 	Port int32
-	// GroupID는 백엔드별 노드 식별자 (Citus pg_dist_node.groupid 등).
+	// GroupID는 백엔드별 노드 식별자 (RFC 0002 ShardRange.GroupID 매핑).
 	GroupID int32
 }
 
@@ -146,10 +148,10 @@ type RebalanceJob struct {
 }
 
 // ShardingSpec은 PostgresCluster CRD의 spec.sharding 서브필드.
-// RFC 0005 Phase 2A entry — 본 구조체는 동결되며 추가 필드만 허용.
+// 0.3.0-alpha entry — 본 구조체는 동결되며 추가 필드만 허용.
 type ShardingSpec struct {
 	// Backend는 ShardingPlugin.Name과 일치하는 백엔드 식별자.
-	// 예: "citus" (AGPL opt-in), "native-fdw" (Apache-2.0, Phase 2A).
+	// 예: "native-fdw" (Apache-2.0, Phase P3+).
 	Backend string
 	// DistributedTables는 distributed table 정의 목록.
 	DistributedTables []DistributedTableSpec

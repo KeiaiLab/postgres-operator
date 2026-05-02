@@ -35,7 +35,6 @@ helm install postgresql-operator ./charts/postgresql-operator \
 | `rbac.create` | ClusterRole/ClusterRoleBinding 생성 여부 | `true` |
 | `networkPolicies.enabled` | 데이터플레인 NetworkPolicy 생성 여부 | `true` |
 | `metrics.enabled` | manager metrics port 노출 여부 | `true` |
-| `citusLibPQ.dsn` | 실 Citus metadata sync용 libpq DSN | `""` |
 
 ## 사용자 시점 검증
 

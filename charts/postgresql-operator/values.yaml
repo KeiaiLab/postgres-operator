@@ -92,19 +92,6 @@ metrics:
     enabled: false
 
 # ============================================================================
-# Citus LibPQExecutor (opt-in, AGPL-3.0 — ADR 0010)
-# ============================================================================
-# 0.2.0-alpha 이후 default stack은 vanilla PostgreSQL. Citus 분산 SQL은 opt-in.
-# Citus 활성화 시 사용자는 Citus의 AGPL-3.0 §13 SaaS 의무를 부담한다.
-#
-# CITUS_LIBPQ_DSN 환경 변수 주입 — LibPQExecutor가 실 PG에 pg_dist_node 변경 적용.
-# 미설정(빈 문자열)이면 NullExecutor fallback. vanilla PG 사용자는 빈 문자열 유지.
-# 주의: alpha 단계 single-cluster 환경 한정. 다중 cluster 지원은 phase 2b.
-citusLibPQ:
-  dsn: ""
-  # 예 (Citus opt-in 시): "host=my-cluster-coordinator-0.svc.cluster.local port=5432 ..."
-
-# ============================================================================
 # Logging
 # ============================================================================
 log:

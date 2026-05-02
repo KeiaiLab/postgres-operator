@@ -12,7 +12,6 @@ package controller
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,10 +32,10 @@ import (
 // 검증 대상:
 //   1. coordinator/worker/router StatefulSet+Deployment+Service+ConfigMap 생성
 //   2. 각 자원의 controller owner reference가 PostgresCluster를 가리킴
-//   3. ConfigMap.Data["postgresql.conf"]에 shared_preload_libraries='citus' 포함
+//   3. ConfigMap.Data["postgresql.conf"]에 shared_preload_libraries='pgaudit' 포함
 //      (P13 SDK의 Plugin Registry 결과가 reconciler에 의해 ConfigMap에 반영됨을
-//      end-to-end로 확인 — Issue #3194 회귀 차단의 두 번째 방어선)
-//   4. status.channel = "stable" (PG17+Citus13.0 매트릭스 lookup 결과)
+//      end-to-end로 확인)
+//   4. status.channel = "stable" (PG17 vanilla 매트릭스 lookup 결과)
 //   5. ObservedGeneration이 spec generation과 일치
 
 var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
@@ -68,7 +67,7 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace},
 			Spec: postgresv1alpha1.PostgresClusterSpec{
 				Deployment: postgresv1alpha1.DeploymentDevelopment,
-				Version:    postgresv1alpha1.VersionSpec{Postgres: "17", Citus: "13.0"},
+				Version:    postgresv1alpha1.VersionSpec{Postgres: "17"},
 				Coordinator: postgresv1alpha1.CoordinatorSpec{
 					Members: 1,
 					Storage: postgresv1alpha1.StorageSpec{Size: resource.MustParse("10Gi")},
@@ -117,16 +116,16 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 			}, routerDep)
 		}, timeout, interval).Should(Succeed())
 
-		// ADR 0003 §강제: 라우터는 PVC 보유 금지. Deployment가 VolumeClaimTemplate을
+		// RFC 0004 §강제: 라우터는 PVC 보유 금지. Deployment가 VolumeClaimTemplate을
 		// 가질 수 없으므로 자연 강제되지만, 추가로 PodSpec.Volumes에 PVC 마운트가
 		// 없는지 검증한다.
 		for _, v := range routerDep.Spec.Template.Spec.Volumes {
 			Expect(v.PersistentVolumeClaim).To(BeNil(),
-				"router Pod must not mount a PersistentVolumeClaim (ADR 0003)")
+				"router Pod must not mount a PersistentVolumeClaim (RFC 0004)")
 		}
 
-		By("verifying coordinator ConfigMap contains shared_preload_libraries=citus")
-		// P13 Plugin SDK 결과가 reconciler를 통해 K8s에 반영되었는지 end-to-end 검증.
+		By("verifying coordinator ConfigMap contains shared_preload_libraries=pgaudit")
+		// Plugin SDK 결과가 reconciler를 통해 K8s에 반영되었는지 end-to-end 검증.
 		coordCM := &corev1.ConfigMap{}
 		Eventually(func() error {
 			return k8sClient.Get(ctx, types.NamespacedName{
@@ -137,7 +136,7 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 
 		conf, ok := coordCM.Data["postgresql.conf"]
 		Expect(ok).To(BeTrue(), "coordinator ConfigMap must have postgresql.conf key")
-		Expect(conf).To(ContainSubstring("shared_preload_libraries = 'citus'"),
+		Expect(conf).To(ContainSubstring("shared_preload_libraries = 'pgaudit'"),
 			"reconciler must serialize Plugin Registry result into postgresql.conf")
 
 		By("verifying worker headless Service exists")
@@ -161,9 +160,8 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 		Expect(routerSvc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 		Expect(routerSvc.Spec.ClusterIP).NotTo(Equal(corev1.ClusterIPNone))
 
-		By("verifying status.channel == beta for PG17+Citus13.0 (ADR 0010)")
-		// 0.2.0-alpha 이후 Citus 조합은 Beta 채널로 강등됨 (license 격리).
-		// vanilla PG18은 Stable. 본 테스트는 Citus opt-in 경로 검증.
+		By("verifying status.channel == stable for PG17 vanilla (ADR 0001)")
+		// 0.3.0-alpha (ADR 0001/0003): vanilla PG 단일 스택. PG16/17/18 모두 Stable.
 		Eventually(func() string {
 			updated := &postgresv1alpha1.PostgresCluster{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -172,39 +170,7 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 				return ""
 			}
 			return updated.Status.Channel
-		}, timeout, interval).Should(Equal("beta"))
-
-		By("[P11-T1] verifying Citus desired topology is surfaced in Workers[].DistNode")
-		// RFC 0002 §10 Status 반영. NullExecutor 사용 중이므로 SQL은 호출되지
-		// 않지만 desired state는 Status에 표면화되어야 함.
-		Eventually(func() *postgresv1alpha1.DistNodeRef {
-			updated := &postgresv1alpha1.PostgresCluster{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{
-				Namespace: namespace, Name: clusterName,
-			}, updated); err != nil {
-				return nil
-			}
-			if len(updated.Status.Topology.Workers) == 0 {
-				return nil
-			}
-			return updated.Status.Topology.Workers[0].DistNode
-		}, timeout, interval).ShouldNot(BeNil())
-
-		// 정확한 형식 검증.
-		updated := &postgresv1alpha1.PostgresCluster{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{
-			Namespace: namespace, Name: clusterName,
-		}, updated)).To(Succeed())
-
-		Expect(updated.Status.Topology.Workers).To(HaveLen(1))
-		dn := updated.Status.Topology.Workers[0].DistNode
-		Expect(dn).NotTo(BeNil())
-		Expect(dn.GroupID).To(Equal(int32(1)), "first worker pool must have groupid=1 (RFC 0002 §2)")
-		Expect(dn.NodePort).To(Equal(int32(5432)))
-		Expect(dn.ShouldHaveShards).To(BeTrue(), "worker default ShouldHaveShards must be true (RFC 0002 §3)")
-		Expect(dn.NodeName).To(ContainSubstring("worker-pool-a-0"),
-			"NodeName must follow Pod DNS pattern (RFC 0002 §1)")
-		Expect(dn.NodeName).To(ContainSubstring(".svc.cluster.local"))
+		}, timeout, interval).Should(Equal("stable"))
 
 		By("verifying ObservedGeneration tracks spec generation")
 		Eventually(func() int64 {
@@ -218,15 +184,17 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 		}, timeout, interval).Should(BeNumerically(">=", 1))
 	})
 
-	It("rejects unsupported version via reconciler status (defense-in-depth)", func() {
-		// webhook이 동일 검사를 하지만 본 envtest에는 webhook이 미부착이므로
-		// reconciler 측 방어가 동작함을 추가로 검증한다(defense-in-depth).
-		By("applying a CR with version not in matrix")
+	It("rejects unsupported postgres version at K8s API server (CRD enum)", func() {
+		// 0.3.0-alpha (ADR 0001): vanilla PG 단일 스택. CRD 의 kubebuilder
+		// `Enum=16;17;18` marker 가 API server 단에서 미지원 PG major 를 거절한다.
+		// reconciler 측 defense-in-depth (matrix.IsSupported) 는 enum 외 케이스
+		// (feature gate 미설정 등) 를 위한 두 번째 방어선으로 보존된다.
+		By("applying a CR with PG major not in CRD enum")
 		cr := &postgresv1alpha1.PostgresCluster{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace},
 			Spec: postgresv1alpha1.PostgresClusterSpec{
 				Deployment: postgresv1alpha1.DeploymentDevelopment,
-				Version:    postgresv1alpha1.VersionSpec{Postgres: "17", Citus: "99.99"},
+				Version:    postgresv1alpha1.VersionSpec{Postgres: "99"},
 				Coordinator: postgresv1alpha1.CoordinatorSpec{
 					Members: 1,
 					Storage: postgresv1alpha1.StorageSpec{Size: resource.MustParse("10Gi")},
@@ -239,24 +207,9 @@ var _ = Describe("PostgresCluster reconciler [P1-M1]", func() {
 				Routers: postgresv1alpha1.RouterSpec{Replicas: 1},
 			},
 		}
-		Expect(k8sClient.Create(ctx, cr)).To(Succeed())
-
-		By("expecting Ready=False with Reason=VersionRejected")
-		Eventually(func() string {
-			updated := &postgresv1alpha1.PostgresCluster{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{
-				Namespace: namespace, Name: clusterName,
-			}, updated); err != nil {
-				return ""
-			}
-			for _, c := range updated.Status.Conditions {
-				if c.Type == ConditionReady {
-					if c.Status == metav1.ConditionFalse && strings.Contains(c.Message, "supported matrix") {
-						return c.Reason
-					}
-				}
-			}
-			return ""
-		}, timeout, interval).Should(Equal(ReasonVersionRejected))
+		err := k8sClient.Create(ctx, cr)
+		Expect(err).To(HaveOccurred(), "API server must reject unsupported PG major via CRD enum")
+		Expect(err.Error()).To(ContainSubstring("spec.version.postgres"),
+			"error must point at spec.version.postgres field")
 	})
 })

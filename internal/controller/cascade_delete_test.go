@@ -66,7 +66,7 @@ var _ = Describe("Cascade Delete [ADR 0008]", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace},
 			Spec: postgresv1alpha1.PostgresClusterSpec{
 				Deployment: postgresv1alpha1.DeploymentDevelopment,
-				Version:    postgresv1alpha1.VersionSpec{Postgres: "17", Citus: "13.0"},
+				Version:    postgresv1alpha1.VersionSpec{Postgres: "17"},
 				Coordinator: postgresv1alpha1.CoordinatorSpec{
 					Members: 1,
 					Storage: postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},

@@ -4,6 +4,36 @@
 
 ## [Unreleased]
 
+## [0.3.0-alpha] - 2026-05-02
+
+### Changed (BREAKING)
+
+- **재설계**: PostgreSQL 위 자체 분산 SQL 레이어 구축으로 전환. ADR-0001 (`docs/adr/0001-self-built-distributed-sql.md`) 가 keystone 결정.
+- ADR-0010 (legacy, Citus AGPL 격리 + vanilla PG default) supersede. 본 phase 부터 Citus 코드 의존 *0줄*. Citus 격리 plugin 모델 폐기.
+- 외부 의존 라이선스 정책 (ADR-0003): BSD/Apache/MIT/PG License + v1+ stability 만. **AGPL/BUSL/CSL/SSPL 영구 금지**.
+- Helm 패키징 (ADR-0002): 단일 chart + 컴포넌트 flag (router / resharder / rebalancer / keda / backup / monitoring).
+- CRD 라이프사이클 (ADR-0004): operator manager 가 소유 (server-side apply). Helm `crds/` 디렉토리는 향후 phase 에서 폐기 예정.
+- 버전 채널 (ADR-0005): alpha (P0~P3) → beta (P4~P5) → stable (P6~). CRD apiVersion v1alpha1 → v1beta1 → v1.
+
+### Added
+
+- 신규 ADR 0001 (self-built distributed SQL — keystone), 0002 (single chart with flags), 0003 (license policy: no AGPL/BUSL/CSL/SSPL), 0004 (CRD managed by operator), 0005 (versioning and channels).
+- 신규 RFC 0001 (PostgresCluster CRD v2), 0002 (ShardRange CRD), 0003 (ShardSplitJob 7-step online resharding workflow), 0004 (pg-router architecture), 0005 (distributed transactions — 2PC + saga).
+- `README.md` 재작성 — 자체 분산 SQL 정체성, 8 phase 로드맵 (P0~P7, ~64개월), 라이선스 정책 명시.
+- `TASKS.md` 재작성 — P0 작업 표 + 다음 phase (P1) 미리보기.
+- `HANDOFF.md` 재작성 — 다음 세션 진입점, 코드 폐기 작업 격리 안내.
+
+### Archived
+
+- 기존 ADR 0001-0010 → `docs/adr/_archive/v0.x/` (git history 보존).
+- 기존 RFC 0001-0005 → `docs/rfcs/_archive/v0.x/`.
+
+### Deprecated (다음 세션 처리 예정)
+
+- `internal/citus/` 디렉토리 — ADR-0003 라이선스 정책 위반.
+- `internal/plugin/extension/citus/` 디렉토리.
+- `charts/postgresql-operator/` 의 Citus opt-in 메시징 (`citusLibPQ.dsn`, NOTES.txt AGPL 안내).
+
 ## [0.2.0-alpha] - 2026-05-01
 
 ### Changed (BREAKING)

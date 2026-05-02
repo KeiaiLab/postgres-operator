@@ -65,12 +65,6 @@ spec:
               port: healthz
             initialDelaySeconds: 5
             periodSeconds: 10
-          env:
-            {{- if .Values.citusLibPQ.dsn }}
-            # P0-6 phase 2a — LibPQExecutor 환경 변수 기반 opt-in.
-            - name: CITUS_LIBPQ_DSN
-              value: {{ .Values.citusLibPQ.dsn | quote }}
-            {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

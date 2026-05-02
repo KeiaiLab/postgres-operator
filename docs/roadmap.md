@@ -1,12 +1,12 @@
 ---
-title: "Roadmap"
+title: "Roadmap (deprecated — 0.2.x)"
 ---
 
-# 로드맵 — 14 Pillar × DoD 기반
+# 로드맵 — 14 Pillar × DoD 기반 (DEPRECATED)
 
-> **본 로드맵은 의도적으로 캘린더 날짜를 포함하지 않는다.** 진척은 시간이 아니라 각 Pillar × Maturity Level의 **명시적 통과 조건(Definition of Done)** 으로 측정한다. 외부 약속은 "active development, DoD 충족 시 릴리즈" 로 통일.
-
-이전 14 Phase × 10개월 시간선 로드맵은 폐기되었다. 사유: OSS에서 컨트리뷰터 가용성과 외부 의존(PG/Citus/K8s 릴리즈)의 변동성 때문에 캘린더는 신호가 아님. **DoD 통과**만이 의미 있는 신호. 자세한 결정 근거는 [ADR 0001 v2](adr/0001-stateless-query-router-on-citus.md), [ADR 0004](adr/0004-build-not-fork-or-layer.md) 참조.
+> **이 문서는 0.2.x 시점 14-Pillar 로드맵 자료다. 0.3.0-alpha (ADR 0001 자체 분산 SQL keystone) 채택으로 폐기되었다.**
+>
+> 현재 로드맵은 README §Roadmap 의 **8-Phase (P0~P7)** 를 참조한다. 본 파일은 history 보존용으로만 유지하며, 후속 PR 에서 archive 또는 단계적 재작성 예정.
 
 ## Maturity Level (전 Pillar 공통)
 

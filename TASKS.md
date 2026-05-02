@@ -1,102 +1,46 @@
 # TASKS — postgresql-operator
 
-> 진척 추적: roadmap.md(14 Pillar × Maturity Level) 기반. 캘린더 미사용.
-> 가중치: M0=0.25 / M1=0.5 / M2=0.75 / M3=1.0. 진척률 = Σ(가중치) ÷ 68.
+> 작업 ID: F=기능 / I=개선 / B=버그 / T=그 외. 부여 후 재사용 금지.
+> 단계: 설계(10%) / 구현(60%) / 테스트(90%) / 완료(100%).
+
+## 현재 Phase: **P0** (0.3.0-alpha — 재설계 정리)
+
+목표: 자체 분산 SQL 정체성 정착. 기존 Citus 의존 코드 폐기. ADR/RFC 0001~0005 작성. 다음 phase 진입 전 lint/test/validate PASS 보장.
 
 ## 작업 표
 
-| ID  | 기능명/요약 | 단계 | 완성도 | 의존 | 영향 | 비고 |
-|-----|-------------|------|--------|------|------|------|
-| F01 | P1 Core Lifecycle (CRD + reconciler + webhook + envtest + e2e) | 테스트 | 90% | — | F03,F04,F08 | M1 도달, b13de93. M2 게이트: e2e 매트릭스 + 회귀 |
-| F02 | P10 Extension Plugin SDK (depguard + 6 extensions) | 구현 | 60% | F08 | F11 | 3e948da. M1: 단위 ≥80% + e2e 1개 |
-| F03 | P11 Citus Topology spike (DesiredNodes + ComputeActions + SQLExecutor) | 구현 | 25% | F02 | F12 | c7823bf, M0 도달 |
-| F04 | P2 HA / Failover (election + fencing) | 테스트 | 60% | F01 | F03 | M1 도달 + P2-T2 fencing 추가. fencing 89.7%, RFC 0003 부록 A. M2 잔여: failover controller(P2-T3), pg_rewind(P2-T4), e2e 매트릭스 |
-| F05 | P3 Storage / WAL | 설계 | 0% | F01 | F09 | RFC 미작성 |
-| F06 | P4 Backup / PITR | 설계 | 0% | F04,F05 | F12 | RFC 0004 미작성 |
-| F07 | P5 Connection / Pooling (PgBouncer) | 설계 | 0% | F01 | — | RFC 미작성 |
-| F08 | P6 Observability (pgMonitor exporter) | 설계 | 0% | F01 | F04 | RFC 0007 미작성 |
-| F09 | P7 Security / TLS (cert-manager + mTLS) | 설계 | 0% | F01 | F10 | RFC 0006 미작성 |
-| F10 | P8 User / DB / RBAC | 설계 | 0% | F01,F09 | — | RFC 0006 통합 가능 |
-| F11 | P9 Upgrade (in-place + blue/green) | 설계 | 0% | F04,F06 | — | RFC 0010 미작성 |
-| F12 | P12 QueryRouter (stateless) | 설계 | 0% | F03,F07,F08 | — | RFC 0005,0009 미작성 |
-| F13 | P13 Plugin SDK (gRPC out-of-process) | 구현 | 25% | F02,F06,F08 | F02 | T1만 동결. T2~T6 후속 |
-| F14 | P14 Distribution (Helm/OLM/multi-arch) | 설계 | 0% | 모두 | — | 마지막 |
-| I01 | TASKS.md / HANDOFF.md 운영 정착 | 완료 | 100% | — | 모두 | 본 세션 도입 |
-| I02 | RFC 백로그 (0004~0012) 작성 | 설계 | 0% | 각 Pillar 진입 시 | — | 점진 작성 |
-
-## 진행 중
-
-(없음 — 다음 세션은 "다음 후보" 1순위 또는 사용자 지정으로 선택)
+| ID  | 기능명 / 요약 | 단계 | 완성도 | 의존 | 영향 | 비고 |
+|-----|---------------|------|--------|------|------|------|
+| T01 | 기존 ADR 0001-0010 → `docs/adr/_archive/v0.x/` 이동 (git mv) | 완료 | 100% | - | T03 | 2026-05-02 |
+| T02 | 기존 RFC 0001-0005 → `docs/rfcs/_archive/v0.x/` 이동 | 완료 | 100% | - | T04 | 2026-05-02 |
+| T03 | 신규 ADR 0001 (self-built distributed SQL) — keystone | 완료 | 100% | T01 | 모든 후속 | 2026-05-02 |
+| T04 | 신규 ADR 0002-0005 (helm/license/crd/versioning) | 완료 | 100% | T01,T03 | T11,T12 | 2026-05-02 |
+| T05 | 신규 RFC 0001-0005 (CRD v2 / ShardRange / split / router / dtxn) | 완료 | 100% | T02,T03 | F01~F05 | 2026-05-02 |
+| T06 | README 재작성 (자체 분산 SQL 정체성, 8 phase) | 완료 | 100% | T03 | - | 2026-05-02 |
+| T07 | TASKS.md 갱신 (본 파일) | 완료 | 100% | T06 | - | 2026-05-02 |
+| T08 | HANDOFF.md 갱신 (다음 세션 진입점) | 완료 | 100% | T07 | - | 2026-05-02 |
+| T09 | CHANGELOG.md `## [0.3.0]` 항목 추가 | 완료 | 100% | T03,T04,T05 | - | breaking change 명시 |
+| T10 | citus 코드/스키마 Full Removal — `internal/citus/` + `internal/plugin/extension/citus/` 삭제 + 14개 비-test 파일 + CRD 스키마 + Helm chart citus 잔재 제거 | 완료 | 100% | T03 | I01 | 2026-05-02 (Full removal 결정) |
+| T11 | `charts/postgresql-operator/Chart.yaml` description 갱신 + version bump 0.3.0-alpha + values/README 정리 | 완료 | 100% | T04 | - | 2026-05-02 |
+| T12 | `docs/index.md` + `docs/mint.json` 새 구조 반영 + `docs/roadmap.md` deprecated stub | 완료 | 100% | T05 | - | 2026-05-02 |
+| T13 | `make lint test validate` PASS + `helm lint --strict` PASS | 완료 | 100% | T07~T12 | - | 2026-05-02 lint 0 issues / test PASS / validate PASS |
+| T14 | git commit `feat!: 0.3.0 redesign reset` | 진행 | 60% | T13 | - | 다음 단계 |
 
 ## 차단됨
 
-(없음)
+(없음 — 모든 작업이 의존 그래프 내 진행 가능)
 
-## 다음 후보 (의존 만족 순)
+## 다음 Phase 미리보기
 
-1. F04 P2-T3 — failover controller (election holder 변경 → PG primary promote/demote). 본격 PG supervise 시작.
-2. F04 P2-T4 — pg_rewind 자동화 (fence 표시 후 인-flight write 회수).
-3. F05 P3-M1 — PVC 관리 + WAL 아카이빙 + base restore. RFC 작성 선행.
-4. F07 P5-M1 — PgBouncer 사이드카 + 독립 Deployment.
-5. F08 P6-M1 — exporter + Grafana + PrometheusRule.
-6. F02 P10-M1 — extension lifecycle e2e.
+**P1 (0.4.0 — single-shard production-ready, ~6개월)**:
+- F01 — RFC 0001 PostgresCluster CRD v2 실장 (Sharding spec 재정의, kubebuilder/CEL marker)
+- F02 — instance manager P2-T3+ (postgres 프로세스 supervise + promote/demote 실장)
+- F03 — RFC 0003 election / fencing 인터페이스 위에 실장 완성
+- F04 — pgBackRest 통합 (backup controller — `internal/controller/backup/`)
+- F05 — single-shard E2E 테스트 시나리오 재설계 (chaos-mesh primary kill → failover < 30s)
 
----
+## 영향도 추적
 
-## 품질 개선 plan (2026-04-30 — Bitnami + Crunchy PGO 교차검증)
-
-> 출처: `/Users/phil/.claude/plans/1-https-artifacthub-io-packages-helm-bit-sunny-wozniak.md` (사용자 승인 plan)
-> 19 권장사항을 P0(즉시) / P1(중기) / P2(장기) 우선순위로 분해.
-> *영향 Pillar* 컬럼은 기존 F01~F14에 매핑.
-
-### P0 (1-2 sprint, 즉시) — 6개 — **6/6 완료 (P0-6은 phase 1+2a, phase 3은 kind e2e 후속)**
-
-| ID | 권장 | 영향 Pillar | 단계 | 의존 | 완료 commit |
-|----|------|------------|------|------|-------------|
-| P0-1 | Status.Conditions reason 어휘 확장 (Promoting/Demoting/Election*/TopologyDrift/Rotating) | F04(P2), F03(P11), F09(P7) | **완료** | — | `4ec8162` (PR #1) |
-| P0-2 | 데이터플레인 PodSecurityContext defaults (runAsUser=70, readOnlyRootFs, seccomp RuntimeDefault) | F01(P1) | **완료** | — | `ae3e4e6` (PR #3, ADR 0006) |
-| P0-3 | NetworkPolicy 데이터플레인 표준 템플릿 (coordinator↔workers, router→coordinator/workers) | F01(P1), F09(P7) | **완료** | P0-2 | `5bc0199` (PR #5, ADR 0006 §NetworkPolicy) |
-| P0-4 | Cascade Delete 회귀 테스트 (Finalizer 회피 정책) | F01(P1) | **완료** | — | `fa24a66` (PR #4, ADR 0008) |
-| P0-5 | AuthPlugin.RotateSecret 인터페이스 추가 (additive, ADR 0005 §alpha rule) | F13(P13), F09(P7) | **완료** | — | `4623277` (PR #1) |
-| P0-6 | LibPQExecutor 구현 (Citus 차별화 코드 차원 잠금, P2 → P0 승격) | F03(P11) | **phase 1+2a 완료** | P0-1 | `33fef9a` (PR #6 — SQL 매핑 + 7 단위 테스트), `7efbdaf` (PR #8 — env-based opt-in 주입). phase 2b(다중 cluster) + phase 3(kind e2e) → RFC 0002 Implemented 승격은 후속. |
-
-### P1 (3-6 sprint, 중기) — 6개 — **2/6 완료**
-
-| ID | 권장 | 영향 Pillar | 단계 | 완료 commit |
-|----|------|------------|------|------|
-| P1-1 | BackupJob CRD + reconciler (BackupPlugin 첫 호출자) | F06(P4) | 설계 | (후속 PR) |
-| P1-2 | PgBouncer 사이드카 + cmd/router 통합 | F07(P5), F12(P12) | 설계 | (후속 PR) |
-| P1-3 | Monitoring/Exporter 표준 통합 (ExporterPlugin 호출자) | F08(P6) | 설계 | (후속 PR) |
-| P1-4 | Helm chart 패키징 (P14 → P1 앞당김, ADR 0007) | **신규 P1 트랙** (F14에서 분리) | **완료** (골격) | `613e6f4` (PR #11) — Chart + values + 7 templates |
-| P1-5 | ClusterUpgrade CRD 시그니처 (in-place + blue/green) | F11(P9) | 설계 | (후속 PR) |
-| P1-6 | pgBackRest 실행 모델 (BackupOptions.ExecutionMode: sidecar\|job) | F06(P4), F13(P13) | **완료** | `947653c` (PR #10) |
-
-### P2 (6+ sprint, 장기 차별화) — 7개
-
-| ID | 권장 | 영향 Pillar | 단계 | 의존 |
-|----|------|------------|------|------|
-| P2-1 | Citus rebalance / RebalanceJob CRD | F03(P11) | 설계 | P0-6 |
-| P2-2 | Worker pool zero-downtime scale | F03(P11) | 설계 | P0-6, P2-1 |
-| P2-3 | Plugin SDK wire-format golden test (reflect 기반 시그니처 hash) | F13(P13) | 설계 | — |
-| P2-4 | gRPC out-of-process plugin + reference plugin (UDS, cosign) | F13(P13) | 설계 | P2-3, P0-2 |
-| P2-5 | Declarative PgDatabase / PgRole CRD (PGO 미지원 차별화) | F10(P8), F03(P11) | 설계 | P0-5, P0-6 |
-| P2-6 | Multi-region Standby Cluster (PGO Standby 차용 + Citus geo) | F14(P14)→독립 | 설계 | P1-1, P1-6 |
-| P2-7 | Citus PGUpgrade orchestration | F11(P9), F03(P11) | 설계 | P1-5, P1-1, P2-6 |
-
-### 거버넌스 산출물 매트릭스
-
-| ID | 제목 | 트리거 권장 | 시작 상태 |
-|----|------|-----------|----------|
-| RFC 0002 | metadata-sync (기존) | P0-6 | Draft → **Implemented 예정** |
-| RFC 0004 | Backup/PITR | P1-1, P1-6 | Draft (작성 예정) |
-| RFC 0005 | QueryRouter | P1-2 | Draft (작성 예정) |
-| RFC 0006 | Security/TLS (NetworkPolicy + Auth Rotation + Role/RBAC) | P0-3, P0-5, P2-5 | Draft (작성 예정) |
-| RFC 0007 | Observability | P1-3 | Draft (작성 예정) |
-| RFC 0008 | DistributedTable 의미론 | P2-1 | Draft (작성 예정) |
-| RFC 0010 | Upgrade (Citus 절 포함) | P1-5, P2-2, P2-7 | Draft (작성 예정) |
-| RFC 0012 | Plugin SDK 안정화 | P2-3, P2-4 | Draft (작성 예정) |
-| RFC 0013 | Declarative DB/Role | P2-5 | Draft (작성 예정) |
-| RFC 0014 | Multi-region & Standby | P2-6 | Draft (작성 예정) |
-| ADR 0006 | Security Defaults Rationale | P0-2 | **Accepted (본 PR)** |
-| ADR 0007 | Helm을 P14에서 P1로 분리 | P1-4 | **Accepted (본 PR)** |
-| ADR 0008 | Finalizer 회피 정책 | P0-4 | **Accepted (본 PR)** |
+T03 (ADR 0001) 변경 시 → 모든 신규 ADR/RFC 의 References 섹션 점검.
+T05 (RFC 0001~0005) 변경 시 → P1~P6 작업 분해 재검토.
+T10 (Citus 코드 삭제) 변경 시 → `cmd/instance/main.go`, `internal/controller/postgrescluster_controller.go` import 사용처 확인 + e2e Pillar=p1 라벨 회귀.

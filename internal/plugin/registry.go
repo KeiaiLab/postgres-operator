@@ -137,9 +137,9 @@ func (r *Registry) Auth(name string) (AuthPlugin, bool) {
 // Extensions는 등록된 모든 ExtensionPlugin을 SharedPreloadOrder() 오름차순,
 // 동률 시 Name() 사전순으로 정렬해 반환한다.
 //
-// 본 정렬 규약은 Crunchy PGO Issue #3194("Citus must be first in
-// shared_preload_libraries") 회귀 방지의 핵심 메커니즘이다. P10 reconciler가
-// 본 메서드 결과를 그대로 strings.Join 하면 우선순위가 보장된다.
+// 본 정렬 규약은 ExtensionPlugin 별 SharedPreloadOrder 가 강제하는 우선순위를
+// 그대로 직렬화한다. P10 reconciler 가 본 메서드 결과를 strings.Join 하면 우선순위가
+// 보장된다.
 func (r *Registry) Extensions() []ExtensionPlugin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

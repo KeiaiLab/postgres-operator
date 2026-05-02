@@ -28,22 +28,17 @@ const (
 	DeploymentDevelopment DeploymentMode = "development"
 )
 
-// VersionSpec은 PostgreSQL × (선택적) Citus 버전 조합을 지정한다.
-// (postgres, citus) 쌍은 internal/version/matrix.go의 IsSupported를 통과해야 한다.
+// VersionSpec은 PostgreSQL 버전을 지정한다(ADR 0001, ADR 0005).
+// internal/version/matrix.go의 IsSupported를 통과해야 한다.
 //
-// 0.2.0-alpha 이후 (ADR 0010): Citus 필드는 선택. 미지정 또는 빈 문자열이면
-// vanilla PostgreSQL (Stable 채널). 값을 지정하면 Citus 통합(Beta) 활성화 — 사용자가
-// AGPL-3.0 §13 SaaS 의무를 명시 수용.
+// 0.3.0-alpha (ADR 0001/0003): vanilla PG18+ 단일 스택. AGPL/BUSL/CSL/SSPL 백엔드
+// 의존은 영구 제거되었다. 분산 SQL 기능은 자체 sharding plugin (RFC 0001~0005)
+// 으로 단계 도입된다.
 type VersionSpec struct {
-	// Postgres는 메이저 버전 문자열("16" | "17" | "18"). 0.2.0-alpha 이후 "18"이 default 권장.
+	// Postgres는 메이저 버전 문자열("16" | "17" | "18"). "18"이 default 권장.
 	// +kubebuilder:validation:Enum="16";"17";"18"
 	// +kubebuilder:validation:Required
 	Postgres string `json:"postgres"`
-
-	// Citus는 minor 단위 버전 문자열(예: "12.1", "13.0"). 0.2.0-alpha부터 선택 필드.
-	// 빈 문자열 또는 누락 시 vanilla PostgreSQL (Citus 없음). 명시 시 AGPL-3.0 라이센스 수용.
-	// +optional
-	Citus string `json:"citus,omitempty"`
 }
 
 // StorageSpec은 PVC 생성 파라미터다(RFC 0001 §3).
@@ -61,9 +56,9 @@ type StorageSpec struct {
 	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
 }
 
-// CoordinatorSpec은 Citus coordinator HA replica set을 표현한다(ADR 0003).
+// CoordinatorSpec은 분산 SQL coordinator HA replica set을 표현한다(RFC 0001).
 type CoordinatorSpec struct {
-	// Members는 RS 멤버 수. 홀수만 허용(split-brain 방지, ADR 0003).
+	// Members는 RS 멤버 수. 홀수만 허용(split-brain 방지, RFC 0003).
 	// production 모드는 ≥3, development 모드는 ≥1.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Required
@@ -78,12 +73,12 @@ type CoordinatorSpec struct {
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// ShouldHaveShards는 coordinator가 분산 테이블 shard를 보유할지 여부.
-	// nil이면 false(ADR 0003 권장).
+	// nil이면 false(RFC 0001 권장).
 	// +optional
 	ShouldHaveShards *bool `json:"shouldHaveShards,omitempty"`
 }
 
-// WorkerPoolSpec은 Citus worker pool(HA RS) 하나를 표현한다.
+// WorkerPoolSpec은 worker pool(HA RS) 하나를 표현한다.
 type WorkerPoolSpec struct {
 	// Name은 pool 식별자. 동일 클러스터 내 unique. DNS-1123 label 형식.
 	// +kubebuilder:validation:Required
@@ -117,9 +112,9 @@ type PgBouncerSpec struct {
 	MaxClientConn *int32 `json:"maxClientConn,omitempty"`
 }
 
-// RouterSpec은 stateless QueryRouter 풀 설정이다(ADR 0003).
+// RouterSpec은 stateless QueryRouter 풀 설정이다(RFC 0004).
 //
-// 본 구조체에는 Storage 필드가 의도적으로 부재한다. ADR 0003 무상태 강제를
+// 본 구조체에는 Storage 필드가 의도적으로 부재한다. RFC 0004 무상태 강제를
 // 타입 차원에서 표현하며, 사용자는 YAML에 storage를 쓸 수 없다.
 type RouterSpec struct {
 	// Replicas는 라우터 Pod 수. ≥1.
@@ -137,7 +132,7 @@ type RouterSpec struct {
 	PgBouncer PgBouncerSpec `json:"pgbouncer,omitempty"`
 }
 
-// ExtensionSpec은 활성화할 PG/Citus extension 하나를 지정한다.
+// ExtensionSpec은 활성화할 PG extension 하나를 지정한다.
 // 본 SDK의 ExtensionPlugin Registry에 등록된 이름이어야 한다.
 type ExtensionSpec struct {
 	// +kubebuilder:validation:Required
@@ -150,15 +145,15 @@ type ExtensionSpec struct {
 
 // PostgresClusterSpec은 PostgresCluster CR의 Spec이다.
 type PostgresClusterSpec struct {
-	// Version은 PG × Citus 버전 조합.
+	// Version은 PostgreSQL 버전.
 	// +kubebuilder:validation:Required
 	Version VersionSpec `json:"version"`
 
-	// Coordinator는 Citus coordinator HA RS.
+	// Coordinator는 분산 SQL coordinator HA RS.
 	// +kubebuilder:validation:Required
 	Coordinator CoordinatorSpec `json:"coordinator"`
 
-	// Workers는 Citus worker pool들. ≥1.
+	// Workers는 worker pool들. ≥1.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	Workers []WorkerPoolSpec `json:"workers"`
@@ -171,9 +166,10 @@ type PostgresClusterSpec struct {
 	// +optional
 	Extensions []ExtensionSpec `json:"extensions,omitempty"`
 
-	// Sharding은 분산 sharding 백엔드 설정 (RFC 0005, ADR 0010).
+	// Sharding은 자체 분산 sharding 백엔드 설정 (RFC 0001~0005).
 	// 미지정 시 single-node PostgreSQL (default). 지정 시 등록된 ShardingPlugin
-	// 백엔드(예: "citus" — AGPL opt-in, "native-fdw" — Phase 2A 후속)가 활성화된다.
+	// 백엔드 ("native-fdw" — Phase P3+ 후속)가 활성화된다. 외부 AGPL/BUSL 백엔드는
+	// ADR 0003에 의해 영구 금지된다.
 	// +optional
 	Sharding *ShardingSpec `json:"sharding,omitempty"`
 
@@ -183,16 +179,16 @@ type PostgresClusterSpec struct {
 	Deployment DeploymentMode `json:"deployment,omitempty"`
 }
 
-// ShardingSpec은 분산 sharding 백엔드 설정 (RFC 0005 Phase 2A entry).
+// ShardingSpec은 자체 분산 sharding 백엔드 설정 (RFC 0001~0005 entry).
 //
 // 본 구조체는 internal/plugin/sharding.ShardingSpec과 의미 1:1 매핑이지만, CRD
 // schema 노출용으로 별도 정의한다(controller-gen이 internal package를 schema로
 // 직렬화하지 않음). reconciler가 본 구조체를 sharding.ShardingSpec으로 변환한다.
 type ShardingSpec struct {
 	// Backend는 ShardingPlugin.Name 식별자.
-	// "citus": Citus extension 백엔드 (AGPL-3.0 opt-in, ADR 0010 §13 의무 발생).
-	// "native-fdw": postgres_fdw 기반 hash sharding (Apache-2.0, RFC 0005 Phase 2A — 후속).
-	// +kubebuilder:validation:Enum=citus;native-fdw
+	// "native-fdw": postgres_fdw 기반 hash sharding (Apache-2.0, Phase P3+ 후속).
+	// 외부 AGPL/BUSL 백엔드는 ADR 0003에 의해 등록 금지.
+	// +kubebuilder:validation:Enum=native-fdw
 	// +kubebuilder:validation:Required
 	Backend string `json:"backend"`
 
@@ -252,7 +248,7 @@ type NodeStatus struct {
 	LeaseHolder string `json:"leaseHolder,omitempty"`
 }
 
-// DistNodeRef는 pg_dist_node에 등록된 node 정보를 K8s에 반영한다.
+// DistNodeRef는 분산 SQL 메타데이터에 등록된 node 정보를 K8s에 반영한다(RFC 0002).
 type DistNodeRef struct {
 	GroupID          int32  `json:"groupId"`
 	NodeName         string `json:"nodeName"`
@@ -267,7 +263,7 @@ type WorkerPoolStatus struct {
 	// Node는 본 worker pool의 RS 상태.
 	Node NodeStatus `json:"node"`
 
-	// DistNode는 pg_dist_node 등록 결과.
+	// DistNode는 분산 SQL 메타데이터 등록 결과(RFC 0002).
 	// +optional
 	DistNode *DistNodeRef `json:"distNode,omitempty"`
 }
@@ -278,7 +274,7 @@ type RouterPoolStatus struct {
 	ReadyReplicas int32 `json:"readyReplicas"`
 
 	// MaxMetadataLagSeconds는 모든 라우터 Pod 중 router_metadata_lag_seconds
-	// 메트릭의 최댓값. 임계치 초과 시 라우터 Pod readiness가 실패한다(ADR 0003).
+	// 메트릭의 최댓값. 임계치 초과 시 라우터 Pod readiness가 실패한다(RFC 0004).
 	// +optional
 	MaxMetadataLagSeconds *string `json:"maxMetadataLagSeconds,omitempty"`
 }
@@ -315,13 +311,12 @@ type PostgresClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=pgc
 // +kubebuilder:printcolumn:name="PG",type=string,JSONPath=".spec.version.postgres"
-// +kubebuilder:printcolumn:name="Citus",type=string,JSONPath=".spec.version.citus"
 // +kubebuilder:printcolumn:name="Workers",type=integer,JSONPath=".spec.workers[*].members"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Channel",type=string,JSONPath=".status.channel"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
-// PostgresCluster는 Citus 분산 PostgreSQL 클러스터의 선언적 표현이다.
+// PostgresCluster는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적 표현이다(ADR 0001).
 type PostgresCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

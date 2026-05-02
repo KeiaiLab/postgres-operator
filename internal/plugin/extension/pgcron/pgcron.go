@@ -10,8 +10,8 @@ You may obtain a copy of the License at
 
 // Package pgcron은 pg_cron extension의 ExtensionPlugin 구현이다.
 //
-// SharedPreloadOrder=200. citus/pgaudit 뒤. Citus 분산 환경에서 cron job은
-// coordinator에서만 실행되도록 P11에서 추가 가드를 둔다.
+// SharedPreloadOrder=200. pgaudit (100) 뒤. 분산 환경에서 cron job 은 coordinator
+// 에서만 실행되도록 RFC 0002 ShardRange 도입 후 추가 가드를 둔다.
 package pgcron
 
 import (

@@ -66,9 +66,9 @@ type BackupPlugin interface {
 	PerformBackup(ctx context.Context, target ClusterTarget, opts BackupOptions) (BackupResult, error)
 
 	// RestorePIT은 target을 ts 시점으로 복구한다(Point-In-Time Recovery).
-	// Pillar P11(Citus) 분산 PITR 시 본 메서드는 단일 PG 인스턴스에 대해서만
-	// 호출되며, 분산 named restore point 강제(2PC 조정)는 본 SDK 외부의
-	// internal/controller/citus가 책임진다.
+	// 분산 PITR 시 본 메서드는 단일 PG 인스턴스에 대해서만 호출되며, 분산 named
+	// restore point 강제(2PC 조정)는 RFC 0005 distributed transactions 후속에서
+	// 별도 reconciler가 책임진다.
 	RestorePIT(ctx context.Context, target ClusterTarget, ts time.Time) error
 
 	// Validate는 사용자가 작성한 BackupSpec이 본 플러그인 관점에서 합법인지
@@ -159,15 +159,15 @@ type ExporterPlugin interface {
 
 // ExtensionPlugin은 PostgreSQL extension의 install/preload/post-init 훅을
 // 추상화한다. Pillar P10(Extensions) reconciler가 본 인터페이스를 통해
-// shared_preload_libraries 우선순위를 결정한다(Citus는 0번, pgaudit는 100번).
+// shared_preload_libraries 우선순위를 결정한다 (낮은 숫자가 앞쪽 — pgaudit=100,
+// pg_cron=200 등).
 //
-// 우선순위 정책의 정확성은 Crunchy PGO Issue #3194("Citus must be first in
-// shared_preload_libraries")의 회귀 테스트로 보장한다.
+// 정렬 규약 (낮은 숫자가 먼저 로드) 의 정확성은 본 SDK 의 회귀 테스트로 보장한다.
 type ExtensionPlugin interface {
 	Name() string
 
 	// SharedPreloadOrder는 shared_preload_libraries 문자열 내 등장 순서를
-	// 결정하는 정수 키다. 작을수록 앞쪽. citus=0, pgaudit=100, pg_cron=200 등.
+	// 결정하는 정수 키다. 작을수록 앞쪽. pgaudit=100, pg_cron=200 등.
 	// 동률은 Name() 사전순.
 	SharedPreloadOrder() int
 
@@ -176,7 +176,7 @@ type ExtensionPlugin interface {
 	PreInstall(ctx context.Context, conn *sql.DB) error
 
 	// PostInstall은 CREATE EXTENSION 호출 후 실행되는 SQL 훅이다.
-	// (예: SELECT citus_set_coordinator_host(...))
+	// (예: extension 별 초기 설정 SQL)
 	PostInstall(ctx context.Context, conn *sql.DB) error
 
 	// Validate는 사용자가 지정한 version 문자열이 본 extension에서 지원되는지
@@ -188,11 +188,11 @@ type ExtensionPlugin interface {
 // RouterPlugin
 // ----------------------------------------------------------------------------
 
-// RouterPlugin은 QueryRouter 라우팅 정책을 추상화한다. 디폴트는 "citus"
-// 플러그인(Citus 11+ metadata-synced PG + PgBouncer 사이드카)이며, 향후
-// Vitess-style 또는 사용자 정의 라우터를 추가할 수 있다.
+// RouterPlugin은 QueryRouter 라우팅 정책을 추상화한다. 0.3.0-alpha 디폴트는
+// 자체 stateless QueryRouter (RFC 0004) 이며, 향후 사용자 정의 라우터 또는
+// 외부 Apache-2.0 라우터(예: Vitess-style)를 추가할 수 있다.
 //
-// PostgresCluster CR(또는 RFC 0009 결정에 따라 별도 QueryRouter CR)의
+// PostgresCluster CR(또는 RFC 0004 결정에 따라 별도 QueryRouter CR)의
 // Spec.Router 필드가 어느 RouterPlugin을 사용할지 결정한다.
 type RouterPlugin interface {
 	Name() string

@@ -20,9 +20,6 @@ spec:
     - jsonPath: .spec.version.postgres
       name: PG
       type: string
-    - jsonPath: .spec.version.citus
-      name: Citus
-      type: string
     - jsonPath: .spec.workers[*].members
       name: Workers
       type: integer
@@ -38,7 +35,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: PostgresCluster는 Citus 분산 PostgreSQL 클러스터의 선언적 표현이다.
+        description: PostgresCluster는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적 표현이다(ADR
+          0001).
         properties:
           apiVersion:
             description: |-
@@ -61,11 +59,11 @@ spec:
             description: PostgresClusterSpec은 PostgresCluster CR의 Spec이다.
             properties:
               coordinator:
-                description: Coordinator는 Citus coordinator HA RS.
+                description: Coordinator는 분산 SQL coordinator HA RS.
                 properties:
                   members:
                     description: |-
-                      Members는 RS 멤버 수. 홀수만 허용(split-brain 방지, ADR 0003).
+                      Members는 RS 멤버 수. 홀수만 허용(split-brain 방지, RFC 0003).
                       production 모드는 ≥3, development 모드는 ≥1.
                     format: int32
                     minimum: 1
@@ -132,7 +130,7 @@ spec:
                   shouldHaveShards:
                     description: |-
                       ShouldHaveShards는 coordinator가 분산 테이블 shard를 보유할지 여부.
-                      nil이면 false(ADR 0003 권장).
+                      nil이면 false(RFC 0001 권장).
                     type: boolean
                   storage:
                     description: Storage는 PVC 사양.
@@ -171,7 +169,7 @@ spec:
                 description: Extensions는 활성화할 확장 목록.
                 items:
                   description: |-
-                    ExtensionSpec은 활성화할 PG/Citus extension 하나를 지정한다.
+                    ExtensionSpec은 활성화할 PG extension 하나를 지정한다.
                     본 SDK의 ExtensionPlugin Registry에 등록된 이름이어야 한다.
                   properties:
                     name:
@@ -277,17 +275,17 @@ spec:
                 type: object
               sharding:
                 description: |-
-                  Sharding은 분산 sharding 백엔드 설정 (RFC 0005, ADR 0010).
+                  Sharding은 자체 분산 sharding 백엔드 설정 (RFC 0001~0005).
                   미지정 시 single-node PostgreSQL (default). 지정 시 등록된 ShardingPlugin
-                  백엔드(예: "citus" — AGPL opt-in, "native-fdw" — Phase 2A 후속)가 활성화된다.
+                  백엔드 ("native-fdw" — Phase P3+ 후속)가 활성화된다. 외부 AGPL/BUSL 백엔드는
+                  ADR 0003에 의해 영구 금지된다.
                 properties:
                   backend:
                     description: |-
                       Backend는 ShardingPlugin.Name 식별자.
-                      "citus": Citus extension 백엔드 (AGPL-3.0 opt-in, ADR 0010 §13 의무 발생).
-                      "native-fdw": postgres_fdw 기반 hash sharding (Apache-2.0, RFC 0005 Phase 2A — 후속).
+                      "native-fdw": postgres_fdw 기반 hash sharding (Apache-2.0, Phase P3+ 후속).
+                      외부 AGPL/BUSL 백엔드는 ADR 0003에 의해 등록 금지.
                     enum:
-                    - citus
                     - native-fdw
                     type: string
                   defaultShardCount:
@@ -341,16 +339,11 @@ spec:
                 - backend
                 type: object
               version:
-                description: Version은 PG × Citus 버전 조합.
+                description: Version은 PostgreSQL 버전.
                 properties:
-                  citus:
-                    description: |-
-                      Citus는 minor 단위 버전 문자열(예: "12.1", "13.0"). 0.2.0-alpha부터 선택 필드.
-                      빈 문자열 또는 누락 시 vanilla PostgreSQL (Citus 없음). 명시 시 AGPL-3.0 라이센스 수용.
-                    type: string
                   postgres:
-                    description: Postgres는 메이저 버전 문자열("16" | "17" | "18"). 0.2.0-alpha
-                      이후 "18"이 default 권장.
+                    description: Postgres는 메이저 버전 문자열("16" | "17" | "18"). "18"이 default
+                      권장.
                     enum:
                     - "16"
                     - "17"
@@ -360,9 +353,9 @@ spec:
                 - postgres
                 type: object
               workers:
-                description: Workers는 Citus worker pool들. ≥1.
+                description: Workers는 worker pool들. ≥1.
                 items:
-                  description: WorkerPoolSpec은 Citus worker pool(HA RS) 하나를 표현한다.
+                  description: WorkerPoolSpec은 worker pool(HA RS) 하나를 표현한다.
                   properties:
                     members:
                       description: Members는 RS 멤버 수. 홀수, ≥1.
@@ -566,7 +559,7 @@ spec:
                       maxMetadataLagSeconds:
                         description: |-
                           MaxMetadataLagSeconds는 모든 라우터 Pod 중 router_metadata_lag_seconds
-                          메트릭의 최댓값. 임계치 초과 시 라우터 Pod readiness가 실패한다(ADR 0003).
+                          메트릭의 최댓값. 임계치 초과 시 라우터 Pod readiness가 실패한다(RFC 0004).
                         type: string
                       readyReplicas:
                         description: ReadyReplicas는 Ready 조건을 통과한 라우터 Pod 수.
@@ -580,7 +573,7 @@ spec:
                       description: WorkerPoolStatus는 worker pool 하나의 상태다.
                       properties:
                         distNode:
-                          description: DistNode는 pg_dist_node 등록 결과.
+                          description: DistNode는 분산 SQL 메타데이터 등록 결과(RFC 0002).
                           properties:
                             groupId:
                               format: int32

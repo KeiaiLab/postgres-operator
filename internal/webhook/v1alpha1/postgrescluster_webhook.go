@@ -22,8 +22,8 @@ You may obtain a copy of the License at
 //  2. workers[].members 홀수 + ≥1
 //  3. workers[].name DNS-1123 + 동일 클러스터 내 unique
 //  4. routers.replicas ≥1 (CRD minimum과 중복이지만 명시적 강제)
-//  5. (postgres, citus) ∈ matrix.IsSupported (vanilla PG는 citus="").
-//     0.2.0-alpha (ADR 0010) 이후 PG18+vanilla이 Stable. Citus 조합은 Beta.
+//  5. postgres ∈ matrix.IsSupported. 0.3.0-alpha (ADR 0001) 이후 vanilla PG18+
+//     단일 스택. AGPL/BUSL 백엔드 영구 금지 (ADR 0003).
 //  6. deployment=production이면 coordinator.members ≥3, workers[].members ≥3
 //  7. extensions[].name 화이트리스트 — 본 webhook은 P10-T2 시점에 활성화
 //     (현재는 ExtensionPlugin Registry에 등록된 이름만 허용)
@@ -101,17 +101,17 @@ func (w *PostgresClusterWebhook) ValidateDelete(_ context.Context, _ *postgresv1
 func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (admission.Warnings, error) {
 	gv := schema.GroupKind{Group: postgresv1alpha1.GroupVersion.Group, Kind: "PostgresCluster"}
 
-	// 1) 버전 매트릭스 검증 (ADR 0010 이후 PG18 Stable, Citus 조합은 Beta opt-in).
-	if _, ok := version.IsSupported(c.Spec.Version.Postgres, c.Spec.Version.Citus, w.FeatureGates); !ok {
+	// 1) 버전 매트릭스 검증 (ADR 0001: vanilla PG18+ 단일 스택).
+	if _, ok := version.IsSupported(c.Spec.Version.Postgres, w.FeatureGates); !ok {
 		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.version",
-			fmt.Sprintf("(postgres=%q, citus=%q) is not in supported matrix (see internal/version/matrix.go)",
-				c.Spec.Version.Postgres, c.Spec.Version.Citus)))
+			fmt.Sprintf("postgres=%q is not in supported matrix (see internal/version/matrix.go)",
+				c.Spec.Version.Postgres)))
 	}
 
 	// 2) coordinator.members 홀수 + production 하한
 	if c.Spec.Coordinator.Members%2 == 0 {
 		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.coordinator.members",
-			fmt.Sprintf("must be odd (got %d) to prevent split-brain in lease election (ADR 0003)", c.Spec.Coordinator.Members)))
+			fmt.Sprintf("must be odd (got %d) to prevent split-brain in lease election (RFC 0003)", c.Spec.Coordinator.Members)))
 	}
 	if isProduction(c) && c.Spec.Coordinator.Members < 3 {
 		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.coordinator.members",

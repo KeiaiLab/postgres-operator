@@ -36,8 +36,8 @@ import (
 //       Demoting      — primary → replica 강등 중
 //       ElectionWon   — election lease holder 획득
 //       ElectionLost  — election lease holder 상실(다른 후보로 전환)
-//   - Citus topology (P11-M1 이후 사용):
-//       TopologyDrift — pg_dist_node ↔ desired 사이 drift 검출
+//   - 분산 SQL topology (RFC 0002 ShardRange 도입 후 사용):
+//       TopologyDrift — 분산 메타데이터 ↔ desired 사이 drift 검출
 //   - Auth / 인증 (P7 이후 사용):
 //       Rotating      — Secret/credential 회전 진행 중
 
@@ -63,7 +63,7 @@ const (
 	ReasonElectionWon  = "ElectionWon"
 	ReasonElectionLost = "ElectionLost"
 
-	// Reasons — Citus topology (P11-M1 이후 활성)
+	// Reasons — 분산 SQL topology (RFC 0002 ShardRange 도입 후 활성)
 	ReasonTopologyDrift = "TopologyDrift"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)

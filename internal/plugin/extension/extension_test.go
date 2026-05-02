@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/keiailab/postgres-operator/internal/plugin"
-	"github.com/keiailab/postgres-operator/internal/plugin/extension/citus"
 	"github.com/keiailab/postgres-operator/internal/plugin/extension/pgaudit"
 	"github.com/keiailab/postgres-operator/internal/plugin/extension/pgcron"
 	"github.com/keiailab/postgres-operator/internal/plugin/extension/pgnodemx"
@@ -30,16 +29,15 @@ import (
 	"github.com/keiailab/postgres-operator/internal/plugin/extension/setuser"
 )
 
-// TestPreloadOrder_AllRegisteredExtensions는 본 오퍼레이터가 동봉하는 7개
+// TestPreloadOrder_AllRegisteredExtensions는 본 오퍼레이터가 동봉하는 6개
 // ExtensionPlugin이 모두 등록된 상태에서 Registry.Extensions()의 정렬 결과가
 // 결정적임을 검증한다.
 //
-// "Citus must be first" 규약(PGO Issue #3194 회귀 차단)의 통합 검증이며,
+// SharedPreloadOrder 규약 (낮은 숫자가 앞쪽) 의 회귀 차단 통합 검증이며,
 // 향후 새 ExtensionPlugin 추가 시 본 테스트의 wantNames에 위치를 명시해야
 // 한다. 추가 위치는 ADR 0005 §SharedPreloadOrder 권장 표를 참조한다.
 func TestPreloadOrder_AllRegisteredExtensions(t *testing.T) {
 	r := plugin.NewRegistry()
-	citus.Register(r)
 	pgaudit.Register(r)
 	pgcron.Register(r)
 	pgnodemx.Register(r)
@@ -49,10 +47,9 @@ func TestPreloadOrder_AllRegisteredExtensions(t *testing.T) {
 
 	got := r.Extensions()
 	// 정렬 규약: SharedPreloadOrder 오름차순, 동률 시 Name() 사전순.
-	// citus(0) → pgaudit(100) → pgvector(100) → pg_cron(200) → pgnodemx(300) →
+	// pgaudit(100) → pgvector(100) → pg_cron(200) → pgnodemx(300) →
 	// postgis(300) → set_user(300)
 	wantOrder := []string{
-		"citus",    // 0  — must be first (Issue #3194)
 		"pgaudit",  // 100
 		"pgvector", // 100 — alpha 정렬에서 pgaudit < pgvector
 		"pg_cron",  // 200
@@ -69,11 +66,6 @@ func TestPreloadOrder_AllRegisteredExtensions(t *testing.T) {
 			t.Errorf("position %d: want %q, got %q (full order: %v)",
 				i, want, got[i].Name(), namesOf(got))
 		}
-	}
-
-	// 추가 가드: 첫 번째는 무조건 citus여야 한다.
-	if got[0].Name() != "citus" {
-		t.Fatalf("CRITICAL: shared_preload_libraries[0] must be 'citus' (PGO Issue #3194), got %q", got[0].Name())
 	}
 }
 

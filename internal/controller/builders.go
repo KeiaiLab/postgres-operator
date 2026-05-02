@@ -125,9 +125,9 @@ func dataplaneEphemeralVolumes() []corev1.Volume {
 // renderSharedPreloadLibraries는 등록된 모든 ExtensionPlugin을 우선순위 순으로
 // 직렬화하여 shared_preload_libraries 값을 만든다.
 //
-// "Citus must be first" 규약은 Registry.Extensions()가 SharedPreloadOrder
-// 오름차순으로 정렬해 반환하는 것으로 보장된다(ADR 0005, registry.go:Extensions).
-// 본 함수는 그 결과를 콤마로 join 할 뿐이며, 별도 정렬 로직을 두지 않는다.
+// 우선순위는 Registry.Extensions()가 SharedPreloadOrder 오름차순으로 정렬해
+// 반환하는 것으로 보장된다(ADR 0005, registry.go:Extensions). 본 함수는 그 결과를
+// 콤마로 join 할 뿐이며, 별도 정렬 로직을 두지 않는다.
 //
 // 비어 있으면 빈 문자열 반환(예: 단위 테스트에서 Registry에 아무것도 등록 안 한
 // 경우). 그 경우 ConfigMap에서 shared_preload_libraries 라인을 생략한다.

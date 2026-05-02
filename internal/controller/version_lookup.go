@@ -19,5 +19,5 @@ import (
 // 조회한다. 본 헬퍼는 reconciler와 webhook 양쪽에서 사용되어 동일한 lookup
 // 의미를 보장한다.
 func lookupCombo(spec postgresv1alpha1.VersionSpec, gates map[string]bool) (version.Combo, bool) {
-	return version.IsSupported(spec.Postgres, spec.Citus, gates)
+	return version.IsSupported(spec.Postgres, gates)
 }

@@ -82,8 +82,8 @@ func TestRegistry_RegisterAndLookup(t *testing.T) {
 
 	r.RegisterBackup(&dummyBackup{name: "pgbackrest"})
 	r.RegisterExporter(&dummyExporter{name: "pgmonitor"})
-	r.RegisterExtension(&dummyExtension{name: "citus", order: 0})
-	r.RegisterRouter(&dummyRouter{name: "citus"})
+	r.RegisterExtension(&dummyExtension{name: "demo-ext", order: 0})
+	r.RegisterRouter(&dummyRouter{name: "demo-router"})
 	r.RegisterAuth(&dummyAuth{name: "scram"})
 
 	if p, ok := r.Backup("pgbackrest"); !ok || p.Name() != "pgbackrest" {
@@ -92,10 +92,10 @@ func TestRegistry_RegisterAndLookup(t *testing.T) {
 	if p, ok := r.Exporter("pgmonitor"); !ok || p.Name() != "pgmonitor" {
 		t.Fatalf("Exporter lookup failed: ok=%v p=%v", ok, p)
 	}
-	if p, ok := r.Extension("citus"); !ok || p.Name() != "citus" {
+	if p, ok := r.Extension("demo-ext"); !ok || p.Name() != "demo-ext" {
 		t.Fatalf("Extension lookup failed: ok=%v p=%v", ok, p)
 	}
-	if p, ok := r.Router("citus"); !ok || p.Name() != "citus" {
+	if p, ok := r.Router("demo-router"); !ok || p.Name() != "demo-router" {
 		t.Fatalf("Router lookup failed: ok=%v p=%v", ok, p)
 	}
 	if p, ok := r.Auth("scram"); !ok || p.Name() != "scram" {
@@ -142,19 +142,18 @@ func TestBackupOptions_ExecutionModeField(t *testing.T) {
 	}
 }
 
-// TestExtensions_PreloadOrder는 Crunchy PGO Issue #3194 회귀 방지 테스트다.
-// "Citus는 shared_preload_libraries의 첫 번째여야 한다"는 규약을 본 SDK가
-// SharedPreloadOrder()=0 정책으로 강제하는지 검증한다.
+// TestExtensions_PreloadOrder 는 SharedPreloadOrder 정렬 규약 (낮은 숫자가 앞쪽,
+// 동률은 사전순) 의 회귀 방지 테스트다.
 func TestExtensions_PreloadOrder(t *testing.T) {
 	r := NewRegistry()
 	// 등록 순서를 일부러 뒤섞어도 결과는 order 오름차순 + name 사전순이어야 한다.
 	r.RegisterExtension(&dummyExtension{name: "pg_cron", order: 200})
 	r.RegisterExtension(&dummyExtension{name: "pgaudit", order: 100})
-	r.RegisterExtension(&dummyExtension{name: "citus", order: 0})
+	r.RegisterExtension(&dummyExtension{name: "demo-ext", order: 0})
 	r.RegisterExtension(&dummyExtension{name: "pgvector", order: 100}) // pgaudit과 동률
 
 	got := r.Extensions()
-	wantNames := []string{"citus", "pgaudit", "pgvector", "pg_cron"}
+	wantNames := []string{"demo-ext", "pgaudit", "pgvector", "pg_cron"}
 	if len(got) != len(wantNames) {
 		t.Fatalf("expected %d extensions, got %d", len(wantNames), len(got))
 	}

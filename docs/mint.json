@@ -31,7 +31,6 @@
     {
       "group": "개념",
       "pages": [
-        "concepts/topology-citus-plus-router",
         "concepts/coordinator-worker-router",
         "concepts/metadata-sync",
         "concepts/version-matrix"
@@ -58,19 +57,21 @@
     {
       "group": "ADR",
       "pages": [
-        "adr/0001-stateless-query-router-on-citus",
-        "adr/0002-no-patroni-instance-manager",
-        "adr/0003-queryrouter-stateless-design",
-        "adr/0004-build-not-fork-or-layer",
-        "adr/0005-plugin-sdk-interface-model"
+        "adr/0001-self-built-distributed-sql",
+        "adr/0002-single-chart-with-flags",
+        "adr/0003-license-policy-no-agpl-busl",
+        "adr/0004-crd-managed-by-operator",
+        "adr/0005-versioning-and-channels"
       ]
     },
     {
       "group": "RFC",
       "pages": [
-        "rfcs/0001-crd-schema",
-        "rfcs/0002-metadata-sync",
-        "rfcs/0003-ha-election"
+        "rfcs/0001-postgrescluster-crd-v2",
+        "rfcs/0002-shardrange-crd",
+        "rfcs/0003-shardsplitjob-7step",
+        "rfcs/0004-pg-router-architecture",
+        "rfcs/0005-distributed-transactions"
       ]
     }
   ],

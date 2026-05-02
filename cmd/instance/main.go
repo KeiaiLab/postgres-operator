@@ -25,7 +25,7 @@ You may obtain a copy of the License at
 // 후속 task에서 추가될 책임:
 //   - postgres 자식 프로세스 fork + 감독 + restart 정책 (P2-T3 + P1-T3 보강)
 //   - pg_rewind 자동화 (P2-T4)
-//   - failover 시 citus_update_node 호출 (P11-T8)
+//   - failover 시 분산 SQL metadata 갱신 (RFC 0002 ShardRange 도입 후)
 package main
 
 import (
@@ -144,7 +144,7 @@ func main() {
 			}
 			logger.Info("Leadership acquired — would promote postgres to primary",
 				"identity", podName, "lease", leaseName,
-				"todo", "P2-T3 + P11-T8 supervise postgres + citus_update_node")
+				"todo", "supervise postgres process + 분산 SQL metadata 갱신 (RFC 0002 후속)")
 		},
 		OnStoppedLeading: func() {
 			// 자기 PVC를 fence 처리하여 좀비 부활 시 split-brain 방지.

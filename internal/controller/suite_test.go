@@ -32,7 +32,7 @@ import (
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
-	pluginextcitus "github.com/keiailab/postgres-operator/internal/plugin/extension/citus"
+	pluginextpgaudit "github.com/keiailab/postgres-operator/internal/plugin/extension/pgaudit"
 )
 
 // 본 파일은 envtest(in-process K8s API server + etcd)를 사용해 reconciler가
@@ -53,8 +53,8 @@ var (
 	testEnv   *envtest.Environment
 	cancelMgr context.CancelFunc
 
-	// Plugins는 reconciler가 사용하는 Registry. citus extension 1개만 등록한 상태로
-	// reconcile 결과 ConfigMap에서 shared_preload_libraries='citus'를 검증한다.
+	// Plugins 는 reconciler 가 사용하는 Registry. pgaudit extension 1개만 등록한
+	// 상태로 reconcile 결과 ConfigMap 에서 shared_preload_libraries='pgaudit' 를 검증한다.
 	testPlugins *plugin.Registry
 )
 
@@ -95,7 +95,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	testPlugins = plugin.NewRegistry()
-	pluginextcitus.Register(testPlugins)
+	pluginextpgaudit.Register(testPlugins)
 
 	Expect((&PostgresClusterReconciler{
 		Client:       mgr.GetClient(),
