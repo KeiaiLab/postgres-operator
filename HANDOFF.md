@@ -4,10 +4,11 @@
 
 ## 현재 상태 (2026-05-02)
 
-- **마지막 commit (HEAD)**: 71d2536 `fix(chart): NOTES.txt replicas 비교 type 불일치 (int64 vs float64)`
+- **마지막 commit (HEAD)**: df1f2e1 `feat!: 0.3.0-alpha redesign reset — 자체 분산 SQL, 의존 제로`
 - **브랜치**: main (릴리스 게이트는 로컬, RFC 0002 archive 적용)
-- **현재 phase**: P0 (0.3.0-alpha 재설계 정리). 진행률 ~70% (문서 reset 완료, 코드 폐기 + 검증 + 커밋 미진행).
-- **미커밋 변경**:
+- **현재 phase**: **P0 완료**. T01~T14 모두 100%. P1 (0.4.0 single-shard production-ready) 진입 대기.
+- **검증 결과**: make lint 0 issues / make test ALL PASS / make validate PASS / helm lint --strict PASS / runtime artifact citus refs 0건.
+- **이전 미커밋 변경 (이미 commit 됨)**:
   - `docs/adr/_archive/v0.x/` 디렉토리 신설 + 기존 ADR 0001~0010 이동 (`git mv`, history 보존)
   - `docs/rfcs/_archive/v0.x/` 디렉토리 신설 + 기존 RFC 0001~0005 이동
   - 신규 `docs/adr/0001-self-built-distributed-sql.md` ~ `0005-versioning-and-channels.md` (5 파일, 약 380 줄)
@@ -25,49 +26,24 @@
 4. 외부 의존 정책 (ADR-0003): BSD/Apache/MIT/PG License + v1+ stability 만. AGPL/BUSL/CSL/SSPL 영구 금지.
 5. CRD 라이프사이클은 operator manager 가 소유 (ADR-0004) — Helm `crds/` 폐기 (T10 다음 세션).
 
-## 다음 단계 (정확한 명령)
+## 다음 단계 (P1 진입 — 0.4.0 single-shard production-ready)
 
-본 세션의 P0 잔여 작업은 *코드 폐기*가 핵심이며, 테스트 회귀 영향이 큼. **다음 세션에서 격리하여 처리** 권장:
+P0 완료 (commit df1f2e1). 다음 세션은 P1 부터 시작. TASKS.md §"다음 Phase 미리보기" 의 F01~F05 가 진입점:
 
-1. **`internal/citus/` 디렉토리 삭제** (T10):
-   ```fish
-   git rm -r internal/citus/ internal/plugin/extension/citus/
-   ```
-2. **import 사용처 정리** — 다음 grep 결과가 0 건이어야 한다:
-   ```fish
-   grep -r "keiailab/postgresql-operator/internal/citus" --include="*.go"
-   grep -r "extension/citus" --include="*.go"
-   ```
-   삭제 + 관련 테스트 (`*_citus_test.go`) 정리. `cmd/instance/main.go`, `internal/controller/postgrescluster_controller.go` 의 사용처가 영향 받음.
-3. **Helm chart Chart.yaml description 갱신** (T11) — "vanilla PG (Stable, default) + 5-interface Plugin SDK + stateless QueryRouter. Distributed SQL via opt-in Citus" 메시징 제거. 신규 description 예: "K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL dependency."
-4. **`docs/index.md` 갱신** (T12) — 새 docs 구조 (architecture / adr / rfcs / api-reference / runbooks / tutorials) 반영.
-5. **검증 게이트** (T13):
-   ```fish
-   make lint test validate
-   helm lint --strict charts/postgresql-operator
-   grep -ri "citus" internal/ | grep -v "_test.go" | grep -v "^Binary"
-   # 기대: 0건
-   find docs -path '*/adr/*.md' -not -path '*/_archive/*' | wc -l   # 5
-   find docs -path '*/rfcs/*.md' -not -path '*/_archive/*' | wc -l  # 5
-   ```
-6. **커밋** (T14, 1 atomic commit, RFC 0002 No GH Actions 정책 + commits.md Conventional 준수):
-   ```
-   feat!: 0.3.0 redesign reset — 자체 분산 SQL, 의존 제로
+1. **F01 — RFC 0001 PostgresCluster CRD v2 실장** (kubebuilder/CEL marker, Sharding spec 재정의). 본 commit 의 placeholder ShardingSpec 을 RFC 0001 정의로 교체.
+2. **F02 — instance manager P2-T3+** (postgres 프로세스 supervise + promote/demote 실장). `cmd/instance/main.go` 의 todo 주석 ("supervise postgres process + 분산 SQL metadata 갱신 (RFC 0002 후속)") 가 진입점.
+3. **F03 — RFC 0003 election / fencing 인터페이스 위에 실장 완성**.
+4. **F04 — pgBackRest 통합** (`internal/controller/backup/`).
+5. **F05 — single-shard E2E 테스트 시나리오 재설계** (chaos-mesh primary kill → failover < 30s).
 
-   ADR-0001 keystone: vanilla PG18+ 위에 자체 분산 SQL 레이어 구축.
-   Citus / CNPG / Patroni / Cockroach 의존 영구 제거 (ADR-0003).
-   ...
-   BREAKING CHANGE: Citus extension support removed. AGPL/BUSL/CSL deps banned.
-
-   Refs: ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0005
-         RFC-0001, RFC-0002, RFC-0003, RFC-0004, RFC-0005
-   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-   ```
-7. **PR 메시지 (해당 시)**: `로컬 게이트 PASS:` 블록 (`standards/ci.md` §2) 추가.
+후속 정리 작업 (별도 PR 권장):
+- `docs/roadmap.md` 새 8-Phase (P0~P7) 로 본문 재작성 — 현재 deprecated stub.
+- `docs/concepts/`, `docs/how-to/`, `docs/reference/` 의 Citus 의존 표현 정리 (ADR 본문은 의도적 보존).
+- TASKS.md "Phase: P1" 섹션 신규 작성 + F01~F05 분해.
 
 ## 차단점
 
-- 없음. 코드 삭제는 단순 mechanical 작업 + 회귀 테스트 통과 검증.
+- 없음. P1 진입은 RFC 0001 CRD v2 정의를 따라 mechanical 진행 가능.
 
 ## 근거 링크
 

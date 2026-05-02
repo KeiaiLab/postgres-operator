@@ -24,7 +24,7 @@
 | T11 | `charts/postgresql-operator/Chart.yaml` description 갱신 + version bump 0.3.0-alpha + values/README 정리 | 완료 | 100% | T04 | - | 2026-05-02 |
 | T12 | `docs/index.md` + `docs/mint.json` 새 구조 반영 + `docs/roadmap.md` deprecated stub | 완료 | 100% | T05 | - | 2026-05-02 |
 | T13 | `make lint test validate` PASS + `helm lint --strict` PASS | 완료 | 100% | T07~T12 | - | 2026-05-02 lint 0 issues / test PASS / validate PASS |
-| T14 | git commit `feat!: 0.3.0 redesign reset` | 진행 | 60% | T13 | - | 다음 단계 |
+| T14 | git commit `feat!: 0.3.0-alpha redesign reset` | 완료 | 100% | T13 | - | commit df1f2e1 (2026-05-02) |
 
 ## 차단됨
 
