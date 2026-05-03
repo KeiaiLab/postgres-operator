@@ -112,6 +112,16 @@ type Supervisor interface {
 	// IsReady 는 SELECT 1 round-trip 으로 postgres 응답 확인. 실패 = false.
 	IsReady(ctx context.Context) bool
 
+	// LagBytes 는 PostgreSQL 의 WAL lag (bytes) 를 측정한다.
+	//
+	// primary: pg_stat_replication 의 max(pg_wal_lsn_diff(current, flush_lsn)).
+	//   replica 가 미연결/0 개면 0.
+	// replica: pg_wal_lsn_diff(last_receive, last_replay).
+	//
+	// 측정 실패 (쿼리 에러) 시 -1 반환 — 호출자가 N/A 표기. error 는 별도로
+	// 반환 안 함 (status reporter 가 매 5s 호출 — error spam 회피).
+	LagBytes(ctx context.Context) int64
+
 	// ExitCh 는 child 종료 통보 — 정상 종료면 nil, 비정상이면 *exec.ExitError.
 	// 채널은 한 번만 송출 후 close.
 	ExitCh() <-chan error

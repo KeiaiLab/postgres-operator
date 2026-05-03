@@ -38,6 +38,7 @@ type Mock struct {
 	SlotErr    error
 
 	Ready bool
+	Lag   int64
 	pid   int
 
 	started bool
@@ -127,6 +128,13 @@ func (m *Mock) IsReady(_ context.Context) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.Ready
+}
+
+// LagBytes 는 Lag 필드를 그대로 반환 (테스트 stub). 기본값 0.
+func (m *Mock) LagBytes(_ context.Context) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Lag
 }
 
 // ExitCh 는 시뮬레이션 채널을 반환.

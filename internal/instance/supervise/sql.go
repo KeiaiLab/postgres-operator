@@ -146,3 +146,37 @@ func (r *Real) IsReady(ctx context.Context) bool {
 	}
 	return one == 1
 }
+
+// LagBytes 는 WAL lag 를 bytes 단위로 측정한다. primary / replica 분기는
+// pg_is_in_recovery() 결과로 결정.
+//
+// primary: pg_stat_replication 의 max replication lag — flush_lsn 기준.
+//
+//	replica 가 0 개거나 미연결이면 COALESCE 로 0 반환.
+//
+// replica: 자기가 받은 WAL (last_receive) 과 적용한 WAL (last_replay) 의 차이.
+//
+// 쿼리 실패 시 -1 반환 — 호출자 (status reporter) 가 N/A 로 표기.
+func (r *Real) LagBytes(ctx context.Context) int64 {
+	db, err := r.connect()
+	if err != nil {
+		return -1
+	}
+	var inRecovery bool
+	if err := db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery); err != nil {
+		return -1
+	}
+	var lag int64
+	if inRecovery {
+		const q = `SELECT pg_wal_lsn_diff(COALESCE(pg_last_wal_receive_lsn(), '0/0'), COALESCE(pg_last_wal_replay_lsn(), '0/0'))::bigint`
+		if err := db.QueryRowContext(ctx, q).Scan(&lag); err != nil {
+			return -1
+		}
+		return lag
+	}
+	const q = `SELECT COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), flush_lsn))::bigint, 0) FROM pg_stat_replication`
+	if err := db.QueryRowContext(ctx, q).Scan(&lag); err != nil {
+		return -1
+	}
+	return lag
+}

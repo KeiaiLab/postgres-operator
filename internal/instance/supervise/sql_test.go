@@ -178,3 +178,56 @@ func TestReal_IsReady_QueryFail(t *testing.T) {
 		t.Errorf("expected ready=false on query error")
 	}
 }
+
+func TestReal_LagBytes_Primary_NoReplicas(t *testing.T) {
+	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mock.ExpectQuery(`pg_stat_replication`).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(int64(0)))
+	if got := r.LagBytes(context.Background()); got != 0 {
+		t.Errorf("expected 0 lag for primary with no replicas, got %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet: %v", err)
+	}
+}
+
+func TestReal_LagBytes_Primary_WithLag(t *testing.T) {
+	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mock.ExpectQuery(`pg_stat_replication`).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(int64(1024)))
+	if got := r.LagBytes(context.Background()); got != 1024 {
+		t.Errorf("expected lag=1024, got %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet: %v", err)
+	}
+}
+
+func TestReal_LagBytes_Replica(t *testing.T) {
+	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	mock.ExpectQuery(`pg_last_wal_receive_lsn`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_wal_lsn_diff"}).AddRow(int64(2048)))
+	if got := r.LagBytes(context.Background()); got != 2048 {
+		t.Errorf("expected replica lag=2048, got %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet: %v", err)
+	}
+}
+
+func TestReal_LagBytes_QueryError(t *testing.T) {
+	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mock.ExpectQuery(`pg_stat_replication`).
+		WillReturnError(errors.New("conn refused"))
+	if got := r.LagBytes(context.Background()); got != -1 {
+		t.Errorf("expected -1 on query error, got %d", got)
+	}
+}

@@ -344,10 +344,14 @@ func runStatusReporter(
 
 	patchOnce := func(role statusapi.Role) {
 		ready := false
+		lag := int64(-1)
 		if sup != nil {
 			probeCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			ready = sup.IsReady(probeCtx)
 			cancel()
+			lagCtx, lagCancel := context.WithTimeout(ctx, 1*time.Second)
+			lag = sup.LagBytes(lagCtx)
+			lagCancel()
 		} else {
 			ready = role == statusapi.RolePrimary || role == statusapi.RoleReplica
 		}
@@ -355,7 +359,7 @@ func runStatusReporter(
 			Role:       role,
 			Ready:      ready,
 			Endpoint:   endpoint,
-			LagBytes:   -1, // pg_stat_replication 측정은 RFC 0006 R3 후속
+			LagBytes:   lag,
 			LastUpdate: time.Now().UTC(),
 		}
 		if err := patchPodAnnotation(ctx, clientset, namespace, podName, st); err != nil {
