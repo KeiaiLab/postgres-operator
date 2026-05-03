@@ -42,6 +42,9 @@ const (
 	// pgContainerName은 PG 컨테이너의 식별자다. status 보고에서 동일 값을 참조.
 	pgContainerName = "postgres"
 
+	// bootstrapContainerName 은 init container (initdb 또는 pg_basebackup) 식별자.
+	bootstrapContainerName = "bootstrap"
+
 	// pgPort는 PostgreSQL의 표준 포트다.
 	pgPort int32 = 5432
 
@@ -352,28 +355,53 @@ func buildInstanceRoleBinding(cluster *postgresv1alpha1.PostgresCluster) *rbacv1
 	}
 }
 
-// buildInitdbContainer 는 PGDATA 가 비어 있으면 initdb 를 수행하는 init container.
+// buildBootstrapContainer 는 PGDATA 가 비어 있을 때 initdb (first-cluster bootstrap)
+// 또는 pg_basebackup (replica seeding from primary) 중 하나를 수행하는 init container.
 //
-// 재실행 안전 — PG_VERSION 파일 존재 시 즉시 종료.
-// readOnlyRootFilesystem=true 동반 시 initdb 가 /tmp 에만 임시 쓰기 — emptyDir 충분.
-// PVC FSGroup=70 으로 mount 되므로 UID 70 으로 쓰기 가능.
-func buildInitdbContainer(image, pgMajor string) corev1.Container {
+// 결정 흐름:
+//   - PG_VERSION 존재 → skip (재실행 안전)
+//   - SHARD_ORDINAL=0 또는 PRIMARY_ENDPOINT 빈 값 → initdb
+//   - 그 외 → pg_basebackup + standby.signal + primary_conninfo (postgresql.auto.conf)
+//
+// standby.signal 은 instance manager 가 leader election 결과에 따라 OnStartedLeading
+// 에서 제거하고 OnStoppedLeading 에서 재생성한다 (RFC 0006 R3 Task A).
+func buildBootstrapContainer(image, pgMajor string, shardOrdinal int32, primaryEndpoint string) corev1.Container {
+	binDir := pgBinDir(pgMajor)
 	script := `set -eu
 DATA="` + pgDataSubdir + `"
+PRIMARY_ENDPOINT="${PRIMARY_ENDPOINT:-}"
+SHARD_ORDINAL="${SHARD_ORDINAL:-0}"
+
 if [ -f "$DATA/PG_VERSION" ]; then
-  echo "PGDATA already initialized at $DATA — skipping initdb"
+  echo "PGDATA already initialized at $DATA — skipping bootstrap"
   exit 0
 fi
-mkdir -p "$DATA"
-chmod 0700 "$DATA"
-` + pgBinDir(pgMajor) + `/initdb -D "$DATA" --auth-local=trust --auth-host=scram-sha-256 --username=postgres --encoding=UTF8 --locale=C
-echo "initdb completed at $DATA"
+
+if [ "$SHARD_ORDINAL" = "0" ] || [ -z "$PRIMARY_ENDPOINT" ]; then
+  mkdir -p "$DATA"
+  chmod 0700 "$DATA"
+  ` + binDir + `/initdb -D "$DATA" --auth-local=trust --auth-host=scram-sha-256 --username=postgres --encoding=UTF8 --locale=C
+  echo "initdb completed at $DATA"
+else
+  PRIMARY_HOST="${PRIMARY_ENDPOINT%:*}"
+  PRIMARY_PORT="${PRIMARY_ENDPOINT##*:}"
+  mkdir -p "$DATA"
+  chmod 0700 "$DATA"
+  ` + binDir + `/pg_basebackup -D "$DATA" -h "$PRIMARY_HOST" -p "$PRIMARY_PORT" -U postgres --no-password --wal-method=stream --checkpoint=fast
+  touch "$DATA/standby.signal"
+  printf "primary_conninfo = 'host=%s port=%s user=postgres'\n" "$PRIMARY_HOST" "$PRIMARY_PORT" >> "$DATA/postgresql.auto.conf"
+  echo "pg_basebackup completed; standby.signal + primary_conninfo configured"
+fi
 `
 	return corev1.Container{
-		Name:            "initdb",
-		Image:           image,
-		Command:         []string{"sh", "-c"},
-		Args:            []string{script},
+		Name:    bootstrapContainerName,
+		Image:   image,
+		Command: []string{"sh", "-c"},
+		Args:    []string{script},
+		Env: []corev1.EnvVar{
+			{Name: "SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
+			{Name: "PRIMARY_ENDPOINT", Value: primaryEndpoint},
+		},
 		SecurityContext: dataplaneContainerSecurityContext(),
 		VolumeMounts: append([]corev1.VolumeMount{
 			{Name: "data", MountPath: pgDataMountPath},
@@ -425,6 +453,7 @@ func buildPGStatefulSet(
 	members int32,
 	storage postgresv1alpha1.StorageSpec,
 	resources corev1.ResourceRequirements,
+	primaryEndpoint string,
 ) *appsv1.StatefulSet {
 	labels := SelectorLabels(cluster.Name, "shard", shardOrdinal)
 
@@ -470,7 +499,7 @@ func buildPGStatefulSet(
 				Spec: corev1.PodSpec{
 					SecurityContext:    dataplanePodSecurityContext(),
 					ServiceAccountName: InstanceServiceAccountName(cluster.Name),
-					InitContainers:     []corev1.Container{buildInitdbContainer(image, pgMajor)},
+					InitContainers:     []corev1.Container{buildBootstrapContainer(image, pgMajor, shardOrdinal, primaryEndpoint)},
 					Containers: []corev1.Container{{
 						Name:            pgContainerName,
 						Image:           image,

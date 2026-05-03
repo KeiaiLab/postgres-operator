@@ -127,12 +127,23 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
 			return r.handleUpsertErr(ctx, err, "shard Service", logger)
 		}
+		// primaryEndpoint 결정: 이전 reconcile 에서 관측된 primary 가 존재하면
+		// 그 endpoint 를 init container 로 전달 → ord!=0 의 첫 부팅 시 pg_basebackup
+		// path 를 활성화한다. 없으면 빈 값 — bootstrap script 가 ord==0 또는 endpoint
+		// 부재일 때 자동으로 initdb path 로 fallback.
+		primaryEndpoint := ""
+		if int(ord) < len(cluster.Status.Shards) {
+			if p := cluster.Status.Shards[ord].Primary; p != nil {
+				primaryEndpoint = p.Endpoint
+			}
+		}
 		desiredSTS := buildPGStatefulSet(
 			&cluster, stsName, svcName,
 			ord,
 			combo.Image, cmName, combo.PostgresMajor,
 			members,
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
+			primaryEndpoint,
 		)
 		if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
 			return r.handleUpsertErr(ctx, err, "shard StatefulSet", logger)

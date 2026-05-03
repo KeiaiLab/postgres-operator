@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -85,6 +86,7 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
+		"",
 	)
 
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
@@ -104,6 +106,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
+		"",
 	)
 
 	if got, want := len(sts.Spec.Template.Spec.Containers), 1; got != want {
@@ -161,7 +164,7 @@ func TestBuildConfigMap_IncludesPGHBA(t *testing.T) {
 	}
 }
 
-func TestBuildPGStatefulSet_HasInitdbAndServiceAccount(t *testing.T) {
+func TestBuildPGStatefulSet_HasBootstrapAndServiceAccount(t *testing.T) {
 	t.Parallel()
 
 	cluster := &postgresv1alpha1.PostgresCluster{
@@ -175,6 +178,7 @@ func TestBuildPGStatefulSet_HasInitdbAndServiceAccount(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
+		"",
 	)
 	pod := &sts.Spec.Template.Spec
 	if pod.ServiceAccountName != "demo-instance" {
@@ -184,11 +188,71 @@ func TestBuildPGStatefulSet_HasInitdbAndServiceAccount(t *testing.T) {
 		t.Fatalf("init containers = %d, want 1", got)
 	}
 	init := pod.InitContainers[0]
-	if init.Name != "initdb" {
-		t.Errorf("init container name = %q, want initdb", init.Name)
+	if init.Name != bootstrapContainerName {
+		t.Errorf("init container name = %q, want bootstrap", init.Name)
 	}
 	if len(init.Command) == 0 || init.Command[0] != "sh" {
 		t.Errorf("init command should be sh -c, got %v", init.Command)
+	}
+}
+
+func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
+	t.Parallel()
+
+	c := buildBootstrapContainer("img:18", "18", 0, "")
+	if c.Name != bootstrapContainerName {
+		t.Errorf("Name = %q, want bootstrap", c.Name)
+	}
+	if len(c.Args) != 1 {
+		t.Fatalf("Args length = %d, want 1", len(c.Args))
+	}
+	script := c.Args[0]
+	if !strings.Contains(script, "initdb") {
+		t.Error("script must contain initdb")
+	}
+	// 연산자 반전 가드: bash 분기 조건의 `||` 연산자가 `&&` 등으로 뒤집히면
+	// ENV 기반 검증만으로는 잡히지 않으므로 리터럴 substring 으로 고정한다.
+	const wantBranchOperator = `[ "$SHARD_ORDINAL" = "0" ] || [ -z "$PRIMARY_ENDPOINT" ]`
+	if !strings.Contains(script, wantBranchOperator) {
+		t.Errorf("script must contain branch operator %q (operator inversion guard)", wantBranchOperator)
+	}
+	// NOTE: 단일 bash 스크립트에 양쪽 분기가 모두 들어 있으므로 "pg_basebackup
+	// 미포함" 검사는 무의미. 대신 ENV (SHARD_ORDINAL=0, PRIMARY_ENDPOINT="") 가
+	// 런타임에 initdb path 를 강제하는지로 검증한다.
+	envByName := map[string]string{}
+	for _, e := range c.Env {
+		envByName[e.Name] = e.Value
+	}
+	if got := envByName["SHARD_ORDINAL"]; got != "0" {
+		t.Errorf("SHARD_ORDINAL env = %q, want 0", got)
+	}
+	if got := envByName["PRIMARY_ENDPOINT"]; got != "" {
+		t.Errorf("PRIMARY_ENDPOINT env = %q, want empty", got)
+	}
+}
+
+func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
+	t.Parallel()
+
+	c := buildBootstrapContainer("img:18", "18", 1, "primary.svc:5432")
+	if c.Name != bootstrapContainerName {
+		t.Errorf("Name = %q, want bootstrap", c.Name)
+	}
+	script := c.Args[0]
+	for _, want := range []string{"pg_basebackup", "standby.signal", "primary_conninfo", "postgresql.auto.conf"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script missing %q", want)
+		}
+	}
+	envByName := map[string]string{}
+	for _, e := range c.Env {
+		envByName[e.Name] = e.Value
+	}
+	if got := envByName["SHARD_ORDINAL"]; got != "1" {
+		t.Errorf("SHARD_ORDINAL env = %q, want 1", got)
+	}
+	if got := envByName["PRIMARY_ENDPOINT"]; got != "primary.svc:5432" {
+		t.Errorf("PRIMARY_ENDPOINT env = %q, want primary.svc:5432", got)
 	}
 }
 
@@ -333,6 +397,7 @@ func TestBuildPGStatefulSet_ReadinessProbe_FastInitialDelay(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
+		"",
 	)
 	if got := len(sts.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers count = %d, want 1", got)
@@ -377,6 +442,7 @@ func TestBuildPGStatefulSet_DefaultResources_BurstableQoS(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{}, // empty — default 적용 기대
+		"",
 	)
 	if got := len(sts.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers count = %d, want 1", got)
@@ -415,6 +481,7 @@ func TestBuildPGStatefulSet_DefaultResources_BurstableQoS(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		customRes,
+		"",
 	)
 	gotCPU := sts2.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 	if want := resource.MustParse("500m"); gotCPU.Cmp(want) != 0 {
