@@ -29,7 +29,7 @@ import (
 //
 //	cfg := election.RealConfig{
 //	    Client:    clientset,
-//	    LeaseName: election.PrimaryLeaseName(cluster, role, pool),
+//	    LeaseName: election.PrimaryLeaseName(cluster, role, shardOrdinal),
 //	    Namespace: namespace,
 //	    Identity:  podName,
 //	    Callbacks: election.Callbacks{...},
@@ -179,18 +179,19 @@ func (r *Real) Run(ctx context.Context) error {
 // Compile-time guard.
 var _ Election = (*Real)(nil)
 
-// PrimaryLeaseName는 ADR 0002 §결과 + RFC 0003 §1의 lease 명명 규약을
-// 단일 출처로 제공한다.
+// PrimaryLeaseName은 RFC 0001 PostgresCluster CRD v2 의 shard 모델 위에서
+// lease 명명 규약을 단일 출처로 제공한다.
 //
-//	coordinator → "<cluster>-coordinator-primary"
-//	worker      → "<cluster>-worker-<pool>-primary"
+//	role="shard", shardOrdinal>=0 → "<cluster>-shard-<ordinal>-primary"
 //
-// pool=""이면 coordinator로 취급. role 인자는 본 함수에서 무시되며 호출자가
-// 의미를 결정하나, 인터페이스 일관성을 위해 보존한다.
-func PrimaryLeaseName(cluster, role, pool string) string {
-	if pool == "" {
-		return cluster + "-coordinator-primary"
+// router 는 stateless 이므로 lease 가 존재하지 않는다 — role 이 "shard" 가
+// 아니면 panic 하여 호출자 측 misuse 를 즉시 노출한다(단일 진실 강제).
+func PrimaryLeaseName(cluster, role string, shardOrdinal int32) string {
+	if role != "shard" {
+		panic(fmt.Sprintf("PrimaryLeaseName: only role=\"shard\" is supported, got %q (router has no lease)", role))
 	}
-	_ = role // 향후 다른 RS 종류(예: P12 router lease) 도입 시 분기점.
-	return cluster + "-worker-" + pool + "-primary"
+	if shardOrdinal < 0 {
+		panic(fmt.Sprintf("PrimaryLeaseName: shardOrdinal must be >=0, got %d", shardOrdinal))
+	}
+	return fmt.Sprintf("%s-shard-%d-primary", cluster, shardOrdinal)
 }

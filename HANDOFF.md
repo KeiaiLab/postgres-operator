@@ -4,11 +4,12 @@
 
 ## 현재 상태 (2026-05-03)
 
-- **마지막 commit (HEAD 직전)**: F01a — `feat!(api): RFC 0001 PostgresCluster CRD v2 schema 실장 (F01a — types/webhook only)`
-- **본 세션 신규 commit (예정)**: `feat(controller): RFC 0001 spec 기반 reconcile 본체 + envtest 재작성 (F01b)`
+- **HEAD**: T15 — `refactor(instance)!: election lease 명명 규약 shard ordinal 모델로 마이그레이션` (F02 진입 정리)
+- **HEAD~1**: F01b — `feat(controller): RFC 0001 spec 기반 reconcile 본체 + envtest 재작성`
+- **HEAD~2**: F01a — `feat!(api): RFC 0001 PostgresCluster CRD v2 schema 실장 (F01a — types/webhook only)`
 - **브랜치**: main
-- **현재 phase**: **P1 진행 중**. F01a + F01b 완료. F02 ~ F05 대기.
-- **검증 결과 (F01b)**: `make lint` 0 issues / `make test` 3 specs PASS (envtest single-shard + native multi-shard + cascade-delete) / `make validate` helm lint --strict PASS / `make manifests` idempotent.
+- **현재 phase**: **P1 진행 중**. F01a + F01b + T15 완료. F02 ~ F05 대기.
+- **검증 결과 (T15)**: `make lint` 0 issues / `make test` 모든 패키지 PASS (election cov 97.5%, controller cov 65.9%, sharding cov 100%).
 
 ## 본 세션 (F01b) 의사결정 기록
 
@@ -20,14 +21,18 @@
 6. **2026-05-03**: Reconcile cyclomatic complexity 가 31 (>30) → status 갱신부를 `applyClusterConditions` 헬퍼로 분리. 단일 책임 + 테스트 가능성 향상.
 7. **2026-05-03**: `internal/plugin/sharding/api.go` Name() doc comment 의 `PostgresClusterSpec.Sharding.Backend 와 일치` → `PostgresClusterSpec.ShardingMode 가 "native" 일 때 활성화` 로 정정. 새 spec 에 sharding 필드 부재.
 
-## 다음 단계 (F02 진입)
+## 다음 단계 (F02 본체 진입)
+
+T15 (election 인터페이스 마이그레이션) 완료 — F02 본체 진입 가능.
 
 **F02 — instance manager 본체 — postgres 프로세스 supervise + promote/demote 실장**
 
-진입점:
-1. `cmd/instance/main.go` — 현재 stub. 실 PG 프로세스 supervise (graceful start/stop/reload, signal forwarding) + readiness probe HTTP/gRPC + WAL lag 측정 + `internal/instance/election` 의 lease holder 변경 시 promote/demote.
-2. RFC 0003 (election / fencing 인터페이스) 가 이미 `internal/instance/election`, `internal/instance/fencing` 에 layer-defined 상태 — F03 에서 그 위에 active election logic 도입 (F02 는 receiver 측만).
-3. 새 `Status.Shards[].Primary.Endpoint` 갱신 — instance manager 가 자기 endpoint 를 PostgresCluster.status 로 patch 하는 sidecar 또는 controller 측 active probe 결정 필요.
+진입점 (별도 plan 사이클 권장 — T2~T3 분량):
+1. `internal/instance/supervise/` 신규 패키지 — `Supervisor` struct + `os/exec.CommandContext` 로 postgres 자식 프로세스 lifecycle 관리 (start/stop/reload/signal forwarding).
+2. `cmd/instance/main.go` 의 election callback (`OnPromote`/`OnDemote`) 안에 `pg_ctl promote` / `pg_ctl demote` 호출 wiring.
+3. Readiness probe HTTP endpoint (`pg_isready` wrapping) + WAL lag 측정 (`pg_stat_replication`).
+4. RFC 0003 (election / fencing 인터페이스) 의 active logic 은 F03 에서 — F02 는 receiver 측만.
+5. `Status.Shards[].Primary.Endpoint` 갱신 — sidecar patch vs controller active probe 결정 (별도 ADR).
 
 ## 후속 정리 작업 (F02 이후, 별도 PR)
 

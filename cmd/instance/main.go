@@ -12,8 +12,8 @@ You may obtain a copy of the License at
 //
 // 본 바이너리는 PG Pod의 PID 1로 동작하여 postgres 자식 프로세스를 supervise
 // 한다(ADR 0002). 외부 DCS(etcd/Consul) 없이 K8s API의 lease 객체를 합의
-// 메커니즘으로 사용하며, 모든 PG 인스턴스(coordinator/worker)에서 동일 코드가
-// 동작한다.
+// 메커니즘으로 사용하며, 모든 shard PG 인스턴스에서 동일 코드가 동작한다
+// (RFC 0001 v2 — coordinator/worker 모델 폐기, shard ordinal 기반).
 //
 // 본 파일의 현 책임 (P2-T2까지):
 //   - 신호 처리(SIGTERM/SIGINT graceful shutdown)
@@ -37,6 +37,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -75,12 +76,22 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	// downward API 환경 변수 (RFC 0003 §3).
+	// downward API 환경 변수 (RFC 0001 v2 — shard ordinal 기반).
+	// role 은 현재 "shard" 만 지원. router 는 별도 binary 분기 (F02b 도입).
 	podName := envOrDie("POD_NAME")
 	namespace := envOrDie("POD_NAMESPACE")
 	cluster := envOrDie("POSTGRES_CLUSTER")
 	role := envOrDie("POSTGRES_ROLE")
-	pool := os.Getenv("POSTGRES_POOL") // worker만 의미 있음
+	if role != "shard" {
+		fmt.Fprintf(os.Stderr, "instance: unsupported POSTGRES_ROLE=%q (only \"shard\" supported in this binary)\n", role)
+		os.Exit(1)
+	}
+	shardOrdinal, err := strconv.ParseInt(envOrDie("POSTGRES_SHARD_ORDINAL"), 10, 32)
+	if err != nil || shardOrdinal < 0 {
+		fmt.Fprintf(os.Stderr, "instance: POSTGRES_SHARD_ORDINAL must be a non-negative int32, got %q (err=%v)\n",
+			os.Getenv("POSTGRES_SHARD_ORDINAL"), err)
+		os.Exit(1)
+	}
 
 	logger.Info("Instance manager starting",
 		"version", "v0.0.0-pillar-p2-t1",
@@ -89,11 +100,11 @@ func main() {
 		"namespace", namespace,
 		"cluster", cluster,
 		"role", role,
-		"pool", pool,
+		"shardOrdinal", shardOrdinal,
 		"electionDisabled", electionDisabled,
 	)
 
-	leaseName := election.PrimaryLeaseName(cluster, role, pool)
+	leaseName := election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
 	logger.Info("Resolved lease name", "lease", leaseName)
 
 	// Fencing — Null(disabled) 또는 Real. fencer는 election callback에서

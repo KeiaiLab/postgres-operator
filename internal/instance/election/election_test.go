@@ -67,23 +67,42 @@ func TestLeaseParameters_DefaultsAreValid(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
-// Lease 명명 규약 (RFC 0003 §1)
+// Lease 명명 규약 (RFC 0001 PostgresCluster CRD v2 — shard 모델)
 // ----------------------------------------------------------------------------
 
-func TestPrimaryLeaseName_Coordinator(t *testing.T) {
-	got := PrimaryLeaseName("orders", "coordinator", "")
-	want := "orders-coordinator-primary"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+func TestPrimaryLeaseName_Shard(t *testing.T) {
+	cases := []struct {
+		ordinal int32
+		want    string
+	}{
+		{0, "orders-shard-0-primary"},
+		{1, "orders-shard-1-primary"},
+		{42, "orders-shard-42-primary"},
+	}
+	for _, c := range cases {
+		got := PrimaryLeaseName("orders", "shard", c.ordinal)
+		if got != c.want {
+			t.Errorf("ordinal=%d: got %q, want %q", c.ordinal, got, c.want)
+		}
 	}
 }
 
-func TestPrimaryLeaseName_Worker(t *testing.T) {
-	got := PrimaryLeaseName("orders", "worker", "pool-a")
-	want := "orders-worker-pool-a-primary"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
+func TestPrimaryLeaseName_RouterPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("PrimaryLeaseName(role=router) must panic — router has no lease")
+		}
+	}()
+	_ = PrimaryLeaseName("orders", "router", 0)
+}
+
+func TestPrimaryLeaseName_NegativeOrdinalPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("PrimaryLeaseName(shardOrdinal<0) must panic")
+		}
+	}()
+	_ = PrimaryLeaseName("orders", "shard", -1)
 }
 
 // ----------------------------------------------------------------------------
@@ -112,14 +131,14 @@ func TestNewReal_RejectsEmptyFields(t *testing.T) {
 func TestNewReal_HappyPath(t *testing.T) {
 	r, err := NewReal(RealConfig{
 		Client:    fake.NewClientset(),
-		LeaseName: "orders-coordinator-primary",
+		LeaseName: "orders-shard-0-primary",
 		Namespace: "default",
-		Identity:  "orders-coordinator-0",
+		Identity:  "orders-shard-0-0",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Identity() != "orders-coordinator-0" {
+	if r.Identity() != "orders-shard-0-0" {
 		t.Errorf("Identity = %q", r.Identity())
 	}
 	if r.Status() != StatusStarting {
