@@ -12,6 +12,7 @@ package v1alpha1
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -161,3 +162,47 @@ func TestValidate_Update_AppliesSameRules(t *testing.T) {
 		t.Fatal("expected rejection on update with unsupported version")
 	}
 }
+
+// RFC 0006 R1 — spec.extensions 검증.
+func TestValidate_Extensions_AllRegistered_Accepted(t *testing.T) {
+	w := newWebhook(t)
+	// Registry 에 dummy extension 등록 후 cluster 가 그것 opt-in.
+	w.Plugins.RegisterExtension(testExtension{name: "pgaudit"})
+	c := validBaseCluster()
+	c.Spec.Extensions = []string{"pgaudit"}
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Fatalf("registered extension should be accepted: %v", err)
+	}
+}
+
+func TestValidate_Extensions_UnknownRejected(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Extensions = []string{"nonexistent"}
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err == nil {
+		t.Fatal("unknown extension should be rejected")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error must name the missing extension: %v", err)
+	}
+}
+
+func TestValidate_Extensions_Empty_NoCheck(t *testing.T) {
+	// nil/빈 extensions → vanilla PG, 검증 우회 (cross-validation bug 2 fix 핵심).
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Extensions = nil
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Fatalf("empty extensions must pass: %v", err)
+	}
+}
+
+// testExtension 은 webhook 테스트용 최소 ExtensionPlugin 구현.
+type testExtension struct{ name string }
+
+func (e testExtension) Name() string                                   { return e.name }
+func (e testExtension) SharedPreloadOrder() int                        { return 100 }
+func (e testExtension) PreInstall(_ context.Context, _ *sql.DB) error  { return nil }
+func (e testExtension) PostInstall(_ context.Context, _ *sql.DB) error { return nil }
+func (e testExtension) Validate(_ string) error                        { return nil }

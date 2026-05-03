@@ -311,6 +311,17 @@ type PostgresClusterSpec struct {
 	// Monitoring 은 monitoring 통합 설정.
 	// +optional
 	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
+
+	// Extensions 는 활성화할 PostgreSQL extension 의 이름 목록이다 (RFC 0006 R1).
+	// 비어 있으면 vanilla PG (image base 외 추가 extension 없음). 각 이름은 operator
+	// 부트스트랩 시 Registry 에 등록된 ExtensionPlugin 이어야 하며, webhook 이 이를
+	// 검증한다.
+	//
+	// 예: ["pgaudit", "pgvector"] — postgres_v1alpha1 image 가 두 extension 의 .so 를
+	// 보유한다는 전제. image 가 미보유 시 postgres FATAL — 사용자 책임.
+	//
+	// +optional
+	Extensions []string `json:"extensions,omitempty"`
 }
 
 // ClusterPhase 는 cluster 의 상위 단계.

@@ -194,17 +194,16 @@ func main() {
 	// ADR 0005 권장 SharedPreloadOrder 표 + RFC 0011(P10-T2) 화이트리스트.
 	// 추가 ExtensionPlugin 등록은 본 위치에서만, internal/plugin/extension/<name>/
 	// 패키지의 Register() 함수만 호출 (구체 import는 depguard로 차단됨).
-	// 2026-05-03 cross-validation 실측 발견: 자동 register 가 모든 cluster
-	// 의 shared_preload_libraries 에 6 종 extension 을 강제 → vanilla PG image
-	// 에 .so 부재 시 postgres FATAL → CrashLoopBackOff. Registry 는 향후
-	// per-cluster spec.extensions 기반으로 재배선 예정 (별도 RFC). 현재는
-	// vanilla PG 부팅만 보장 — Register 호출 모두 dormant.
-	_ = pluginextpgaudit.Register
-	_ = pluginextpgvector.Register
-	_ = pluginextpgcron.Register
-	_ = pluginextpgnodemx.Register
-	_ = pluginextpostgis.Register
-	_ = pluginextsetuser.Register
+	// 2026-05-03 RFC 0006 R1: Register 는 *operator 가 알 수 있는 extension 의
+	// 카탈로그 등록* 일 뿐. 실 활성화는 spec.extensions 에 명시된 cluster 만.
+	// 따라서 cluster 가 opt-in 안 하면 vanilla PG 그대로 부팅 (cross-validation
+	// bug 2 의 영구 fix).
+	pluginextpgaudit.Register(plugins)  // order=100
+	pluginextpgvector.Register(plugins) // order=100 (AI 차별화)
+	pluginextpgcron.Register(plugins)   // order=200
+	pluginextpgnodemx.Register(plugins) // order=300 (pgMonitor 의존)
+	pluginextpostgis.Register(plugins)  // order=300
+	pluginextsetuser.Register(plugins)  // order=300 (PgUser 권한 모델)
 	// 향후 P4(BackupPlugin), P6(ExporterPlugin), P7(AuthPlugin), P12(RouterPlugin)
 	// 등록 위치.
 

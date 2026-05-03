@@ -103,6 +103,16 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 			"schedule must be non-empty when backup.enabled=true (cron expression, e.g. \"0 2 * * *\")"))
 	}
 
+	// RFC 0006 R1: spec.extensions 의 모든 이름이 operator Registry 에 등록된
+	// ExtensionPlugin 이어야 함. 미등록 이름 = admission 차단.
+	if len(c.Spec.Extensions) > 0 && w.Plugins != nil {
+		_, missing := w.Plugins.EnabledExtensions(c.Spec.Extensions)
+		if len(missing) > 0 {
+			return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.extensions",
+				fmt.Sprintf("unknown extension(s): %v — operator Registry 에 미등록. 운영자에게 새 ExtensionPlugin 추가 또는 image 의 .so 보유 여부 확인 요청.", missing)))
+		}
+	}
+
 	return nil, nil
 }
 

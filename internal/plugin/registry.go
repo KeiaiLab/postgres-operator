@@ -134,12 +134,44 @@ func (r *Registry) Auth(name string) (AuthPlugin, bool) {
 	return p, ok
 }
 
+// EnabledExtensions 는 등록된 ExtensionPlugin 중 names 에 포함된 것만 반환한다
+// (RFC 0006 R1 — per-cluster extension lifecycle).
+//
+// names 가 nil/빈 slice 면 빈 결과 (vanilla PG). 등록되지 않은 이름은 ok=false 와
+// 함께 missing slice 로 보고 — webhook 이 이를 admission 차단으로 사용.
+//
+// 정렬 규약은 Extensions() 와 동일 (SharedPreloadOrder 오름차순 + 사전순).
+func (r *Registry) EnabledExtensions(names []string) (enabled []ExtensionPlugin, missing []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, n := range names {
+		p, ok := r.extensions[n]
+		if !ok {
+			missing = append(missing, n)
+			continue
+		}
+		enabled = append(enabled, p)
+	}
+	sort.Slice(enabled, func(i, j int) bool {
+		oi, oj := enabled[i].SharedPreloadOrder(), enabled[j].SharedPreloadOrder()
+		if oi != oj {
+			return oi < oj
+		}
+		return enabled[i].Name() < enabled[j].Name()
+	})
+	return enabled, missing
+}
+
 // Extensions는 등록된 모든 ExtensionPlugin을 SharedPreloadOrder() 오름차순,
 // 동률 시 Name() 사전순으로 정렬해 반환한다.
 //
 // 본 정렬 규약은 ExtensionPlugin 별 SharedPreloadOrder 가 강제하는 우선순위를
 // 그대로 직렬화한다. P10 reconciler 가 본 메서드 결과를 strings.Join 하면 우선순위가
 // 보장된다.
+//
+// Deprecated: per-cluster filtering 은 EnabledExtensions(names) 사용. 본 메서드는
+// 등록된 *모든* extension 을 반환 — 모든 cluster 에 강제 효과로 cross-validation
+// bug 2 의 원인. 신규 코드는 EnabledExtensions 우선.
 func (r *Registry) Extensions() []ExtensionPlugin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

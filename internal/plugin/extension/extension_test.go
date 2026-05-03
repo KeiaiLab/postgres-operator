@@ -45,7 +45,12 @@ func TestPreloadOrder_AllRegisteredExtensions(t *testing.T) {
 	postgis.Register(r)
 	setuser.Register(r)
 
-	got := r.Extensions()
+	// RFC 0006 R1 후 EnabledExtensions(names) 가 권장. 본 테스트는 *모든* 등록된
+	// extension 의 정렬 규약 검증이므로 등록된 이름 전체를 명시 전달.
+	got, missing := r.EnabledExtensions([]string{"pgaudit", "pg_cron", "pgnodemx", "pgvector", "postgis", "set_user"})
+	if len(missing) > 0 {
+		t.Fatalf("unexpected missing names: %v", missing)
+	}
 	// 정렬 규약: SharedPreloadOrder 오름차순, 동률 시 Name() 사전순.
 	// pgaudit(100) → pgvector(100) → pg_cron(200) → pgnodemx(300) →
 	// postgis(300) → set_user(300)
