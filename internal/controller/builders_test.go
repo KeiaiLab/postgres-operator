@@ -81,13 +81,84 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 		cluster,
 		"test-shard-0", "test-shard-0-headless", "shard",
 		0,
-		"example.com/postgres:18", "test-shard-0-config",
+		"example.com/postgres:18", "test-shard-0-config", "18",
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
 	)
 
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
+}
+
+func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-3", "demo-shard-3-headless", "shard",
+		3,
+		"example.com/postgres:18", "demo-shard-3-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+	)
+
+	if got, want := len(sts.Spec.Template.Spec.Containers), 1; got != want {
+		t.Fatalf("containers count = %d, want %d", got, want)
+	}
+	envByName := map[string]corev1.EnvVar{}
+	for _, e := range sts.Spec.Template.Spec.Containers[0].Env {
+		envByName[e.Name] = e
+	}
+	// supervise.Config 필수 env (instance 가 envOrDie 로 강제).
+	expectedValues := map[string]string{
+		"POSTGRES_CLUSTER":       "demo",
+		"POSTGRES_ROLE":          "shard",
+		"POSTGRES_SHARD_ORDINAL": "3",
+		"POSTGRES_BIN_DIR":       "/usr/lib/postgresql/18/bin",
+		"POSTGRES_DATA_DIR":      "/var/lib/postgresql/data/pgdata",
+		"POSTGRES_CONFIG_FILE":   "/etc/postgres-operator/conf/postgresql.conf",
+		"POSTGRES_HBA_FILE":      "/etc/postgres-operator/conf/pg_hba.conf",
+		"POSTGRES_LOCAL_DSN":     "host=/var/run/postgresql user=postgres dbname=postgres",
+	}
+	for name, want := range expectedValues {
+		got, ok := envByName[name]
+		if !ok {
+			t.Errorf("env %s missing", name)
+			continue
+		}
+		if got.Value != want {
+			t.Errorf("env %s = %q, want %q", name, got.Value, want)
+		}
+	}
+	// downward API — POD_NAME / POD_NAMESPACE 는 ValueFrom.FieldRef 만 검증.
+	for _, name := range []string{"POD_NAME", "POD_NAMESPACE"} {
+		e, ok := envByName[name]
+		if !ok {
+			t.Errorf("env %s missing", name)
+			continue
+		}
+		if e.ValueFrom == nil || e.ValueFrom.FieldRef == nil {
+			t.Errorf("env %s should use ValueFrom.FieldRef (downward API)", name)
+		}
+	}
+}
+
+func TestBuildConfigMap_IncludesPGHBA(t *testing.T) {
+	t.Parallel()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	cm := buildConfigMap(cluster, "demo-cm", "shard", 0, nil)
+	if _, ok := cm.Data["postgresql.conf"]; !ok {
+		t.Error("ConfigMap missing postgresql.conf")
+	}
+	if _, ok := cm.Data["pg_hba.conf"]; !ok {
+		t.Error("ConfigMap missing pg_hba.conf")
+	}
 }
 
 func TestBuildRouterDeployment_AppliesSecurityContextAndEphemeralMounts(t *testing.T) {

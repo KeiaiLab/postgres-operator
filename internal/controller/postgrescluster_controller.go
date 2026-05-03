@@ -114,7 +114,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		desiredSTS := buildPGStatefulSet(
 			&cluster, stsName, svcName, "shard",
 			ord,
-			combo.Image, cmName,
+			combo.Image, cmName, combo.PostgresMajor,
 			members,
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
 		)
