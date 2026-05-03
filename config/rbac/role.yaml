@@ -9,6 +9,7 @@ rules:
   resources:
   - configmaps
   - secrets
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -25,6 +26,16 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - pods
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
 - apiGroups:
   - apps
   resources:
@@ -79,3 +90,16 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

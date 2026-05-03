@@ -112,6 +112,20 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+# RFC 0006 R1+R2 회귀 — PostgresCluster CR 라이프사이클 + Pod annotation status
+# + PostgresCluster.status.shards[*].primary.endpoint 실 DNS 반영 + psql round-trip.
+# 기존 test-e2e (전체 suite) 의 부분집합. PILLAR=p1 라벨로 필터.
+# KEEP=1 시 cleanup skip (로컬 디버그).
+.PHONY: test-e2e-pg
+test-e2e-pg: setup-test-e2e manifests generate fmt vet ## Run RFC 0006 R1+R2 회귀 e2e (kind 의존, p1 라벨).
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p1
+
+# RFC 0006 R3 회귀 — primary kill → 새 primary auto-promote (RTO < 30s) → 옛 primary standby rejoin.
+# replicas=1 (Pod 2 개) failover 라이프사이클. KEEP=1 시 cleanup skip.
+.PHONY: test-e2e-failover
+test-e2e-failover: setup-test-e2e manifests generate fmt vet ## RFC 0006 R3 회귀 e2e (kind 의존, p2 라벨, replicas=1 primary kill).
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p2
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
@@ -246,6 +260,19 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+# PG runtime image (instance manager + postgres). PG_MAJOR 는 image tag 와 동일.
+# 빌드: make docker-build-pg PG_MAJOR=18 PG_IMG=ghcr.io/keiailab/pg:18
+PG_MAJOR ?= 18
+PG_IMG ?= ghcr.io/keiailab/pg:$(PG_MAJOR)
+
+.PHONY: docker-build-pg
+docker-build-pg: ## Build PG runtime image (instance manager + postgres).
+	$(CONTAINER_TOOL) build -f Dockerfile.pg --build-arg PG_MAJOR=$(PG_MAJOR) -t $(PG_IMG) .
+
+.PHONY: docker-push-pg
+docker-push-pg: ## Push PG runtime image.
+	$(CONTAINER_TOOL) push $(PG_IMG)
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

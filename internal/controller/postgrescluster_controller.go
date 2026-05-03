@@ -32,6 +32,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -59,9 +60,12 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=statefulsets;deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=services;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services;configmaps;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
 func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -94,6 +98,18 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
+	// 0. instance manager 가 사용할 RBAC (ServiceAccount + Role + RoleBinding) upsert.
+	// shard StatefulSet 보다 먼저 — Pod 가 SA reference 를 사용하므로 fail-fast 회피.
+	if err := r.upsert(ctx, &cluster, buildInstanceServiceAccount(&cluster)); err != nil {
+		return r.handleUpsertErr(ctx, err, "instance ServiceAccount", logger)
+	}
+	if err := r.upsert(ctx, &cluster, buildInstanceRole(&cluster)); err != nil {
+		return r.handleUpsertErr(ctx, err, "instance Role", logger)
+	}
+	if err := r.upsert(ctx, &cluster, buildInstanceRoleBinding(&cluster)); err != nil {
+		return r.handleUpsertErr(ctx, err, "instance RoleBinding", logger)
+	}
+
 	// 1. shard 자원 3종 upsert (ordinal 0..InitialCount-1)
 	shardCount := cluster.Spec.Shards.InitialCount
 	members := int32(1) + cluster.Spec.Shards.Replicas
@@ -111,12 +127,23 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
 			return r.handleUpsertErr(ctx, err, "shard Service", logger)
 		}
+		// primaryEndpoint 결정: 이전 reconcile 에서 관측된 primary 가 존재하면
+		// 그 endpoint 를 init container 로 전달 → ord!=0 의 첫 부팅 시 pg_basebackup
+		// path 를 활성화한다. 없으면 빈 값 — bootstrap script 가 ord==0 또는 endpoint
+		// 부재일 때 자동으로 initdb path 로 fallback.
+		primaryEndpoint := ""
+		if int(ord) < len(cluster.Status.Shards) {
+			if p := cluster.Status.Shards[ord].Primary; p != nil {
+				primaryEndpoint = p.Endpoint
+			}
+		}
 		desiredSTS := buildPGStatefulSet(
-			&cluster, stsName, svcName, "shard",
+			&cluster, stsName, svcName,
 			ord,
-			combo.Image, cmName,
+			combo.Image, cmName, combo.PostgresMajor,
 			members,
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
+			primaryEndpoint,
 		)
 		if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
 			return r.handleUpsertErr(ctx, err, "shard StatefulSet", logger)
@@ -139,15 +166,18 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if !primaryReady {
 			allShardPrimaryReady = false
 		}
-		shardStatuses = append(shardStatuses, postgresv1alpha1.ShardStatus{
-			Name:    fmt.Sprintf("shard-%d", ord),
-			Ordinal: ord,
-			Primary: &postgresv1alpha1.ShardEndpoint{
+		// RFC 0006 R2 — Pod annotation 기반 live aggregation. 우선 시도 후
+		// 결과가 비면 STS readyReplicas 기반 fallback (annotation 부재 시).
+		shardStat := aggregateShardStatus(ctx, r.Client, &cluster, ord, svcName)
+		if shardStat.Primary == nil || shardStat.Primary.Pod == "" {
+			// fallback — STS-time 근사값 (annotation 미수집 / Pod 부팅 전 일시).
+			shardStat.Primary = &postgresv1alpha1.ShardEndpoint{
 				Pod:      fmt.Sprintf("%s-0", stsName),
 				Endpoint: fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort),
 				Ready:    primaryReady,
-			},
-		})
+			}
+		}
+		shardStatuses = append(shardStatuses, shardStat)
 	}
 
 	// 2. router 자원 3종 — shardingMode=native && Router.Enabled 일 때만.
@@ -319,6 +349,22 @@ func copySpec(dst, src client.Object) {
 		d.Spec.Template = s.Spec.Template
 		if d.Spec.Selector == nil {
 			d.Spec.Selector = s.Spec.Selector
+		}
+		d.Labels = s.Labels
+	case *corev1.ServiceAccount:
+		s := src.(*corev1.ServiceAccount)
+		// ServiceAccount 는 spec 이 거의 비어 있음 — Labels 만 동기화.
+		d.Labels = s.Labels
+	case *rbacv1.Role:
+		s := src.(*rbacv1.Role)
+		d.Rules = s.Rules
+		d.Labels = s.Labels
+	case *rbacv1.RoleBinding:
+		s := src.(*rbacv1.RoleBinding)
+		// RoleRef 는 immutable — 기존 객체 RoleRef 그대로. Subjects 만 desired.
+		d.Subjects = s.Subjects
+		if d.RoleRef.Kind == "" {
+			d.RoleRef = s.RoleRef
 		}
 		d.Labels = s.Labels
 	default:

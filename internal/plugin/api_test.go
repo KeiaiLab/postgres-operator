@@ -163,3 +163,44 @@ func TestExtensions_PreloadOrder(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0006 R1 — EnabledExtensions 가 names 필터링 + 정렬 + missing 보고를 모두
+// 수행하는지. cross-validation bug 2 영구 fix 의 회귀 차단.
+func TestEnabledExtensions_FilterAndSort(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterExtension(&dummyExtension{name: "pg_cron", order: 200})
+	r.RegisterExtension(&dummyExtension{name: "pgaudit", order: 100})
+	r.RegisterExtension(&dummyExtension{name: "pgvector", order: 100})
+
+	t.Run("subset_filter_sorted", func(t *testing.T) {
+		// 사용자가 일부 (pgaudit, pg_cron) 만 opt-in. 입력 순서 무관, 출력은 정렬.
+		enabled, missing := r.EnabledExtensions([]string{"pg_cron", "pgaudit"})
+		if len(missing) != 0 {
+			t.Errorf("missing should be empty, got %v", missing)
+		}
+		want := []string{"pgaudit", "pg_cron"} // order 100 < 200
+		if len(enabled) != len(want) {
+			t.Fatalf("len(enabled) = %d, want %d", len(enabled), len(want))
+		}
+		for i, w := range want {
+			if enabled[i].Name() != w {
+				t.Errorf("position %d: want %q, got %q", i, w, enabled[i].Name())
+			}
+		}
+	})
+
+	t.Run("missing_reported", func(t *testing.T) {
+		_, missing := r.EnabledExtensions([]string{"pgaudit", "nonexistent"})
+		if len(missing) != 1 || missing[0] != "nonexistent" {
+			t.Errorf("missing = %v, want [nonexistent]", missing)
+		}
+	})
+
+	t.Run("nil_names_returns_empty", func(t *testing.T) {
+		// 핵심 회귀 — nil/빈 names 시 vanilla PG (extension 미적용).
+		enabled, missing := r.EnabledExtensions(nil)
+		if len(enabled) != 0 || len(missing) != 0 {
+			t.Errorf("nil names: enabled=%d missing=%v, want both empty", len(enabled), missing)
+		}
+	})
+}

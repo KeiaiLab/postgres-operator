@@ -1,40 +1,30 @@
-# keiailab/postgres-operator — quickstart 샘플 (dev 모드, vanilla PG18)
+# keiailab/postgres-operator — quickstart 샘플 (dev 모드, vanilla PG18, RFC 0001 v2)
 #
-# 0.2.0-alpha (ADR 0010) 이후 default stack은 vanilla PostgreSQL이다.
-# Citus 통합은 opt-in (Beta 채널, AGPL-3.0 §13 SaaS 의무를 사용자가 부담).
-# 분산 SQL이 필요한 경우 RFC 0005 (Native sharding plugin) 진행 상황을 참조하거나
-# 의식적으로 Citus를 활성화한다.
+# 0.3.0-alpha (RFC 0001) 이후 schema 는 shardCount/shardingMode 모델로 통합됨.
+# coordinator/workers/routers 옛 schema 는 폐기 (commit f01894e).
 #
 # 적용:
 #   kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
 #
 # 기대 결과:
-#   - PostgresCluster CR이 생성됨
-#   - reconciler가 coordinator/worker/router StatefulSet+Deployment+Service+ConfigMap 생성
-#   - status.channel = "stable" (PG18 vanilla은 internal/version/matrix.go의 Stable)
-#   - 모든 하위 자원 ready 시 status.conditions[type=Ready].status = "True"
+#   - PostgresCluster CR 이 생성됨 (shardingMode=none, single shard).
+#   - reconciler 가 ConfigMap + StatefulSet (replicas=1) + headless Service 생성.
+#   - status.shards[0].primary.ready = true (~1~2분 후 PG 부팅 완료).
+#   - status.conditions[type=Ready].status = "True".
 #
-# dev 모드 의미: webhook이 members=1을 허용 (production은 ≥3 강제, ADR 0003).
+# dev 모드 의미: shards.replicas=0 → primary 1 개만 (HA 없음).
+#   production 은 replicas≥1 (RFC 0001 §3 권장) + shardingMode=native 시 router 활성.
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresCluster
 metadata:
   name: quickstart
   namespace: default
 spec:
-  deployment: development
-  version:
-    postgres: "18"
-    # citus 필드 미지정 = vanilla PostgreSQL (권장 default).
-    # Citus 활성화 시: citus: "13.0" + extensions에 citus 추가 + AGPL-3.0 §13 의무 수용.
-  coordinator:
-    members: 1
+  postgresVersion: "18"
+  shardingMode: none
+  shards:
+    initialCount: 1
+    replicas: 0
     storage:
       size: 10Gi
-  workers:
-  - name: pool-a
-    members: 1
-    storage:
-      size: 20Gi
-  routers:
-    replicas: 1
-  # extensions: []  # vanilla PG는 확장 없음. 필요 시 pgaudit/pgcron/pgvector 등 plugin 추가.
+      # storageClass 미지정 = 클러스터 default. kind/k3d 환경은 standard 등.

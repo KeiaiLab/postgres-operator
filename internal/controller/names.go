@@ -53,6 +53,22 @@ func RouterConfigMapName(cluster string) string {
 	return fmt.Sprintf("%s-router-config", cluster)
 }
 
+// InstanceServiceAccountName 은 cluster 단위 instance manager ServiceAccount 이름.
+// 모든 shard Pod 가 동일 SA 를 공유 — namespace 안 leases + 자기 PVC patch 권한.
+func InstanceServiceAccountName(cluster string) string {
+	return fmt.Sprintf("%s-instance", cluster)
+}
+
+// InstanceRoleName 은 InstanceServiceAccount 에 부착되는 Role 이름.
+func InstanceRoleName(cluster string) string {
+	return fmt.Sprintf("%s-instance", cluster)
+}
+
+// InstanceRoleBindingName 은 SA↔Role 결합 RoleBinding 이름.
+func InstanceRoleBindingName(cluster string) string {
+	return fmt.Sprintf("%s-instance", cluster)
+}
+
 // SelectorLabels는 부모 PostgresCluster + 역할 + shard ordinal 식별 레이블이다.
 // reconciler가 Service의 selector와 Pod template label에 동일하게 적용한다.
 //

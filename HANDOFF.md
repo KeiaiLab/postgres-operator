@@ -4,14 +4,29 @@
 
 ## 현재 상태 (2026-05-03)
 
-- **HEAD**: T15 — `refactor(instance)!: election lease 명명 규약 shard ordinal 모델로 마이그레이션` (F02 진입 정리)
-- **HEAD~1**: F01b — `feat(controller): RFC 0001 spec 기반 reconcile 본체 + envtest 재작성`
-- **HEAD~2**: F01a — `feat!(api): RFC 0001 PostgresCluster CRD v2 schema 실장 (F01a — types/webhook only)`
-- **브랜치**: main
-- **현재 phase**: **P1 진행 중**. F01a + F01b + T15 완료. F02 ~ F05 대기.
-- **검증 결과 (T15)**: `make lint` 0 issues / `make test` 모든 패키지 PASS (election cov 97.5%, controller cov 65.9%, sharding cov 100%).
+- **HEAD**: F02 cycle 5 — `docs(deployment): kind smoke script + operator-guide 배포 가이드` (commit 직전)
+- **HEAD~1..4**: F02 cycle 1~4 — sample CR / Dockerfile.pg / env+probes / RBAC+initdb / /readyz IsReady
+- **HEAD~5**: F02 wiring (a548d37) — supervise 패키지 + election callback
+- **HEAD~6**: T15 — election lease shard ordinal 마이그레이션
+- **HEAD~7**: F01b — controller reconcile 본체
+- **브랜치**: feat/ha-alpha-c1c2
+- **현재 phase**: **P1 진행 중**. F01a + F01b + T15 + **F02 90% (테스트)** 완료.
+- **F02 deployable 검증 결과**:
+  - `make lint`: 0 issues
+  - `go test ./... -count=1`: 모든 패키지 PASS
+  - `make validate`: kustomize + helm lint --strict + build-installer 통과
+  - 미실측 (다음 세션): `hack/smoke.sh` 로 kind 클러스터 적용 — Pod Ready + psql round-trip 검증.
 
-## 본 세션 (F01b) 의사결정 기록
+## 본 세션 (F02 supervise wiring) 의사결정 기록
+
+1. **2026-05-03**: `TestReal_StopTimeoutSendsSIGKILL` race 진단 — fake-postgres trap 설치 직전에 SIGTERM 도착 시 default 동작 (즉시 종료) 발동 → exitCh 가 ctx.Done 보다 먼저 fire. Reload 테스트의 stderr "FAKE_POSTGRES_PID=" 대기 패턴을 `waitForStderr` 헬퍼로 추출 후 timeout 테스트에도 적용.
+2. **2026-05-03**: TERM_DELAY=10 → 2 로 단축. SIGKILL 후에도 trap 의 sleep 자식이 orphan 되어 Go cmd.Wait() 가 stderr pipe EOF 를 기다리며 block (Go cmd.Stderr 가 non-os.File 일 때 내부 pipe 사용). ctx (1s) 보다 크되 ExitCh 대기 (3s) 안에 끝나야 함.
+3. **2026-05-03**: `--supervise-disabled` flag 추가 — election/fencing 과 동일 패턴. dev/local 모드 + 단위 테스트에서 postgres binary 부재 시 fork 회피.
+4. **2026-05-03**: OnStoppedLeading 의 demote 는 `sup.Stop(ctx, fast=true)` (SIGINT) 만 호출 — PG 는 native pg_demote 부재. 본 instance 는 ExitCh fire 시 통째 exit → K8s Pod 재시작 → 다음 부팅에 standby 진입. standby.signal 재구성 로직은 F03 후속.
+5. **2026-05-03**: gocyclo 31 (>30) 해소를 위해 `buildSupervisor` / `startSupervisor` / `gracefulStopSupervisor` / `buildFencer` 4 helper 추출. F01b 의 `applyClusterConditions` 추출 패턴 동일. main 흐름이 한 줄 의도로 압축됨.
+6. **2026-05-03**: ExitCh watcher goroutine 이 supExitCh 에 송출 → main select 의 5번째 case → `os.Exit(1)`. postgres child 가 죽으면 instance 도 함께 죽음 (PID 1 모델 ADR 0002 그대로).
+
+## 이전 세션 (F01b) 의사결정 기록
 
 1. **2026-05-03**: helper 시그니처는 호출자 결정형 유지 (`buildConfigMap(cluster, name, role, shardOrdinal, reg)` 등). 응집형 (`buildShardConfigMap(cluster, ordinal, reg)`) 도 후보였으나 plan 의 "5개 helper 시그니처 통일" 명시에 따라 §3 Surgical 우선 — pool string → shardOrdinal int32 만 적용하고 함수 갯수/이름은 보존.
 2. **2026-05-03**: `SelectorLabels(cluster, role, shardOrdinal int32)` 의 ordinal=-1 sentinel 로 router 의 "shard 차원 부재" 표현. 별도 `RouterSelectorLabels()` 분리 회피 (§2 Simplicity — 단일 사용 코드에 추상화 금지).
@@ -21,18 +36,29 @@
 6. **2026-05-03**: Reconcile cyclomatic complexity 가 31 (>30) → status 갱신부를 `applyClusterConditions` 헬퍼로 분리. 단일 책임 + 테스트 가능성 향상.
 7. **2026-05-03**: `internal/plugin/sharding/api.go` Name() doc comment 의 `PostgresClusterSpec.Sharding.Backend 와 일치` → `PostgresClusterSpec.ShardingMode 가 "native" 일 때 활성화` 로 정정. 새 spec 에 sharding 필드 부재.
 
-## 다음 단계 (F02 본체 진입)
+## 다음 단계 (F02 100% 도달 + F03 진입)
 
-T15 (election 인터페이스 마이그레이션) 완료 — F02 본체 진입 가능.
+**즉시 (F02 90% → 100%)** — 외부 환경 의존:
 
-**F02 — instance manager 본체 — postgres 프로세스 supervise + promote/demote 실장**
+1. `./hack/smoke.sh` 실행 — kind 클러스터에 quickstart sample apply 후 Pod Ready + psql round-trip 검증.
+   첫 실행 시 발견되는 모든 환경 이슈 (image push, fsGroup propagation, RBAC 빠진 권한, Pod sandbox 초기화 race 등) 는 fix-forward.
+2. (선택) `ghcr.io/keiailab/pg:18` push 자동화 — 현재는 `make docker-build-pg && make docker-push-pg` 수동.
+3. WAL lag 측정 — `pg_stat_replication` 폴러를 instance manager 에 추가 + Status.Shards[].Replicas[].LagBytes 갱신.
 
-진입점 (별도 plan 사이클 권장 — T2~T3 분량):
-1. `internal/instance/supervise/` 신규 패키지 — `Supervisor` struct + `os/exec.CommandContext` 로 postgres 자식 프로세스 lifecycle 관리 (start/stop/reload/signal forwarding).
-2. `cmd/instance/main.go` 의 election callback (`OnPromote`/`OnDemote`) 안에 `pg_ctl promote` / `pg_ctl demote` 호출 wiring.
-3. Readiness probe HTTP endpoint (`pg_isready` wrapping) + WAL lag 측정 (`pg_stat_replication`).
-4. RFC 0003 (election / fencing 인터페이스) 의 active logic 은 F03 에서 — F02 는 receiver 측만.
-5. `Status.Shards[].Primary.Endpoint` 갱신 — sidecar patch vs controller active probe 결정 (별도 ADR).
+**F02 잔여 (별도 plan)**:
+
+F02 의 supervise + wiring 60% 완료 — 잔여 40% 는 *operator 측 통합* 이라 별도 PR 권장:
+
+**F02-residual (별도 plan)** — 100% 도달까지:
+1. `internal/controller/postgrescluster_controller.go` 의 `buildShardStatefulSet` 등에 Pod env 주입: `POSTGRES_BIN_DIR` (init container 또는 runtime image path), `POSTGRES_DATA_DIR`, `POSTGRES_CONFIG_FILE`, `POSTGRES_HBA_FILE`, `POSTGRES_LOCAL_DSN`. ConfigMap mount + 결정 (별도 ADR — config file path convention).
+2. Readiness probe HTTP endpoint — `/readyz` 에 `sup.IsReady(ctx)` 통합. 현재는 election Status 만 반영.
+3. WAL lag 측정 — `pg_stat_replication` query → metrics endpoint.
+4. `Status.Shards[].Primary.Endpoint` 갱신 — sidecar patch vs controller active probe (별도 ADR).
+
+**F03 진입점** — RFC 0003 election/fencing receiver 측 → active 측 완성:
+- Demote 후 standby.signal 재구성 로직 (지금은 sup.Stop 만 — restart 시 어떻게 standby 로 부팅할지 결정).
+- Fence 해제 정책 (운영자 수동 vs 자동 timeout).
+- multi-shard 동시 fail 시 election 우선순위.
 
 ## 후속 정리 작업 (F02 이후, 별도 PR)
 
