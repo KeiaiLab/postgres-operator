@@ -53,12 +53,21 @@ func (r *Real) Promote(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// pg_is_in_recovery() == false 면 이미 primary — fresh initdb 직후의 경로이며
+	// pg_promote 호출 시 false 반환되어 error 처리되는 함정 회피. 멱등성 보장.
+	var inRecovery bool
+	if err := db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery); err != nil {
+		return fmt.Errorf("supervise: pg_is_in_recovery: %w", err)
+	}
+	if !inRecovery {
+		return nil
+	}
 	var ok bool
 	if err := db.QueryRowContext(ctx, "SELECT pg_promote(true, 30)").Scan(&ok); err != nil {
 		return fmt.Errorf("supervise: pg_promote: %w", err)
 	}
 	if !ok {
-		return errors.New("supervise: pg_promote returned false (timeout or already primary)")
+		return errors.New("supervise: pg_promote returned false (timeout)")
 	}
 	return nil
 }

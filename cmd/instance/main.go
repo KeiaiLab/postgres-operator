@@ -149,6 +149,16 @@ func main() {
 				return
 			}
 			if sup != nil {
+				// postgres unix socket 가 listen 시작할 때까지 대기 (race 회피).
+				// 30s 타임아웃 — 정상 부팅 시간보다 충분.
+				if err := waitSupReady(ctx, sup, 30*time.Second); err != nil {
+					logger.Error("postgres readiness wait failed", "identity", podName, "error", err)
+					select {
+					case fencingErrCh <- fmt.Errorf("readiness: %w", err):
+					default:
+					}
+					return
+				}
 				if err := sup.Promote(ctx); err != nil {
 					logger.Error("Promote failed", "identity", podName, "error", err)
 					select {
@@ -287,6 +297,29 @@ func main() {
 	}
 	gracefulStopSupervisor(sup, logger)
 	logger.Info("Instance manager exited cleanly")
+}
+
+// waitSupReady 는 sup.IsReady 가 true 일 때까지 polling 한다 (500ms interval).
+// timeout 만료 시 error. supervise-disabled 모드 (sup==nil) 에서는 즉시 nil.
+func waitSupReady(ctx context.Context, sup supervise.Supervisor, timeout time.Duration) error {
+	if sup == nil {
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		probeCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		ready := sup.IsReady(probeCtx)
+		cancel()
+		if ready {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("postgres not ready after %s", timeout)
 }
 
 // makeReadyzHandler 는 /readyz HTTP handler 를 생성한다.

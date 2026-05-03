@@ -43,6 +43,8 @@ func newRealWithMockDB(t *testing.T) (*Real, sqlmock.Sqlmock) {
 
 func TestReal_Promote_Success(t *testing.T) {
 	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 	mock.ExpectQuery(`SELECT pg_promote\(true, 30\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"pg_promote"}).AddRow(true))
 	if err := r.Promote(context.Background()); err != nil {
@@ -53,8 +55,22 @@ func TestReal_Promote_Success(t *testing.T) {
 	}
 }
 
+func TestReal_Promote_AlreadyPrimary(t *testing.T) {
+	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	if err := r.Promote(context.Background()); err != nil {
+		t.Fatalf("Promote should be no-op when already primary, got: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
 func TestReal_Promote_ReturnsFalse(t *testing.T) {
 	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 	mock.ExpectQuery(`SELECT pg_promote\(true, 30\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"pg_promote"}).AddRow(false))
 	if err := r.Promote(context.Background()); err == nil {
@@ -64,6 +80,8 @@ func TestReal_Promote_ReturnsFalse(t *testing.T) {
 
 func TestReal_Promote_QueryError(t *testing.T) {
 	r, mock := newRealWithMockDB(t)
+	mock.ExpectQuery(`SELECT pg_is_in_recovery\(\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
 	mock.ExpectQuery(`SELECT pg_promote\(true, 30\)`).
 		WillReturnError(errors.New("conn refused"))
 	if err := r.Promote(context.Background()); err == nil {

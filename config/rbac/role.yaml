@@ -27,6 +27,15 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
   - apps
   resources:
   - deployments

@@ -16,6 +16,9 @@
 #   POD_NAME, POD_NAMESPACE, POSTGRES_CLUSTER, POSTGRES_ROLE, POSTGRES_SHARD_ORDINAL
 #                        — downward API + spec.
 
+# 글로벌 ARG — 첫 FROM 보다 먼저 선언되어야 stage 의 FROM 에서 substitution 가능.
+ARG PG_MAJOR=18
+
 # ---- Stage 1: instance binary 빌드 ----
 FROM golang:1.25-bookworm AS instance-builder
 ARG TARGETOS
@@ -31,7 +34,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
 # postgres:${PG_MAJOR}-bookworm 공식 이미지를 base — pg_ctl, postgres, initdb, psql 포함.
 # 별도 빌드 (apt-get build-dep postgresql) 는 attack surface 증가 + 빌드 시간 비용으로
 # alpha 단계에서는 공식 이미지 사용 (ADR 후속에서 자체 빌드 결정).
-ARG PG_MAJOR=18
+# 글로벌 ARG 가 stage 안에서도 가시화되도록 한 번 더 선언 (Docker 규약).
+ARG PG_MAJOR
 FROM postgres:${PG_MAJOR}-bookworm AS runtime
 
 # instance binary 를 표준 경로로 복사. 컨테이너 ENTRYPOINT.
