@@ -112,6 +112,14 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+# RFC 0006 R1+R2 회귀 — PostgresCluster CR 라이프사이클 + Pod annotation status
+# + PostgresCluster.status.shards[*].primary.endpoint 실 DNS 반영 + psql round-trip.
+# 기존 test-e2e (전체 suite) 의 부분집합. PILLAR=p1 라벨로 필터.
+# KEEP=1 시 cleanup skip (로컬 디버그).
+.PHONY: test-e2e-pg
+test-e2e-pg: setup-test-e2e manifests generate fmt vet ## Run RFC 0006 R1+R2 회귀 e2e (kind 의존, p1 라벨).
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p1
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
