@@ -16,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -278,6 +279,101 @@ func buildClientService(cluster *postgresv1alpha1.PostgresCluster, name, role st
 	}
 }
 
+// buildInstanceServiceAccount 는 instance Pod 가 사용할 ServiceAccount 를 만든다.
+// cluster 단위 단일 SA — 모든 shard Pod 가 공유 (namespace-scoped).
+func buildInstanceServiceAccount(cluster *postgresv1alpha1.PostgresCluster) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      InstanceServiceAccountName(cluster.Name),
+			Namespace: cluster.Namespace,
+			Labels:    SelectorLabels(cluster.Name, "shard", -1),
+		},
+	}
+}
+
+// buildInstanceRole 는 instance manager 가 K8s API 호출에 필요한 최소 권한 Role.
+//
+// 권한 스펙 (RFC 0003 election + fencing 정확히 충족):
+//   - coordination.k8s.io/leases: leaderelection (get/list/watch/create/update/patch/delete)
+//   - core/persistentvolumeclaims: 자기 PVC 의 fence label patch (get/patch)
+//   - core/events: instance 가 이벤트 송출 가능하도록 (create/patch — 선택적이나 운영 가시성)
+func buildInstanceRole(cluster *postgresv1alpha1.PostgresCluster) *rbacv1.Role {
+	return &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      InstanceRoleName(cluster.Name),
+			Namespace: cluster.Namespace,
+			Labels:    SelectorLabels(cluster.Name, "shard", -1),
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"coordination.k8s.io"},
+				Resources: []string{"leases"},
+				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"persistentvolumeclaims"},
+				Verbs:     []string{"get", "list", "watch", "patch"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"events"},
+				Verbs:     []string{"create", "patch"},
+			},
+		},
+	}
+}
+
+// buildInstanceRoleBinding 는 ServiceAccount ↔ Role 결합 RoleBinding.
+func buildInstanceRoleBinding(cluster *postgresv1alpha1.PostgresCluster) *rbacv1.RoleBinding {
+	return &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      InstanceRoleBindingName(cluster.Name),
+			Namespace: cluster.Namespace,
+			Labels:    SelectorLabels(cluster.Name, "shard", -1),
+		},
+		Subjects: []rbacv1.Subject{{
+			Kind:      rbacv1.ServiceAccountKind,
+			Name:      InstanceServiceAccountName(cluster.Name),
+			Namespace: cluster.Namespace,
+		}},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     InstanceRoleName(cluster.Name),
+		},
+	}
+}
+
+// buildInitdbContainer 는 PGDATA 가 비어 있으면 initdb 를 수행하는 init container.
+//
+// 재실행 안전 — PG_VERSION 파일 존재 시 즉시 종료.
+// readOnlyRootFilesystem=true 동반 시 initdb 가 /tmp 에만 임시 쓰기 — emptyDir 충분.
+// PVC FSGroup=70 으로 mount 되므로 UID 70 으로 쓰기 가능.
+func buildInitdbContainer(image, pgMajor string) corev1.Container {
+	script := `set -eu
+DATA="` + pgDataSubdir + `"
+if [ -f "$DATA/PG_VERSION" ]; then
+  echo "PGDATA already initialized at $DATA — skipping initdb"
+  exit 0
+fi
+mkdir -p "$DATA"
+chmod 0700 "$DATA"
+` + pgBinDir(pgMajor) + `/initdb -D "$DATA" --auth-local=trust --auth-host=scram-sha-256 --username=postgres --encoding=UTF8 --locale=C
+echo "initdb completed at $DATA"
+`
+	return corev1.Container{
+		Name:            "initdb",
+		Image:           image,
+		Command:         []string{"sh", "-c"},
+		Args:            []string{script},
+		SecurityContext: dataplaneContainerSecurityContext(),
+		VolumeMounts: append([]corev1.VolumeMount{
+			{Name: "data", MountPath: pgDataMountPath},
+		}, dataplaneEphemeralVolumeMounts()...),
+	}
+}
+
 // buildInstanceEnv 는 instance manager (PID 1) 에 주입할 환경 변수 집합을 만든다.
 // downward API + spec 매개변수 + 고정 경로의 합산.
 func buildInstanceEnv(clusterName string, shardOrdinal int32, pgMajor string) []corev1.EnvVar {
@@ -316,14 +412,14 @@ func buildInstanceEnv(clusterName string, shardOrdinal int32, pgMajor string) []
 // 으로 동작하면서 buildInstanceEnv 의 env 를 읽어 postgres child 를 fork.
 func buildPGStatefulSet(
 	cluster *postgresv1alpha1.PostgresCluster,
-	name, serviceName, role string,
+	name, serviceName string,
 	shardOrdinal int32,
 	image, configMapName, pgMajor string,
 	members int32,
 	storage postgresv1alpha1.StorageSpec,
 	resources corev1.ResourceRequirements,
 ) *appsv1.StatefulSet {
-	labels := SelectorLabels(cluster.Name, role, shardOrdinal)
+	labels := SelectorLabels(cluster.Name, "shard", shardOrdinal)
 
 	pvcAccessModes := storage.AccessModes
 	if len(pvcAccessModes) == 0 {
@@ -353,7 +449,9 @@ func buildPGStatefulSet(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					SecurityContext: dataplanePodSecurityContext(),
+					SecurityContext:    dataplanePodSecurityContext(),
+					ServiceAccountName: InstanceServiceAccountName(cluster.Name),
+					InitContainers:     []corev1.Container{buildInitdbContainer(image, pgMajor)},
 					Containers: []corev1.Container{{
 						Name:            pgContainerName,
 						Image:           image,

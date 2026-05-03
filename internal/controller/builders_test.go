@@ -79,7 +79,7 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 	}
 	sts := buildPGStatefulSet(
 		cluster,
-		"test-shard-0", "test-shard-0-headless", "shard",
+		"test-shard-0", "test-shard-0-headless",
 		0,
 		"example.com/postgres:18", "test-shard-0-config", "18",
 		1,
@@ -98,7 +98,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 	}
 	sts := buildPGStatefulSet(
 		cluster,
-		"demo-shard-3", "demo-shard-3-headless", "shard",
+		"demo-shard-3", "demo-shard-3-headless",
 		3,
 		"example.com/postgres:18", "demo-shard-3-config", "18",
 		1,
@@ -158,6 +158,82 @@ func TestBuildConfigMap_IncludesPGHBA(t *testing.T) {
 	}
 	if _, ok := cm.Data["pg_hba.conf"]; !ok {
 		t.Error("ConfigMap missing pg_hba.conf")
+	}
+}
+
+func TestBuildPGStatefulSet_HasInitdbAndServiceAccount(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+	)
+	pod := &sts.Spec.Template.Spec
+	if pod.ServiceAccountName != "demo-instance" {
+		t.Errorf("ServiceAccountName = %q, want demo-instance", pod.ServiceAccountName)
+	}
+	if got := len(pod.InitContainers); got != 1 {
+		t.Fatalf("init containers = %d, want 1", got)
+	}
+	init := pod.InitContainers[0]
+	if init.Name != "initdb" {
+		t.Errorf("init container name = %q, want initdb", init.Name)
+	}
+	if len(init.Command) == 0 || init.Command[0] != "sh" {
+		t.Errorf("init command should be sh -c, got %v", init.Command)
+	}
+}
+
+func TestBuildInstanceRole_HasLeaseAndPVCVerbs(t *testing.T) {
+	t.Parallel()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	role := buildInstanceRole(cluster)
+	type ruleKey struct{ group, resource string }
+	got := map[ruleKey][]string{}
+	for _, r := range role.Rules {
+		for _, g := range r.APIGroups {
+			for _, res := range r.Resources {
+				got[ruleKey{g, res}] = r.Verbs
+			}
+		}
+	}
+	leaseVerbs, ok := got[ruleKey{"coordination.k8s.io", "leases"}]
+	if !ok {
+		t.Fatal("Role missing coordination.k8s.io/leases rule")
+	}
+	required := map[string]bool{"get": false, "create": false, "update": false}
+	for _, v := range leaseVerbs {
+		if _, ok := required[v]; ok {
+			required[v] = true
+		}
+	}
+	for v, ok := range required {
+		if !ok {
+			t.Errorf("leases rule missing verb %q", v)
+		}
+	}
+	pvcVerbs, ok := got[ruleKey{"", "persistentvolumeclaims"}]
+	if !ok {
+		t.Fatal("Role missing core/persistentvolumeclaims rule")
+	}
+	hasPatch := false
+	for _, v := range pvcVerbs {
+		if v == "patch" {
+			hasPatch = true
+		}
+	}
+	if !hasPatch {
+		t.Error("pvc rule must include patch (fencing.MarkFenced 사용)")
 	}
 }
 

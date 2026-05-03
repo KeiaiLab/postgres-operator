@@ -22,13 +22,16 @@ rules:
     resources: [statefulsets, deployments]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [""]
-    resources: [services, configmaps, secrets]
+    resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
   - apiGroups: [coordination.k8s.io]
     resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
     verbs: [get, list, watch, create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
