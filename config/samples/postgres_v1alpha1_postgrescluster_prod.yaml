@@ -1,52 +1,46 @@
-# keiailab/postgres-operator — production 샘플 (vanilla PG18, RFC 0001 부록 B + ADR 0010)
+# keiailab/postgres-operator — production 샘플 (vanilla PG18, RFC 0001 v2)
 #
-# 적용 전 다음을 확인:
-#   - StorageClass "fast-ssd"가 클러스터에 존재 (없으면 storageClassName 제거 또는 변경)
+# 0.3.0-alpha 이후 schema 는 shardCount/shardingMode 모델로 통합됨.
+# coordinator/workers/routers 옛 schema 는 폐기.
+#
+# 적용 전 확인:
+#   - StorageClass "fast-ssd" 가 클러스터에 존재 (없으면 storageClass 제거 또는 변경)
 #   - 노드 리소스가 요청 충족 가능
 #
-# 본 샘플은 webhook 검증이 강화된 production 모드를 시연한다:
-#   - coordinator.members ≥3 강제
-#   - workers[].members ≥3 강제
-#
-# 0.2.0-alpha (ADR 0010) 이후 vanilla PostgreSQL이 default. Citus 분산 SQL이 필요한 경우
-# AGPL-3.0 §13 SaaS 의무를 검토 후 명시 활성화 (citus version 필드 + extensions에 citus).
+# 본 샘플은 다음 production 권장 토폴로지를 시연:
+#   - shards.replicas=2 (primary 1 + async replica 2 = 3-way HA)
+#   - shardingMode=native + router (multi-shard 시에만 의미. shardCount=1 도 wrapper 검증)
+#   - shardCount=2 — 분산 SQL 활성화 (P2+ 진입 후 의미를 가짐).
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresCluster
 metadata:
   name: prod-cluster
   namespace: pg-system
 spec:
-  deployment: production
-  version:
-    postgres: "18"
-    # vanilla PG18 (default). Citus 활성화는 ADR 0010의 license 영향 평가 후 결정.
-  coordinator:
-    members: 3
-    storage:
-      size: 100Gi
-      storageClassName: fast-ssd
-    resources:
-      requests:
-        cpu: "2"
-        memory: 8Gi
-  workers:
-  - name: pool-a
-    members: 3
+  postgresVersion: "18"
+  shardingMode: native
+  shards:
+    initialCount: 2
+    replicas: 2
     storage:
       size: 500Gi
-      storageClassName: fast-ssd
+      storageClass: fast-ssd
     resources:
       requests:
         cpu: "4"
         memory: 16Gi
-  - name: pool-b
-    members: 3
-    storage:
-      size: 500Gi
-      storageClassName: fast-ssd
-  routers:
+  router:
+    enabled: true
     replicas: 3
-    pgbouncer:
-      poolMode: transaction
-      maxClientConn: 1000
-  # extensions: []  # vanilla PG. 분산 SQL 필요 시 ADR 0010 검토 후 citus opt-in.
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+  backup:
+    enabled: false  # F04 후속에서 의미 — RFC 0001 §3 / RFC 0004
+  monitoring:
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+    prometheusRule:
+      enabled: true
