@@ -46,16 +46,18 @@ import (
 
 	"github.com/keiailab/postgres-operator/internal/instance/election"
 	"github.com/keiailab/postgres-operator/internal/instance/fencing"
+	"github.com/keiailab/postgres-operator/internal/instance/supervise"
 )
 
 func main() {
 	var (
-		probeAddr        string
-		electionDisabled bool
-		fencingDisabled  bool
-		leaseDuration    time.Duration
-		renewDeadline    time.Duration
-		retryPeriod      time.Duration
+		probeAddr         string
+		electionDisabled  bool
+		fencingDisabled   bool
+		superviseDisabled bool
+		leaseDuration     time.Duration
+		renewDeadline     time.Duration
+		retryPeriod       time.Duration
 	)
 	flag.StringVar(&probeAddr, "probe-bind-address", ":8080",
 		"The address the healthz/readyz endpoints bind to.")
@@ -63,6 +65,8 @@ func main() {
 		"Disable K8s lease leader election (use Null election — always Leader). For dev mode only.")
 	flag.BoolVar(&fencingDisabled, "fencing-disabled", false,
 		"Disable PVC fence label lifecycle (RFC 0003 부록 A). For dev mode only — disables split-brain protection.")
+	flag.BoolVar(&superviseDisabled, "supervise-disabled", false,
+		"Disable postgres child supervision (skip fork + Promote/Stop wiring). For dev mode and unit tests only.")
 	flag.DurationVar(&leaseDuration, "lease-duration", election.DefaultLeaseDuration,
 		"Lease duration for leader election (RFC 0003 §2).")
 	flag.DurationVar(&renewDeadline, "renew-deadline", election.DefaultRenewDeadline,
@@ -86,10 +90,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "instance: unsupported POSTGRES_ROLE=%q (only \"shard\" supported in this binary)\n", role)
 		os.Exit(1)
 	}
-	shardOrdinal, err := strconv.ParseInt(envOrDie("POSTGRES_SHARD_ORDINAL"), 10, 32)
+	shardOrdinalRaw := envOrDie("POSTGRES_SHARD_ORDINAL")
+	shardOrdinal, err := strconv.ParseInt(shardOrdinalRaw, 10, 32)
 	if err != nil || shardOrdinal < 0 {
 		fmt.Fprintf(os.Stderr, "instance: POSTGRES_SHARD_ORDINAL must be a non-negative int32, got %q (err=%v)\n",
-			os.Getenv("POSTGRES_SHARD_ORDINAL"), err)
+			shardOrdinalRaw, err)
 		os.Exit(1)
 	}
 
@@ -107,6 +112,10 @@ func main() {
 	leaseName := election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
 	logger.Info("Resolved lease name", "lease", leaseName)
 
+	// Supervisor — postgres 자식 fork + Promote/Stop SQL 추상.
+	// supervise-disabled 모드에서는 nil 로 두고 callback 안에서 분기.
+	sup := buildSupervisor(superviseDisabled, logger)
+
 	// Fencing — Null(disabled) 또는 Real. fencer는 election callback에서
 	// 호출되며 fence 위반 시 fencingErrCh로 신호를 보내 main이 exit non-zero
 	// 응답한다(RFC 0003 부록 A §3 fail-fast).
@@ -123,21 +132,7 @@ func main() {
 		}
 	}
 
-	if fencingDisabled {
-		logger.Warn("PVC fencing disabled — split-brain protection OFF. Use only in development.")
-		fencer = fencing.NewMock() // no-op in production sense, never returns ErrFenced
-	} else {
-		realFencer, err := fencing.NewReal(fencing.RealConfig{
-			Client:    clientset,
-			Namespace: namespace,
-			PVCName:   fencing.PVCName(podName),
-		})
-		if err != nil {
-			logger.Error("Failed to construct fencer", "error", err)
-			os.Exit(1)
-		}
-		fencer = realFencer
-	}
+	fencer = buildFencer(fencingDisabled, clientset, namespace, podName, logger)
 
 	// Election 인스턴스 결정 (Real | Null).
 	var elect election.Election
@@ -153,9 +148,19 @@ func main() {
 				}
 				return
 			}
-			logger.Info("Leadership acquired — would promote postgres to primary",
+			if sup != nil {
+				if err := sup.Promote(ctx); err != nil {
+					logger.Error("Promote failed", "identity", podName, "error", err)
+					select {
+					case fencingErrCh <- fmt.Errorf("promote: %w", err):
+					default:
+					}
+					return
+				}
+			}
+			logger.Info("Leadership acquired — postgres promoted to primary",
 				"identity", podName, "lease", leaseName,
-				"todo", "supervise postgres process + 분산 SQL metadata 갱신 (RFC 0002 후속)")
+				"todo", "분산 SQL metadata 갱신 (RFC 0002 ShardRange 후속)")
 		},
 		OnStoppedLeading: func() {
 			// 자기 PVC를 fence 처리하여 좀비 부활 시 split-brain 방지.
@@ -166,8 +171,19 @@ func main() {
 				logger.Error("Failed to fence own PVC after losing leadership",
 					"identity", podName, "error", err)
 			} else {
-				logger.Warn("Leadership lost — fenced own PVC, would demote postgres to standby",
+				logger.Warn("Leadership lost — fenced own PVC, demoting postgres",
 					"identity", podName, "lease", leaseName)
+			}
+			// Demote — PostgreSQL 은 native pg_demote() 가 없으므로 fast Stop
+			// (SIGINT) 으로 primary 를 종료. 본 instance 는 ExitCh 가 fire 하면
+			// 통째 exit → K8s 가 Pod 재시작 → 다음 부팅 시 standby 로 진입
+			// (standby.signal 재구성 로직은 F03 후속).
+			if sup != nil {
+				demoteCtx, demoteCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer demoteCancel()
+				if err := sup.Stop(demoteCtx, true); err != nil {
+					logger.Error("Demote (fast stop) failed", "identity", podName, "error", err)
+				}
 			}
 		},
 		OnNewLeader: func(id string) {
@@ -227,6 +243,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// Supervisor 시작 — postgres child 종료를 감지하면 main 도 종료.
+	// election 보다 먼저 Start 해야 OnStartedLeading 안에서 Promote 호출 가능.
+	supExitCh := startSupervisor(ctx, sup, logger)
+
 	// HTTP 서버 goroutine
 	srvErrCh := make(chan error, 1)
 	go func() {
@@ -261,6 +281,13 @@ func main() {
 		// fence 해제(또는 PVC 교체)할 때까지 leadership 점유를 거절한다.
 		logger.Error("Fencing violation — exiting to defer to operator intervention", "error", err)
 		os.Exit(2)
+	case err := <-supExitCh:
+		// postgres child 가 죽으면 instance 도 함께 종료 — K8s 가 Pod 재시작.
+		if err != nil {
+			logger.Error("Exiting because postgres child exited", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("Exiting because postgres child exited cleanly")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -269,7 +296,94 @@ func main() {
 		logger.Error("Probe server graceful shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	gracefulStopSupervisor(sup, logger)
 	logger.Info("Instance manager exited cleanly")
+}
+
+// buildFencer 는 fencingDisabled 가 true 면 Mock fencer 를, false 면 Real fencer
+// (PVC fence label lifecycle) 를 반환한다. Real 생성 실패 시 즉시 종료.
+func buildFencer(
+	fencingDisabled bool,
+	clientset kubernetes.Interface,
+	namespace, podName string,
+	logger *slog.Logger,
+) fencing.Fencer {
+	if fencingDisabled {
+		logger.Warn("PVC fencing disabled — split-brain protection OFF. Use only in development.")
+		return fencing.NewMock()
+	}
+	realFencer, err := fencing.NewReal(fencing.RealConfig{
+		Client:    clientset,
+		Namespace: namespace,
+		PVCName:   fencing.PVCName(podName),
+	})
+	if err != nil {
+		logger.Error("Failed to construct fencer", "error", err)
+		os.Exit(1)
+	}
+	return realFencer
+}
+
+// buildSupervisor 는 superviseDisabled 가 false 면 supervise.NewReal 로 production
+// supervisor 를 생성, true 면 nil 을 반환한다 (callback 측에서 nil 분기).
+// 환경 변수 부재 시 envOrDie 가 즉시 종료한다.
+func buildSupervisor(superviseDisabled bool, logger *slog.Logger) supervise.Supervisor {
+	if superviseDisabled {
+		logger.Warn("Supervise disabled — postgres child not forked. Use only in development.")
+		return nil
+	}
+	sup, err := supervise.NewReal(supervise.Config{
+		BinDir:     envOrDie("POSTGRES_BIN_DIR"),
+		DataDir:    envOrDie("POSTGRES_DATA_DIR"),
+		ConfigFile: envOrDie("POSTGRES_CONFIG_FILE"),
+		HbaFile:    envOrDie("POSTGRES_HBA_FILE"),
+		LocalDSN:   envOrDie("POSTGRES_LOCAL_DSN"),
+	})
+	if err != nil {
+		logger.Error("Failed to construct supervisor", "error", err)
+		os.Exit(1)
+	}
+	return sup
+}
+
+// startSupervisor 는 sup 이 nil 이 아니면 Start 하고 ExitCh 감시 goroutine 을
+// 띄운다. 반환되는 채널은 child 가 종료되면 한 번 송출 후 close 된다.
+// sup 이 nil 이면 항상 비어 있는 채널을 반환 (select 분기 무력화).
+func startSupervisor(ctx context.Context, sup supervise.Supervisor, logger *slog.Logger) <-chan error {
+	if sup == nil {
+		return make(chan error)
+	}
+	if err := sup.Start(ctx); err != nil {
+		logger.Error("Failed to start postgres supervisor", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("Postgres supervisor started", "pid", sup.PID())
+	out := make(chan error, 1)
+	go func() {
+		err := <-sup.ExitCh()
+		if err != nil {
+			logger.Error("postgres child exited unexpectedly", "error", err)
+		} else {
+			logger.Info("postgres child exited cleanly")
+		}
+		out <- err
+		close(out)
+	}()
+	return out
+}
+
+// gracefulStopSupervisor 는 main 정상 종료 경로에서 postgres child 를 smart
+// shutdown (SIGTERM) 한다. 실패는 best-effort 로 로깅만 — K8s 가 PID1 종료 시
+// SIGKILL 로 cleanup 한다.
+func gracefulStopSupervisor(sup supervise.Supervisor, logger *slog.Logger) {
+	if sup == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := sup.Stop(ctx, false); err != nil {
+		logger.Error("Postgres graceful shutdown failed", "error", err)
+	}
 }
 
 // envOrDie는 필수 환경변수를 읽고 미설정 시 즉시 실패한다.
