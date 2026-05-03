@@ -120,6 +120,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 test-e2e-pg: setup-test-e2e manifests generate fmt vet ## Run RFC 0006 R1+R2 회귀 e2e (kind 의존, p1 라벨).
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p1
 
+# RFC 0006 R3 회귀 — primary kill → 새 primary auto-promote (RTO < 30s) → 옛 primary standby rejoin.
+# replicas=1 (Pod 2 개) failover 라이프사이클. KEEP=1 시 cleanup skip.
+.PHONY: test-e2e-failover
+test-e2e-failover: setup-test-e2e manifests generate fmt vet ## RFC 0006 R3 회귀 e2e (kind 의존, p2 라벨, replicas=1 primary kill).
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p2
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
