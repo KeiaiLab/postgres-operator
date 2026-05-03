@@ -221,3 +221,79 @@ kubectl apply --server-side -f dist/install.yaml
 - **production 도입 결정은 feature matrix 의 ❌/⚠️ 행을 사용자가 인지** 후만 권장.
 
 *본 보고서의 모든 수치는 단일 측정 — 통계적 신뢰구간 부재. 정식 SLA 측정은 GA 단계에서.*
+
+---
+
+## 2026-05-04 추가 측정 — RFC 0006 R3 회귀 + smoke 재검증
+
+> 환경: 동일 (kind v0.31 / Docker 29.4.1 / arm64), 본 cycle 의 commit chain (R1+R2+R3 task-a/b/c) 머지 후.
+
+### A. smoke 회귀 (`hack/smoke.sh`) — F02 90→100% 게이트
+
+| 지표 | 측정값 | 게이트 (RFC 0006 §7 alpha) |
+|---|---|---|
+| operator manager Available | ~12s | < 60s ✅ |
+| **CR apply → cluster Ready** | **18s** (22:32:52 → 22:33:10) | **< 60s ✅** |
+| psql round-trip (`SELECT 1`) | PASS | PASS ✅ |
+| status.shards[0].primary.ready | true | true ✅ |
+| status.conditions[Ready] | True ("all subsystems ready") | True ✅ |
+
+이전 cross-validation 의 62s (single-shard Time-to-Ready) 대비 *3.4배 개선* — readinessProbe 30→5s 단축 (`78c93db`) + R1/R2 wiring 정착의 누적 효과.
+
+### B. RFC 0006 R3 회귀 (`make test-e2e-failover`) — beta 게이트
+
+| It | spec | 결과 | 측정값 |
+|---|---|---|---|
+| #1 | elects ord-0 as initial primary | ✅ PASS | — |
+| #2 | spawns ord-1 as standby with role=replica annotation | ✅ PASS | — |
+| **#3** | **promotes new primary within RTO 30s after primary kill** | **✅ PASS** | **RTO = 7.45s** |
+| #4 | old primary rejoins as standby after pod restart | ❌ FAIL | (R3 implementation gap — 후속) |
+
+**핵심**: RFC 0006 §7 beta 기준 (`replicas=2 cluster 의 primary kill → new primary 까지 RTO < 30s`) **4배 여유로 통과** (7.45s vs 30s 목표). beta phase 의 측정 게이트 충족.
+
+**It #4 의 알려진 한계** (R3 implementation gap):
+- 옛 primary 가 *kill* 됐을 때 (graceful demote 가 아닌 Pod 강제 종료) `OnStoppedLeading` callback 이 호출되지 않아 `standby.signal` 파일이 PVC 에 쓰이지 않음.
+- bootstrap container (R3 task-b) 는 *first boot* (PGDATA empty) 만 standby.signal 생성 — *rejoin* (PGDATA 존재) 시 election leader 가 자기 자신이 아닐 때 standby.signal 을 touch 하는 분기 부재.
+- 결과: 옛 primary 가 재기동 후에도 standby.signal 없음 → instance manager 가 primary 모드로 부팅 시도 → split-brain 위험 (PVC fence 가 막아야 정상).
+- **fix scope**: bootstrap container 가 election lease 를 읽어 `leader != self` 일 때 standby.signal touch — R3 후속 cycle (별도 task).
+
+### C. 본 측정에서 추가로 발견된 *test-infra* 회귀 5건 (모두 fix-forward)
+
+본 cycle 이 *RFC 0006 R3 commit chain 의 첫 실 kind 실행* — task-c 가 compile-only 검증만 했기에 다음 환경 정합성 회귀가 한 번에 드러남:
+
+| # | 위치 | 증상 | 수정 |
+|---|---|---|---|
+| 1 | `hack/smoke.sh:72` | namespace `postgres-operator-system` (`ql` 누락) → `kubectl wait` NotFound | `postgresql-operator-system` |
+| 2 | `hack/smoke.sh:36` | OPERATOR_IMG `:smoke` ↔ install.yaml `:0.3.0-alpha` drift → ImagePullBackOff | OPERATOR_TAG 를 `Chart.yaml` `appVersion` 에서 도출 |
+| 3 | `hack/smoke.sh:32` | NS env override 가 sample CR 의 hardcoded `metadata.namespace=default` 와 어긋남 | NS hardcode `default` |
+| 4 | `test/e2e/e2e_suite_test.go:36,~64` | managerImage `example.com/...` ↔ install.yaml `:0.3.0-alpha` drift + operator install step 자체 누락 | managerImage 정렬 + `make build-installer + kubectl apply -f dist/install.yaml + wait Available` 추가 |
+| 5 | `test/e2e/{failover,postgrescluster}_e2e_test.go` | label selector `postgres.keiailab.io/cluster=` 가 controller 의 실제 라벨 (`app.kubernetes.io/instance=`) 과 불일치 → Pod selector 영원히 zero match → 5분 timeout | 6 occurrence 일괄 수정 |
+
+**클래스 분석**: 5 건 모두 *unit + envtest 가 catch 못 하는 환경 정합성*. RFC 0006 §1 의 "검증되지 않은 기능이 vaporware" 원칙이 *테스트 코드 자체에* 적용된 사례 — 테스트도 실행되지 않으면 vaporware.
+
+### D. Phase 게이트 갱신 (RFC 0006 §4)
+
+| Phase | 코드 게이트 | 측정 게이트 | 상태 |
+|---|---|---|---|
+| **alpha** (R1+R2) | ✅ implemented | ✅ smoke Pod Ready 18s < 60s | **통과** |
+| **beta** (R3) | ✅ implemented (R3 task-a/b/c) | ✅ RTO 7.45s < 30s (It #3) / ⚠️ It #4 후속 fix 필요 | **부분 통과** — R3 rejoin gap 후속 |
+| GA-single (R4) | ❌ pending | — | 미진입 |
+| GA-distributed (R5) | schema only | — | 미진입 |
+
+### E. 재현 절차
+
+```fish
+# 1. smoke (F02 단일 cluster 검증)
+./hack/smoke.sh
+
+# 2. R3 회귀 (replicas=1 + primary kill)
+make test-e2e-failover
+
+# 3. cleanup
+kind delete cluster --name postgresql-operator-test-e2e
+kind delete cluster --name postgres-operator-smoke
+```
+
+---
+
+*본 측정은 단일 환경 (M1 arm64 / Docker 29.4.1). 다른 arch / kernel / runtime 에서의 차이는 별도 측정 필요.*
