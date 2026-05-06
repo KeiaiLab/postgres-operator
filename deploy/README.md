@@ -16,6 +16,12 @@ deploy/
 
 운영 모델: **operator 와 workload 는 별개 ArgoCD application** — operator 는 prod ns, 데이터는 db ns.
 
+## 현 운영 상태 (2026-05-06)
+
+`keiailab/postgresql-operator` 는 *클러스터 미배포 상태* — argos-platform-data 의 ApplicationSet (`platform/data/application.yaml`) path 목록에 postgresql 항목이 없으며, postgresql 워크로드는 cnpg 가 별도 운영 중이다.
+
+본 디렉터리는 따라서 **Day-0 GitOps 첫 배포 진입점** (RFC-0004 §3) 이다. 적용 시 argos-platform-data/application.yaml 의 ApplicationSet directories 에 postgresql path 추가 (또는 본 repo 의 deploy/overlays/prod 를 가리키는 별도 ApplicationSet) 가 선행 작업이다.
+
 ## 사전 조건 (cluster)
 
 - [ ] `prod` namespace 사전 생성.
