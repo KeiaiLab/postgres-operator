@@ -45,7 +45,7 @@
 
 ### Changed (BREAKING)
 
-- **재설계**: PostgreSQL 위 자체 분산 SQL 레이어 구축으로 전환. ADR-0001 (`docs/adr/0001-self-built-distributed-sql.md`) 가 keystone 결정.
+- **재설계**: PostgreSQL 위 자체 분산 SQL 레이어 구축으로 전환. ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 가 keystone 결정.
 - ADR-0010 (legacy, Citus AGPL 격리 + vanilla PG default) supersede. 본 phase 부터 Citus 코드 의존 *0줄*. Citus 격리 plugin 모델 폐기.
 - 외부 의존 라이선스 정책 (ADR-0003): BSD/Apache/MIT/PG License + v1+ stability 만. **AGPL/BUSL/CSL/SSPL 영구 금지**.
 - Helm 패키징 (ADR-0002): 단일 chart + 컴포넌트 flag (router / resharder / rebalancer / keda / backup / monitoring).
@@ -62,7 +62,7 @@
 
 ### Archived
 
-- 기존 ADR 0001-0010 → `docs/adr/_archive/v0.x/` (git history 보존).
+- 기존 ADR 0001-0010 → `docs/kb/adr/_archive/v0.x/` (git history 보존).
 - 기존 RFC 0001-0005 → `docs/rfcs/_archive/v0.x/`.
 
 ### Deprecated (다음 세션 처리 예정)

@@ -51,4 +51,4 @@ kubectl -n data get postgrescluster postgres-cluster \
 
 ## 변경 절차
 
-본 디렉터리 변경은 ADR 작성 후 진행 (`docs/adr/`). 매번 `kustomize build deploy/overlays/prod` 렌더 검증.
+본 디렉터리 변경은 ADR 작성 후 진행 (`docs/kb/adr/`). 매번 `kustomize build deploy/overlays/prod` 렌더 검증.

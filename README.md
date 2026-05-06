@@ -21,7 +21,7 @@
 - **K8s-native auto-sharding** — `ShardRange` CRD = source of truth, KEDA 기반 자동 split, 7-step online resharding (cutover SLA p99 < 500ms).
 - **단일 endpoint** — application 은 `pg-router` Deployment 에 PG wire protocol 로 연결, 샤딩 인지 없이 동작.
 
-ADR 0001 (`docs/adr/0001-self-built-distributed-sql.md`) 가 본 결정의 keystone 이다.
+ADR 0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 가 본 결정의 keystone 이다.
 
 ## 아키텍처 (요약)
 
@@ -111,7 +111,7 @@ GitHub Actions 영구 금지 (RFC 0002 archive). 모든 게이트는 로컬 (pre
 ## 문서
 
 - `docs/architecture/` — 분산 시스템 설계 (overview / routing-layer / sharding-model / consistency / ha-and-fencing) — *P0 신설 예정*
-- `docs/adr/` — Architecture Decision Records (현재 0001~0005, archive 는 `_archive/v0.x/`)
+- `docs/kb/adr/` — Architecture Decision Records (현재 0001~0005, archive 는 `_archive/v0.x/`)
 - `docs/rfcs/` — RFC drafts (현재 0001~0005)
 - `docs/api-reference/` — CRD reference (자동 생성 예정)
 - `docs/runbooks/` — 운영 절차 (split / failover / backup, P4+ 작성)

@@ -301,5 +301,5 @@ make test-e2e PILLAR=p1                            # single-shard 시나리오
 - Archive: `docs/rfcs/_archive/v0.x/0005-sharding-plugin-interface.md` (구 dual-backend 추상화)
 - Kubebuilder CEL validation: https://book.kubebuilder.io/reference/markers/crd-validation.html
 - Operator Capability Levels: https://operatorframework.io/operator-capabilities/ (Auto Pilot 도달 목표)
-- ADR 0001: `docs/adr/0001-self-built-distributed-sql.md`
-- ADR 0004: `docs/adr/0004-crd-managed-by-operator.md`
+- ADR 0001: `docs/kb/adr/0001-self-built-distributed-sql.md`
+- ADR 0004: `docs/kb/adr/0004-crd-managed-by-operator.md`
