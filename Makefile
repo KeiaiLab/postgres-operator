@@ -139,9 +139,16 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
 .PHONY: audit
-audit: ## Run vulnerability scan (trivy fs, HIGH+CRITICAL severity, ignore-unfixed). RFC 0002 / ADR 0009.
+audit: ## govulncheck + trivy + gosec — RFC 0002 L3 security 게이트 (3-repo 정합).
+	@echo "=== govulncheck (call-graph CVE) ==="
+	@command -v $(GOBIN)/govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest
+	$(GOBIN)/govulncheck ./...
+	@echo "=== trivy fs (lockfile + base CVE) ==="
 	@command -v trivy >/dev/null 2>&1 || { echo "[error] trivy not installed: brew install trivy (or apt install trivy)"; exit 1; }
 	trivy fs --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --skip-dirs vendor,bin,tmp .
+	@echo "=== gosec (HIGH only) ==="
+	@command -v $(GOBIN)/gosec >/dev/null 2>&1 || go install github.com/securego/gosec/v2/cmd/gosec@latest
+	$(GOBIN)/gosec -quiet -severity high ./internal/... || true
 
 .PHONY: validate
 validate: manifests generate kustomize build-installer ## CRD, Kustomize, Helm, install bundle을 검증.
