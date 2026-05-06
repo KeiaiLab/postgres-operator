@@ -214,12 +214,30 @@ release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.
 	$(MAKE) helm-publish
 	@echo "릴리스 완료: $(VERSION)"
 
+# PGP signing 옵션 — HELM_SIGN=1 시 helm package --sign 으로 .prov 파일 생성.
+# HELM_GPG_KEY 가 GnuPG keyring 에 import 되어 있어야 함.
+HELM_SIGN     ?= 0
+HELM_GPG_KEY  ?= 89A409476828CB992338C378651E51AF520BCB78
+HELM_KEYRING  ?= $(HOME)/.gnupg/secring.gpg
+
+.PHONY: release-notes
+release-notes: ## git-cliff 로 release notes 자동 생성 — /tmp/release-notes-VERSION.md.
+	@command -v git-cliff >/dev/null 2>&1 || { echo "[error] git-cliff not installed: brew install git-cliff"; exit 1; }
+	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION 필수"; exit 1; fi
+	git-cliff --strip all --tag "$(VERSION)" --unreleased > "/tmp/release-notes-$(VERSION).md"
+	@echo "✓ release notes: /tmp/release-notes-$(VERSION).md"
+
 .PHONY: helm-publish
-helm-publish: ## Helm chart package와 index를 gh-pages에 게시.
+helm-publish: ## Helm chart package와 index를 gh-pages에 게시. HELM_SIGN=1 시 PGP .prov 동반.
 	@echo "=== helm package ==="
 	@rm -rf "$(RELEASE_TMP)" "$(GHPAGES_TMP)"
 	@mkdir -p "$(RELEASE_TMP)"
-	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"
+	@if [ "$(HELM_SIGN)" = "1" ]; then \
+		echo "INFO- chart 서명 활성 (PGP key $(HELM_GPG_KEY))"; \
+		helm package --sign --key "$(HELM_GPG_KEY)" --keyring "$(HELM_KEYRING)" "$(HELM_CHART)" -d "$(RELEASE_TMP)"; \
+	else \
+		helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"; \
+	fi
 	@echo "=== gh-pages worktree ==="
 	@if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then \
 		git clone --branch gh-pages --single-branch "$$(git remote get-url origin)" "$(GHPAGES_TMP)"; \
@@ -229,6 +247,8 @@ helm-publish: ## Helm chart package와 index를 gh-pages에 게시.
 	fi
 	@echo "=== helm repo index ==="
 	cp "$(RELEASE_TMP)"/postgresql-operator-*.tgz "$(GHPAGES_TMP)/"
+	@cp "$(RELEASE_TMP)"/postgresql-operator-*.tgz.prov "$(GHPAGES_TMP)/" 2>/dev/null || true
+	@cp "$(CURDIR)/charts/artifacthub-repo.yml" "$(GHPAGES_TMP)/" 2>/dev/null || true
 	@if [ -f "$(GHPAGES_TMP)/index.yaml" ]; then \
 		cd "$(GHPAGES_TMP)" && helm repo index . --merge index.yaml --url "$(HELM_REPO_URL)"; \
 	else \
