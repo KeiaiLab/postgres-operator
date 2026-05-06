@@ -3,27 +3,27 @@
 # 참고: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
 
 # 전체 기본 소유자
-* @keiailab/maintainers
+* @eightynine01
 
 # 핵심 도메인
-/api/                       @keiailab/maintainers
-/internal/controller/       @keiailab/maintainers
-/internal/instance/         @keiailab/maintainers
-/internal/citus/            @keiailab/maintainers
-/internal/backup/           @keiailab/maintainers
-/internal/balancer/         @keiailab/maintainers
-/internal/version/          @keiailab/maintainers
+/api/                       @eightynine01
+/internal/controller/       @eightynine01
+/internal/instance/         @eightynine01
+/internal/citus/            @eightynine01
+/internal/backup/           @eightynine01
+/internal/balancer/         @eightynine01
+/internal/version/          @eightynine01
 
 # 빌드/배포
-/build/                     @keiailab/maintainers
-/charts/                    @keiailab/maintainers
-/bundles/                   @keiailab/maintainers
-/.github/                   @keiailab/maintainers
+/build/                     @eightynine01
+/charts/                    @eightynine01
+/bundles/                   @eightynine01
+/.github/                   @eightynine01
 
 # 문서/거버넌스
-/docs/                      @keiailab/maintainers
-/MAINTAINERS.md             @keiailab/maintainers
-/GOVERNANCE.md              @keiailab/maintainers
-/SECURITY.md                @keiailab/maintainers
-/LICENSE                    @keiailab/maintainers
-/NOTICE                     @keiailab/maintainers
+/docs/                      @eightynine01
+/MAINTAINERS.md             @eightynine01
+/GOVERNANCE.md              @eightynine01
+/SECURITY.md                @eightynine01
+/LICENSE                    @eightynine01
+/NOTICE                     @eightynine01
