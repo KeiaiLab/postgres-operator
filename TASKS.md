@@ -20,6 +20,7 @@ P0 (0.3.0-alpha redesign reset) 는 완료 (commit df1f2e1). 이전 phase 작업
 | F03   | RFC 0003 election / fencing 인터페이스 위 실장 완성 | 설계 | 10% | F02 | F04 | `internal/instance/election`, `internal/instance/fencing` 상단 layer |
 | F04   | pgBackRest 통합 — backup controller (`internal/controller/backup/`) | 설계 | 10% | F01b | F05 | BackupJob CRD 는 이미 정의됨. RFC 0001 의 `spec.backup` reconcile 연결. |
 | F05   | single-shard E2E 시나리오 재설계 — chaos-mesh primary kill → failover < 30s | 설계 | 10% | F01b,F02,F03,F04 | - | RFC 0001 spec 기준 envtest 신규 작성 포함. |
+| T16   | GitOps deploy 오버레이 도입 (mongodb-operator / valkey-operator 와 3-repo 정합) | 완료 | 100% | - | - | 2026-05-06. ADR-0006. `deploy/overlays/prod/{kustomization,delete-namespace}.yaml` + `deploy/postgres-cluster.yaml` (db ns) + `deploy/README.md`. `kustomize build deploy/overlays/prod` 렌더 PASS, Namespace 리소스 0 건. patch target name 은 namePrefix 적용 전 raw `system` (config/manager 직접 import). |
 
 ## 이전 Phase 기록 (P0 — 0.3.0-alpha redesign reset, commit df1f2e1)
 

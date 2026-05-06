@@ -1,0 +1,31 @@
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresCluster
+metadata:
+  name: postgres-cluster
+  namespace: db
+spec:
+  postgresVersion: "18"
+  shardingMode: none
+  shards:
+    initialCount: 1
+    replicas: 2
+    storage:
+      size: 1Ti
+      storageClass: ceph-block
+    resources:
+      requests:
+        cpu: "1"
+        memory: 4Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  router:
+    enabled: false
+  backup:
+    enabled: false
+  monitoring:
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+    prometheusRule:
+      enabled: true

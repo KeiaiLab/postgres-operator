@@ -2,6 +2,12 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
+## 현재 상태 (2026-05-06, T16 GitOps deploy 정합)
+
+- **T16 완료**: mongodb-operator 패턴 따라 `deploy/overlays/prod/` + `deploy/postgres-cluster.yaml` + `deploy/README.md` 추가. ADR-0006 작성. CHANGELOG [Unreleased] 갱신. `kustomize build deploy/overlays/prod` PASS (Namespace 0). 미커밋 상태.
+- **결정 기록**: patch target name 은 `system` (config/manager 직접 import → namePrefix 미적용). mongodb-operator 의 `system → mongodb-operator-system` 수동 수정 방식은 kubebuilder regenerate 호환성 저하로 거절.
+- **다음 단계**: 본 변경 commit (`feat(deploy): GitOps overlay + ADR-0006 (3-repo 정합)`) 후 push. F02 cycle 5 후속 (kind smoke 실측) 은 별개 트랙.
+
 ## 현재 상태 (2026-05-03)
 
 - **HEAD**: F02 cycle 5 — `docs(deployment): kind smoke script + operator-guide 배포 가이드` (commit 직전)

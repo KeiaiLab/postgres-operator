@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `deploy/overlays/prod/` GitOps 진입점 — kubebuilder `config/{crd,rbac,manager}` 를
+  prod namespace 로 정렬 + 자동 생성 Namespace 리소스 제거. ArgoCD 단방향 동기 전제.
+- `deploy/postgres-cluster.yaml` — production PostgresCluster CR sample (db ns,
+  shardingMode=none, replicas=2, ceph-block, monitoring on).
+- `deploy/README.md` — 운영 런북 (사전 조건, 적용, 롤백 절차).
+- ADR-0006 — GitOps deploy 오버레이 도입 결정 (mongodb-operator / valkey-operator 와
+  3-repo 구조 정합).
+
 ## [0.3.0-alpha.1] - 2026-05-06
 
 ### Changed
