@@ -37,8 +37,35 @@ TAG_VER="${VERSION#v}"
 PASS=0
 FAIL=0
 
+# gh-pages CDN 인덱싱 / Pages build 큐잉 등 *비결정적 지연* 을 흡수하기 위한 retry.
+# 정상 publish 면 첫 시도 즉시 통과(fast-path), 지연되어도 ~3 분 내 수렴.
+SMOKE_RETRY_ATTEMPTS="${SMOKE_RETRY_ATTEMPTS:-12}"
+SMOKE_RETRY_SLEEP="${SMOKE_RETRY_SLEEP:-15}"
+
 pass() { echo "  ✓ $1"; PASS=$((PASS+1)); }
 fail() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
+
+# retry_check <pass_msg> <fail_msg> <cmd...>
+# cmd 가 exit 0 이면 pass, attempts 모두 실패하면 fail. 첫 시도 통과 시 sleep 0.
+retry_check() {
+  local pass_msg="$1" fail_msg="$2"
+  shift 2
+  local i=1
+  while [ "$i" -le "$SMOKE_RETRY_ATTEMPTS" ]; do
+    if "$@" >/dev/null 2>&1; then
+      if [ "$i" -eq 1 ]; then
+        pass "$pass_msg"
+      else
+        pass "$pass_msg (attempt ${i}/${SMOKE_RETRY_ATTEMPTS})"
+      fi
+      return 0
+    fi
+    [ "$i" -lt "$SMOKE_RETRY_ATTEMPTS" ] && sleep "$SMOKE_RETRY_SLEEP"
+    i=$((i+1))
+  done
+  fail "$fail_msg (after ${SMOKE_RETRY_ATTEMPTS} attempts × ${SMOKE_RETRY_SLEEP}s)"
+  return 1
+}
 
 echo "════════════════════════════════════════════════════════════════"
 echo " release-smoke-test  ${GH_OWNER}/${GH_REPO}  ${VERSION}"
@@ -73,43 +100,57 @@ else
   fail "image ${IMAGE_REF} manifest fetch 실패"
 fi
 
-# 3. GitHub Pages
+# 3. GitHub Pages — build 가 queued/building 상태에서 시작될 수 있어 retry.
 echo ""
 echo "▸ [3/6] GitHub Pages status"
-PAGES_STATUS="$(gh api "repos/${GH_OWNER}/${GH_REPO}/pages/builds" --jq '.[0].status' 2>/dev/null || echo "missing")"
-if [ "$PAGES_STATUS" = "built" ]; then
-  pass "Pages status=built"
-else
-  fail "Pages status=${PAGES_STATUS}"
-fi
+_check_pages_built() {
+  local status
+  status="$(gh api "repos/${GH_OWNER}/${GH_REPO}/pages/builds" --jq '.[0].status' 2>/dev/null || echo missing)"
+  [ "$status" = "built" ]
+}
+retry_check \
+  "Pages status=built" \
+  "Pages status≠built" \
+  _check_pages_built
 
-# 4. Helm repo index.yaml — 파일 기반 (bash 변수 long-string echo race 회피)
+# 4. Helm repo index.yaml — gh-pages CDN 반영 지연 흡수를 위해 fetch+grep retry.
 echo ""
 echo "▸ [4/6] Helm repo index.yaml fetch"
 INDEX_FILE="/tmp/release-smoke-index-$$.yaml"
-if curl -sfo "$INDEX_FILE" "${HELM_REPO_URL}/index.yaml" 2>/dev/null; then
+_fetch_index_only() { curl -sfo "$INDEX_FILE" "${HELM_REPO_URL}/index.yaml"; }
+_fetch_index_with_version() {
+  curl -sfo "$INDEX_FILE" "${HELM_REPO_URL}/index.yaml" \
+    && grep -Fq "version: ${TAG_VER}" "$INDEX_FILE"
+}
+if retry_check \
+     "index.yaml fetch" \
+     "index.yaml fetch 실패 (${HELM_REPO_URL}/index.yaml)" \
+     _fetch_index_only; then
   SIZE=$(wc -c < "$INDEX_FILE" | tr -d ' ')
-  pass "index.yaml fetch (${SIZE} bytes)"
-  # Helm chart version entry — fixed-string grep 으로 dot/quote 이스케이프 회피.
-  if grep -Fq "version: ${TAG_VER}" "$INDEX_FILE"; then
-    pass "index.yaml 에 version: ${TAG_VER} 존재"
-  else
-    fail "index.yaml 에 version: ${TAG_VER} 누락"
-  fi
-  rm -f "$INDEX_FILE"
-else
-  fail "index.yaml fetch 실패 (${HELM_REPO_URL}/index.yaml)"
+  echo "    (${SIZE} bytes)"
+  retry_check \
+    "index.yaml 에 version: ${TAG_VER} 존재" \
+    "index.yaml 에 version: ${TAG_VER} 누락" \
+    _fetch_index_with_version
 fi
+rm -f "$INDEX_FILE"
 
 # 5. helm pull + template
 echo ""
 echo "▸ [5/6] helm pull + template (default + all-features)"
 TMP_REPO="smoke-test-$$"
+# helm pull 자체는 인덱스 캐시 의존 — 매 시도마다 repo update 강제하여
+# gh-pages 신규 entry 가 client cache 에 반영될 시간을 준다.
+_helm_update_and_pull() {
+  helm repo update "$TMP_REPO" >/dev/null 2>&1 \
+    && helm pull "${TMP_REPO}/${CHART_NAME}" --version "${TAG_VER}" --destination /tmp >/dev/null 2>&1
+}
 if helm repo add "$TMP_REPO" "${HELM_REPO_URL}" >/dev/null 2>&1; then
-  helm repo update "$TMP_REPO" >/dev/null 2>&1
   TMP_TGZ="/tmp/${CHART_NAME}-${TAG_VER}-smoke.tgz"
-  if helm pull "${TMP_REPO}/${CHART_NAME}" --version "${TAG_VER}" --destination /tmp >/dev/null 2>&1; then
-    pass "helm pull ${TMP_REPO}/${CHART_NAME} --version ${TAG_VER}"
+  if retry_check \
+       "helm pull ${TMP_REPO}/${CHART_NAME} --version ${TAG_VER}" \
+       "helm pull ${TMP_REPO}/${CHART_NAME} 실패" \
+       _helm_update_and_pull; then
     PULLED_TGZ="/tmp/${CHART_NAME}-${TAG_VER}.tgz"
     if [ -f "$PULLED_TGZ" ]; then
       SIZE=$(stat -f%z "$PULLED_TGZ" 2>/dev/null || stat -c%s "$PULLED_TGZ")
@@ -131,8 +172,6 @@ if helm repo add "$TMP_REPO" "${HELM_REPO_URL}" >/dev/null 2>&1; then
       fi
       rm -f "$PULLED_TGZ"
     fi
-  else
-    fail "helm pull ${TMP_REPO}/${CHART_NAME} 실패"
   fi
   helm repo remove "$TMP_REPO" >/dev/null 2>&1
 else
