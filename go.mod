@@ -1,6 +1,6 @@
 module github.com/keiailab/postgres-operator
 
-go 1.25.7
+go 1.25.10
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
