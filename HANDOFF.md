@@ -2,7 +2,48 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
-## 현재 상태 (2026-05-07, PG17/PG18 HA smoke + PG18 failover smoke 통과)
+## 현재 상태 (2026-05-07, T20 SBOM 타겟 + v0.3.0-alpha.3 SBOM backfill — 통합 plan T0-1 postgres 부분 종결)
+
+- **이번 세션 (it49 — ~/.claude/plans/wondrous-tumbling-porcupine.md T0-1 cross-cut)**:
+  - `Makefile` 의 `release-notes` 타겟 직후 `.PHONY: sbom` 8 라인 블록 삽입. valkey-operator/Makefile L465-472 의 syft 패턴 byte-identical 이식 — chart name `postgres-operator` 만 치환.
+  - `make help` 자동 출력에 sbom 타겟 즉시 등록 — Makefile help target 의 awk parse-by-`##` 컨벤션 덕분.
+  - v0.3.0-alpha.3 GitHub Release 에 retroactive `postgres-operator-v0.3.0-alpha.3.spdx.json` (811455 bytes, SPDX-2.3, 90 packages) `gh release upload`.
+  - `release-smoke-test.sh v0.3.0-alpha.3` 결과 SBOM FAIL 1건 → **12 PASS / 0 FAIL** 회복. install.yaml 자산도 release smoke 가 인식 (postgres only).
+  - mongodb-operator T22 (it48 e898c30) 의 cross-cut. 4 repo SSoT (valkey ↔ mongodb ↔ postgres) 향한 첫 번째 정합 단계.
+- **검증 인용**:
+  ```
+  $ syft version
+  Application:   syft
+  Version:       1.44.0  (Homebrew)
+
+  $ make sbom VERSION=v0.3.0-alpha.3
+  ✓ SBOM: /tmp/postgres-operator-v0.3.0-alpha.3.spdx.json (811455 bytes)
+
+  $ jq '{spdxVersion, name, packages: (.packages | length)}' /tmp/postgres-operator-v0.3.0-alpha.3.spdx.json
+  {"spdxVersion": "SPDX-2.3", "name": "ghcr.io/keiailab/postgres-operator", "packages": 90}
+
+  $ gh release upload v0.3.0-alpha.3 /tmp/postgres-operator-v0.3.0-alpha.3.spdx.json -R keiailab/postgres-operator
+  (silent success)
+
+  $ ./scripts/release-smoke-test.sh v0.3.0-alpha.3
+  ✓ release v0.3.0-alpha.3 존재
+  ✓ chart .tgz asset 첨부
+  ✓ SBOM (SPDX) asset 첨부 — supply chain 표준
+  ✓ image ghcr.io/keiailab/postgres-operator:v0.3.0-alpha.3 (digest: sha256:9a976910e893...)
+  ✓ Pages status=built / index.yaml fetch (20181 bytes) / version: 0.3.0-alpha.3 존재
+  ✓ helm pull / helm template (default + features.cluster/backup/autoscaling=true)
+  ✓ trivy image: 0 HIGH+CRITICAL (fixed CVE 없음)
+  RESULT: 12 PASS / 0 FAIL
+  ```
+- **mongodb 와 비교**: postgres 90 packages vs mongodb 103 — postgres 가 dep tree 더 가벼움. chart .tgz 19773 bytes (postgres) vs 69824 (mongodb) — postgres alpha 가 functionality 면에서 더 작음.
+- **다음 진입점 (it50+)**:
+  - **C-P0-4 cross-cut**: postgres / valkey 의 `release-smoke-test.sh` 에 mongodb it45 retry_check 패턴 이식 (gh-pages CDN flake 흡수, 본 cycle 의 자연 후속).
+  - **T0-2 자동화**: release tag 시 `make sbom && gh release upload` 자동화 (mongodb + postgres `release.sh` 또는 Makefile release 타겟 통합).
+  - **A-P0 평행 진행**: NOTICE (valkey + commons) / ADOPTERS.md (3 operator) / GOVERNANCE 임계 수치화 / Scorecard badge — 사용자 결정 불필요, 즉시 가능.
+
+<!-- live-verified: 2026-05-07 -->
+
+## 이전 현재 상태 (2026-05-07, PG17/PG18 HA smoke + PG18 failover smoke 통과)
 
 - **이번 세션**:
   - `hack/smoke.sh` 에 `PG_MAJOR` / `POSTGRES_VERSION` / `NS` / `SHARD_REPLICAS` override 지원 추가.
