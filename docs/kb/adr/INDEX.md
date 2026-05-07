@@ -1,6 +1,6 @@
 # Architecture Decision Records — INDEX
 
-본 디렉터리는 postgresql-operator 의 비역행 결정(architecture decisions)을 Nygard
+본 디렉터리는 postgres-operator 의 비역행 결정(architecture decisions)을 Nygard
 5섹션 형식으로 보존한다. 결정의 *이유*가 코드보다 오래 살아남도록 한다.
 
 경로 표준: `<repo>/docs/kb/adr/` (글로벌 `standards/adr.md §1`).

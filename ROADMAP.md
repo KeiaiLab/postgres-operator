@@ -1,4 +1,4 @@
-# ROADMAP — postgresql-operator
+# ROADMAP — postgres-operator
 
 본 ROADMAP 은 *현재* 와 *다음 6 개월* 의 우선순위를 명시합니다. 기간 기반 deadline 은 의도적으로 회피하며, *기능 단위* 로 진행을 추적합니다 (글로벌 §workflow.md "시간 기반 로드맵 금지").
 
@@ -13,7 +13,7 @@
 - [ ] Logical replication — Publication / Subscription CR + drift 감지
 
 ### 운영 / 배포
-- [x] Helm chart `keiailab.github.io/postgresql-operator` publish
+- [x] Helm chart `keiailab.github.io/postgres-operator` publish
 - [x] argos 클러스터 deploy — `platform-data-cnpg` ArgoCD app, `postgres-default` 3-replica cluster
 - [x] 3-repo (mongodb / postgresql / valkey) governance 자산 정합 (CODE_OF_CONDUCT / GOVERNANCE / MAINTAINERS / **ROADMAP** 본 문서)
 - [ ] Failover quorum 자동 — 2-node 시 quorum 유실 방지 가드 (현재 부분 — `failoverquorums` CRD 도입 완료)

@@ -34,7 +34,7 @@ import (
 var (
 	// managerImage 는 dist/install.yaml 의 controller image (config/manager/kustomization.yaml
 	// newTag = Chart.yaml appVersion = 0.3.0-alpha) 와 정렬돼야 한다. kubebuilder
-	// 기본값 (`example.com/postgresql-operator:v0.0.1`) 을 그대로 두면 install.yaml 이
+	// 기본값 (`example.com/postgres-operator:v0.0.1`) 을 그대로 두면 install.yaml 이
 	// IfNotPresent 정책으로 ghcr.io 의 :0.3.0-alpha 를 pull 시도 → kind 노드에 부재 →
 	// ImagePullBackOff. 동일 출처 (appVersion) 정렬로 drift 차단.
 	managerImage = "ghcr.io/keiailab/postgres-operator:0.3.0-alpha"
@@ -48,7 +48,7 @@ var (
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting postgresql-operator e2e test suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting postgres-operator e2e test suite\n")
 	RunSpecs(t, "e2e suite")
 }
 
@@ -77,9 +77,9 @@ var _ = BeforeSuite(func() {
 
 	By("waiting for operator manager Deployment to become Available")
 	cmd = exec.Command("kubectl",
-		"-n", "postgresql-operator-system",
+		"-n", "postgres-operator-system",
 		"wait", "--for=condition=Available",
-		"deployment/postgresql-operator-controller-manager",
+		"deployment/postgres-operator-controller-manager",
 		"--timeout=180s")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "operator manager Deployment did not become Available")

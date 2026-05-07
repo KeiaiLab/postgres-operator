@@ -1,9 +1,9 @@
 ============================================================================
-keiailab/postgresql-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.AppVersion }}) installed!
+keiailab/postgres-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.AppVersion }}) installed!
 ============================================================================
 
 📦 Operator Manager:
-  kubectl get deployment -n {{ .Release.Namespace }} {{ include "postgresql-operator.fullname" . }}-controller-manager
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "postgres-operator.fullname" . }}-controller-manager
 
 📋 ServiceAccount + RBAC:
   kubectl get sa,clusterrole,clusterrolebinding -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
@@ -13,7 +13,7 @@ keiailab/postgresql-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.A
   kubectl get crd backupjobs.postgres.keiailab.io
 
 CRD lifecycle을 별도로 관리하려면 설치 시 Helm 기본 옵션을 사용:
-  helm install {{ .Release.Name }} keiailab/postgresql-operator --skip-crds
+  helm install {{ .Release.Name }} keiailab/postgres-operator --skip-crds
 
 {{ if .Values.networkPolicies.enabled -}}
 🔒 NetworkPolicies (data plane default-deny + cluster-internal allow):
@@ -22,7 +22,7 @@ CRD lifecycle을 별도로 관리하려면 설치 시 Helm 기본 옵션을 사�
 
 {{ if eq (int .Values.replicas) 1 -}}
 ⚠️  replicas=1 — alpha default. For HA (P2-M1 leader election), set replicas=2+:
-  helm upgrade {{ .Release.Name }} keiailab/postgresql-operator --set replicas=3
+  helm upgrade {{ .Release.Name }} keiailab/postgres-operator --set replicas=3
 {{- end }}
 
 📜 License (ADR 0003):

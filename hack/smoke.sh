@@ -37,10 +37,10 @@ PG_MAJOR="${PG_MAJOR:-$POSTGRES_VERSION}"
 PG_IMG="${PG_IMG:-ghcr.io/keiailab/pg:${PG_MAJOR}}"
 SHARD_REPLICAS="${SHARD_REPLICAS:-${POSTGRES_REPLICAS:-${REPLICAS:-0}}}"
 # install.yaml 이 config/manager/kustomization.yaml 의 newTag 를 사용하고, 그 값은
-# charts/postgresql-operator/Chart.yaml 의 appVersion 과 동기화돼 있다 (Makefile §3 IMAGE_TAG).
+# charts/postgres-operator/Chart.yaml 의 appVersion 과 동기화돼 있다 (Makefile §3 IMAGE_TAG).
 # smoke.sh 가 다른 태그 (예: ":smoke") 로 빌드/로드하면 kubelet 이 install.yaml 의 태그를
 # pull 하려다 실패한다. drift 방지를 위해 단일 출처에서 태그 도출.
-OPERATOR_TAG="${OPERATOR_TAG:-$(awk '/^appVersion:/ { gsub(/"/, "", $2); print $2; exit }' charts/postgresql-operator/Chart.yaml)}"
+OPERATOR_TAG="${OPERATOR_TAG:-$(awk '/^appVersion:/ { gsub(/"/, "", $2); print $2; exit }' charts/postgres-operator/Chart.yaml)}"
 OPERATOR_IMG="${OPERATOR_IMG:-ghcr.io/keiailab/postgres-operator:${OPERATOR_TAG}}"
 
 log() { printf '\n[smoke] %s\n' "$*" >&2; }
@@ -90,7 +90,7 @@ kubectl apply -f dist/install.yaml
 
 # operator Pod Ready 대기
 log "Waiting for operator manager Pod"
-kubectl -n postgresql-operator-system wait --for=condition=Available deployment \
+kubectl -n postgres-operator-system wait --for=condition=Available deployment \
     -l control-plane=controller-manager --timeout=180s
 
 # 4. quickstart CR

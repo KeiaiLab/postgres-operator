@@ -1,4 +1,4 @@
-# Default values for postgresql-operator chart (P1-4, ADR 0007).
+# Default values for postgres-operator chart (P1-4, ADR 0007).
 #
 # 본 chart는 *operator 자체*만 배포한다. PostgresCluster CR 인스턴스는 별도로
 # 배포 (helm 외부의 kubectl apply, 또는 후속 charts/postgrescluster).

@@ -102,7 +102,7 @@ K8s 는 operator 가 *자기 자신이 안 가진 권한* 을 다른 SA 에 gran
 
 ```
 roles.rbac.authorization.k8s.io "ours-bench-instance" is forbidden:
-  user "system:serviceaccount:postgresql-operator-system:..." is attempting
+  user "system:serviceaccount:postgres-operator-system:..." is attempting
   to grant RBAC permissions not currently held:
   {APIGroups:[""], Resources:["persistentvolumeclaims"], Verbs:["get" "list" "watch" "patch"]}
 ```
@@ -263,7 +263,7 @@ kubectl apply --server-side -f dist/install.yaml
 
 | # | 위치 | 증상 | 수정 |
 |---|---|---|---|
-| 1 | `hack/smoke.sh:72` | namespace `postgres-operator-system` (`ql` 누락) → `kubectl wait` NotFound | `postgresql-operator-system` |
+| 1 | `hack/smoke.sh:72` | operator namespace 표기 불일치 → `kubectl wait` NotFound | `postgres-operator-system` |
 | 2 | `hack/smoke.sh:36` | OPERATOR_IMG `:smoke` ↔ install.yaml `:0.3.0-alpha` drift → ImagePullBackOff | OPERATOR_TAG 를 `Chart.yaml` `appVersion` 에서 도출 |
 | 3 | `hack/smoke.sh:32` | NS env override 가 sample CR 의 hardcoded `metadata.namespace=default` 와 어긋남 | NS hardcode `default` |
 | 4 | `test/e2e/e2e_suite_test.go:36,~64` | managerImage `example.com/...` ↔ install.yaml `:0.3.0-alpha` drift + operator install step 자체 누락 | managerImage 정렬 + `make build-installer + kubectl apply -f dist/install.yaml + wait Available` 추가 |
@@ -290,7 +290,7 @@ kubectl apply --server-side -f dist/install.yaml
 make test-e2e-failover
 
 # 3. cleanup
-kind delete cluster --name postgresql-operator-test-e2e
+kind delete cluster --name postgres-operator-test-e2e
 kind delete cluster --name postgres-operator-smoke
 ```
 

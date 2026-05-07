@@ -1,6 +1,6 @@
-# PostgreSQL Operator Helm Chart
+# Postgres Operator Helm Chart
 
-`postgresql-operator` chart는 `keiailab/postgres-operator`의 operator manager, RBAC, CRD, NetworkPolicy를 배포한다.
+`postgres-operator` chart는 `keiailab/postgres-operator`의 operator manager, RBAC, CRD, NetworkPolicy를 배포한다.
 
 ## 전제 조건
 
@@ -11,16 +11,16 @@
 ## 설치
 
 ```bash
-helm install postgresql-operator ./charts/postgresql-operator \
-  --namespace postgresql-operator-system \
+helm install postgres-operator ./charts/postgres-operator \
+  --namespace postgres-operator-system \
   --create-namespace
 ```
 
 CRD는 `crds/` 디렉터리에 포함되어 Helm 설치 시 기본 적용된다. CRD lifecycle을 별도로 관리하는 환경에서는 Helm 표준 옵션을 사용한다.
 
 ```bash
-helm install postgresql-operator ./charts/postgresql-operator \
-  --namespace postgresql-operator-system \
+helm install postgres-operator ./charts/postgres-operator \
+  --namespace postgres-operator-system \
   --create-namespace \
   --skip-crds
 ```
@@ -53,8 +53,8 @@ helm install postgresql-operator ./charts/postgresql-operator \
 - 샘플 CR 적용 시 schema 에러가 발생하지 않는다.
 
 ```bash
-helm lint --strict ./charts/postgresql-operator
-helm template --include-crds gate ./charts/postgresql-operator
+helm lint --strict ./charts/postgres-operator
+helm template --include-crds gate ./charts/postgres-operator
 kubectl get crd postgresclusters.postgres.keiailab.io backupjobs.postgres.keiailab.io
 kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
 ```
@@ -62,7 +62,7 @@ kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
 ## 제거
 
 ```bash
-helm uninstall postgresql-operator -n postgresql-operator-system
+helm uninstall postgres-operator -n postgres-operator-system
 ```
 
 Helm은 CRD를 uninstall 시 자동 삭제하지 않는다. CRD까지 제거하려면 명시적으로 삭제한다.

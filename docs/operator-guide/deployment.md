@@ -47,7 +47,7 @@ make docker-push-pg PG_IMG=ghcr.io/keiailab/pg:18
 ### Helm
 
 ```fish
-helm install postgres-operator charts/postgresql-operator \
+helm install postgres-operator charts/postgres-operator \
     --namespace postgres-operator-system --create-namespace \
     --set image.repository=ghcr.io/keiailab/postgres-operator \
     --set image.tag=dev

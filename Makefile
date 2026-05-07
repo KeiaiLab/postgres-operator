@@ -1,9 +1,9 @@
 # Image URL to use all building/pushing image targets
 IMAGE_REPOSITORY ?= ghcr.io/keiailab/postgres-operator
-IMAGE_TAG ?= $(shell awk '/^appVersion:/ { gsub(/"/, "", $$2); print $$2; exit }' charts/postgresql-operator/Chart.yaml 2>/dev/null)
+IMAGE_TAG ?= $(shell awk '/^appVersion:/ { gsub(/"/, "", $$2); print $$2; exit }' charts/postgres-operator/Chart.yaml 2>/dev/null)
 IMG ?= $(IMAGE_REPOSITORY):$(IMAGE_TAG)
 
-HELM_CHART ?= charts/postgresql-operator
+HELM_CHART ?= charts/postgres-operator
 HELM_REPO_URL ?= https://keiailab.github.io/postgres-operator
 RELEASE_TMP ?= /tmp/postgres-operator-release
 GHPAGES_TMP ?= /tmp/postgres-operator-gh-pages
@@ -81,7 +81,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= postgresql-operator-test-e2e
+KIND_CLUSTER ?= postgres-operator-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -190,7 +190,7 @@ release-preflight: require-version gate ## push 없이 릴리스 메타데이터
 	@rm -rf "$(RELEASE_TMP)"
 	@mkdir -p "$(RELEASE_TMP)"
 	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"
-	@test -f "$(RELEASE_TMP)/postgresql-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz"
+	@test -f "$(RELEASE_TMP)/postgres-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz"
 	@rm -rf "$(RELEASE_TMP)"
 	@echo "=== release preflight: clean tree ==="
 	@git diff --quiet
@@ -215,7 +215,7 @@ release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.
 	gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
 		--title "$(VERSION)" \
 		--notes "Release $(VERSION). 변경 내역은 CHANGELOG.md 참조." \
-		"$(RELEASE_TMP)/postgresql-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz" \
+		"$(RELEASE_TMP)/postgres-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz" \
 		dist/install.yaml; \
 	rm -rf "$(RELEASE_TMP)"
 	$(MAKE) helm-publish
@@ -253,8 +253,8 @@ helm-publish: ## Helm chart package와 index를 gh-pages에 게시. HELM_SIGN=1 
 		cd "$(GHPAGES_TMP)" && git checkout --orphan gh-pages && git rm -rf . >/dev/null 2>&1 || true; \
 	fi
 	@echo "=== helm repo index ==="
-	cp "$(RELEASE_TMP)"/postgresql-operator-*.tgz "$(GHPAGES_TMP)/"
-	@cp "$(RELEASE_TMP)"/postgresql-operator-*.tgz.prov "$(GHPAGES_TMP)/" 2>/dev/null || true
+	cp "$(RELEASE_TMP)"/postgres-operator-*.tgz "$(GHPAGES_TMP)/"
+	@cp "$(RELEASE_TMP)"/postgres-operator-*.tgz.prov "$(GHPAGES_TMP)/" 2>/dev/null || true
 	@cp "$(CURDIR)/charts/artifacthub-repo.yml" "$(GHPAGES_TMP)/" 2>/dev/null || true
 	@if [ -f "$(GHPAGES_TMP)/index.yaml" ]; then \
 		cd "$(GHPAGES_TMP)" && helm repo index . --merge index.yaml --url "$(HELM_REPO_URL)"; \
@@ -313,10 +313,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name postgresql-operator-builder
-	$(CONTAINER_TOOL) buildx use postgresql-operator-builder
+	- $(CONTAINER_TOOL) buildx create --name postgres-operator-builder
+	$(CONTAINER_TOOL) buildx use postgres-operator-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm postgresql-operator-builder
+	- $(CONTAINER_TOOL) buildx rm postgres-operator-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer

@@ -1,4 +1,4 @@
-# TASKS — postgresql-operator
+# TASKS — postgres-operator
 
 > 작업 ID: F=기능 / I=개선 / B=버그 / T=그 외. 부여 후 재사용 금지.
 > 단계: 설계(10%) / 구현(60%) / 테스트(90%) / 완료(100%).

@@ -20,7 +20,7 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CHART_NAME="$(awk '/^name:/ { print $2; exit }' "$REPO_DIR"/charts/*/Chart.yaml)"
-# GH repo name 은 git remote 에서 추출 (chart name 과 다를 수 있음 — postgresql-operator
+# GH repo name 은 git remote 에서 추출 (chart name 과 다를 수 있음 — postgres-operator
 # chart 가 postgres-operator GH repo 에서 publish 되는 패턴 등).
 REMOTE_URL="$(cd "$REPO_DIR" && git remote get-url origin 2>/dev/null)"
 GH_OWNER="$(echo "$REMOTE_URL" | sed -E 's|.*[:/]([^/]+)/[^/]+\.git$|\1|; s|.*[:/]([^/]+)/[^/]+$|\1|')"
@@ -63,7 +63,7 @@ fi
 # 2. GHCR image
 echo ""
 echo "▸ [2/6] GHCR image manifest"
-# Image name 은 GH repo name 을 따름 (chart name 과 다를 수 있음 — postgresql-operator
+# Image name 은 GH repo name 을 따름 (chart name 과 다를 수 있음 — postgres-operator
 # chart 가 ghcr.io/keiailab/postgres-operator 로 push 되는 패턴 등).
 IMAGE_REF="ghcr.io/${GH_OWNER}/${GH_REPO}:${VERSION}"
 if docker manifest inspect "$IMAGE_REF" >/dev/null 2>&1; then

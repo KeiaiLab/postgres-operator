@@ -45,7 +45,7 @@ import (
 // Ordered = BeforeAll/AfterAll 의존 (image build → CR apply → 검증).
 //
 // 본 Describe 는 "Manager" Describe 와 *별도 namespace* (pg-e2e) 를 사용해
-// 기존 e2e suite (postgresql-operator-system) 와 공존한다.
+// 기존 e2e suite (postgres-operator-system) 와 공존한다.
 const (
 	pgClusterNamespace   = "pg-e2e"
 	pgClusterName        = "quickstart"

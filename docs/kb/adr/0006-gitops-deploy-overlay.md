@@ -71,4 +71,4 @@ deploy/
 
 1. **`config/default` 를 직접 ArgoCD source 로 사용** — namespace 강제 변경 어렵고 자동 생성 Namespace 리소스 이슈 그대로. 거절.
 2. **mongodb-operator 처럼 `config/manager/manager.yaml` 의 Namespace name 을 full name 으로 수동 변경** — 재생성 시 매번 패치 필요. operator-sdk regenerate 호환성 저하. 거절.
-3. **Helm chart (`charts/`) 을 GitOps source 로 사용** — argos-platform-data 의 mongodb umbrella chart 가 이미 본 패턴 (operator chart 를 dependency 로 흡수). postgresql-operator 도 동일 방식 가능. 본 ADR 은 *그것과 별개 진입점* 도입을 결정하는 것이지 helm 경로를 부정하지 않는다. 두 진입점 (helm wrapper / kustomize overlay) 은 동일 cluster state 를 산출하도록 향후 parity invariant (valkey ADR-0028 격) 가 도입돼야 한다. 후속 ADR 에서 다룬다.
+3. **Helm chart (`charts/`) 을 GitOps source 로 사용** — argos-platform-data 의 mongodb umbrella chart 가 이미 본 패턴 (operator chart 를 dependency 로 흡수). postgres-operator 도 동일 방식 가능. 본 ADR 은 *그것과 별개 진입점* 도입을 결정하는 것이지 helm 경로를 부정하지 않는다. 두 진입점 (helm wrapper / kustomize overlay) 은 동일 cluster state 를 산출하도록 향후 parity invariant (valkey ADR-0028 격) 가 도입돼야 한다. 후속 ADR 에서 다룬다.

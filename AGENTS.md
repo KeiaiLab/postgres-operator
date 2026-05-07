@@ -1,4 +1,4 @@
-# postgresql-operator - AI Agent Guide
+# postgres-operator - AI Agent Guide
 
 ## Project Structure
 

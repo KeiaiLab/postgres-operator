@@ -34,16 +34,16 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "postgresql-operator-system"
+const namespace = "postgres-operator-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "postgresql-operator-controller-manager"
+const serviceAccountName = "postgres-operator-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "postgresql-operator-controller-manager-metrics-service"
+const metricsServiceName = "postgres-operator-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "postgresql-operator-metrics-binding"
+const metricsRoleBindingName = "postgres-operator-metrics-binding"
 
 // Ginkgo Label "p1"은 Makefile의 PILLAR=p1과 매칭된다(roadmap.md §10).
 // 향후 다른 Pillar(P2, P11, P12 등)별 Describe 블록 추가 시 동일 패턴으로
@@ -203,7 +203,7 @@ var _ = Describe("Manager", Ordered, Label("p1"), func() {
 			_, _ = utils.Run(cmd)
 
 			cmd = exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=postgresql-operator-metrics-reader",
+				"--clusterrole=postgres-operator-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

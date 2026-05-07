@@ -1,4 +1,4 @@
-# RFC 0006: 더 높은 수준의 PostgreSQL Operator — 5R 리팩토링 청사진
+# RFC 0006: 더 높은 수준의 Postgres Operator — 5R 리팩토링 청사진
 
 - **Status**: Proposed → Accepted (R1 + R2 Implemented 2026-05-03)
 - **Authors**: phil

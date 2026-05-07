@@ -16,13 +16,13 @@ Operator manager (cmd/main.go) 가 startup 시점에 CRD 를 server-side apply (
 
 - **CRD 소스**: `config/crd/bases/*.yaml` (controller-gen 생성) 을 operator 이미지에 embed (`//go:embed config/crd/bases/*.yaml`).
 - **적용 시점**: `cmd/main.go` 의 manager.Start() 직전, leader election 획득 후 1회.
-- **적용 방식**: server-side apply (`fieldManager: postgresql-operator`, `force: true`). 다른 fieldManager 가 추가한 필드는 보존.
-- **owner annotation**: `postgresql-operator.io/managed-by: operator`. CRD 변경 추적·debugging 지원.
-- **버전 conflict 처리**: 운영자 image 가 *downgrade* (예: v0.5.0 → v0.4.0) 될 때 CRD apply 를 *skip* (storage version 보존). `kubectl annotate` 로 강제 override 옵션 (`postgresql-operator.io/allow-crd-downgrade: "true"`) 제공.
+- **적용 방식**: server-side apply (`fieldManager: postgres-operator`, `force: true`). 다른 fieldManager 가 추가한 필드는 보존.
+- **owner annotation**: `postgres-operator.io/managed-by: operator`. CRD 변경 추적·debugging 지원.
+- **버전 conflict 처리**: 운영자 image 가 *downgrade* (예: v0.5.0 → v0.4.0) 될 때 CRD apply 를 *skip* (storage version 보존). `kubectl annotate` 로 강제 override 옵션 (`postgres-operator.io/allow-crd-downgrade: "true"`) 제공.
 - **Helm chart 변경**:
-  - `charts/postgresql-operator/crds/` 디렉토리 **제거**.
-  - `templates/NOTES.txt` 에 "CRD 는 operator pod 기동 후 약 5초 내 자동 등장 — `kubectl get crd | grep postgresql-operator` 로 확인" 명시.
-  - `helm uninstall` 시 CRD 는 *남는다* (의도적). 데이터 보호. 명시적 정리는 사용자가 `kubectl delete crd -l app.kubernetes.io/managed-by=postgresql-operator` 로 수행.
+  - `charts/postgres-operator/crds/` 디렉토리 **제거**.
+  - `templates/NOTES.txt` 에 "CRD 는 operator pod 기동 후 약 5초 내 자동 등장 — `kubectl get crd | grep postgres-operator` 로 확인" 명시.
+  - `helm uninstall` 시 CRD 는 *남는다* (의도적). 데이터 보호. 명시적 정리는 사용자가 `kubectl delete crd -l app.kubernetes.io/managed-by=postgres-operator` 로 수행.
 - **개발자 도구**: `make sync-crds` 는 *유지*. controller-gen → `config/crd/bases` → `docs/api-reference` 동기화 검증용. operator 가 embed 하는 CRD 와 docs 가 일치하지 않으면 CI L2 게이트에서 차단.
 - **OLM 통합**: 본 결정은 OLM `installModes` 의 `OwnNamespace` / `SingleNamespace` / `AllNamespaces` 모두와 호환. CSV (ClusterServiceVersion) 의 `customresourcedefinitions.owned` 항목은 operator-sdk 가 자동 생성.
 
@@ -55,7 +55,7 @@ Operator manager (cmd/main.go) 가 startup 시점에 CRD 를 server-side apply (
 | (b) `crd-install` Helm hook 사용 | install 시 CRD 적용은 가능하나 upgrade hook 은 ordering 보장이 약하고 helm 4 deprecation 후보. |
 | (c) OLM 전용 (Helm 미제공) | K8s 직접 사용자 (vanilla cluster, on-prem, edge) 배제. ArtifactHub Helm channel 활용 불가. |
 | (d) helm-charts repo 의 `pre-install` Job 으로 `kubectl apply` | Job 권한·sa 분리·실패 처리 복잡. operator 자체에 통합하는 것이 단순. |
-| (e) Static CRD bundle (`postgresql-operator-crds-1.0.0.yaml`) 별도 배포 | 사용자가 chart 와 별도로 받아야 함. lockstep 보장 부재. |
+| (e) Static CRD bundle (`postgres-operator-crds-1.0.0.yaml`) 별도 배포 | 사용자가 chart 와 별도로 받아야 함. lockstep 보장 부재. |
 | (f) operator 가 CRD 를 *생성만 하고 update 안 함* | 진화 단절. ADR 의도에 정면 충돌. |
 
 ## References

@@ -3,7 +3,7 @@
 # PostgresCluster CR 인스턴스는 별도 chart(charts/postgrescluster, 후속) 또는
 # kubectl apply -f examples/<sample>.yaml로 배포한다.
 apiVersion: v2
-name: postgresql-operator
+name: postgres-operator
 description: |
   K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
   dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin

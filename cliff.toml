@@ -4,7 +4,7 @@
 [changelog]
 header = """
 # Changelog\n
-All notable changes to postgresql-operator will be documented in this file.\n
+All notable changes to postgres-operator will be documented in this file.\n
 """
 body = """
 {% if version %}\

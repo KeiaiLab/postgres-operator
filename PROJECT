@@ -6,7 +6,7 @@ cliVersion: 4.13.1
 domain: keiailab.io
 layout:
 - go.kubebuilder.io/v4
-projectName: postgresql-operator
+projectName: postgres-operator
 repo: github.com/keiailab/postgres-operator
 resources:
 - api:

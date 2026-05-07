@@ -3,9 +3,9 @@ kind: Namespace
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
+    app.kubernetes.io/name: postgres-operator
     control-plane: controller-manager
-  name: postgresql-operator-system
+  name: postgres-operator-system
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -1802,18 +1802,18 @@ kind: ServiceAccount
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
-  name: postgresql-operator-controller-manager
-  namespace: postgresql-operator-system
+    app.kubernetes.io/name: postgres-operator
+  name: postgres-operator-controller-manager
+  namespace: postgres-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
-  name: postgresql-operator-leader-election-role
-  namespace: postgresql-operator-system
+    app.kubernetes.io/name: postgres-operator
+  name: postgres-operator-leader-election-role
+  namespace: postgres-operator-system
 rules:
 - apiGroups:
   - ""
@@ -1850,7 +1850,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: postgresql-operator-manager-role
+  name: postgres-operator-manager-role
 rules:
 - apiGroups:
   - ""
@@ -1955,7 +1955,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: postgresql-operator-metrics-auth-role
+  name: postgres-operator-metrics-auth-role
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -1973,7 +1973,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: postgresql-operator-metrics-reader
+  name: postgres-operator-metrics-reader
 rules:
 - nonResourceURLs:
   - /metrics
@@ -1985,56 +1985,56 @@ kind: RoleBinding
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
-  name: postgresql-operator-leader-election-rolebinding
-  namespace: postgresql-operator-system
+    app.kubernetes.io/name: postgres-operator
+  name: postgres-operator-leader-election-rolebinding
+  namespace: postgres-operator-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: postgresql-operator-leader-election-role
+  name: postgres-operator-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: postgresql-operator-controller-manager
-  namespace: postgresql-operator-system
+  name: postgres-operator-controller-manager
+  namespace: postgres-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
-  name: postgresql-operator-manager-rolebinding
+    app.kubernetes.io/name: postgres-operator
+  name: postgres-operator-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: postgresql-operator-manager-role
+  name: postgres-operator-manager-role
 subjects:
 - kind: ServiceAccount
-  name: postgresql-operator-controller-manager
-  namespace: postgresql-operator-system
+  name: postgres-operator-controller-manager
+  namespace: postgres-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: postgresql-operator-metrics-auth-rolebinding
+  name: postgres-operator-metrics-auth-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: postgresql-operator-metrics-auth-role
+  name: postgres-operator-metrics-auth-role
 subjects:
 - kind: ServiceAccount
-  name: postgresql-operator-controller-manager
-  namespace: postgresql-operator-system
+  name: postgres-operator-controller-manager
+  namespace: postgres-operator-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
+    app.kubernetes.io/name: postgres-operator
     control-plane: controller-manager
-  name: postgresql-operator-controller-manager-metrics-service
-  namespace: postgresql-operator-system
+  name: postgres-operator-controller-manager-metrics-service
+  namespace: postgres-operator-system
 spec:
   ports:
   - name: https
@@ -2042,7 +2042,7 @@ spec:
     protocol: TCP
     targetPort: 8443
   selector:
-    app.kubernetes.io/name: postgresql-operator
+    app.kubernetes.io/name: postgres-operator
     control-plane: controller-manager
 ---
 apiVersion: apps/v1
@@ -2050,22 +2050,22 @@ kind: Deployment
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
+    app.kubernetes.io/name: postgres-operator
     control-plane: controller-manager
-  name: postgresql-operator-controller-manager
-  namespace: postgresql-operator-system
+  name: postgres-operator-controller-manager
+  namespace: postgres-operator-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: postgresql-operator
+      app.kubernetes.io/name: postgres-operator
       control-plane: controller-manager
   template:
     metadata:
       annotations:
         kubectl.kubernetes.io/default-container: manager
       labels:
-        app.kubernetes.io/name: postgresql-operator
+        app.kubernetes.io/name: postgres-operator
         control-plane: controller-manager
     spec:
       containers:
@@ -2108,7 +2108,7 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: postgresql-operator-controller-manager
+      serviceAccountName: postgres-operator-controller-manager
       terminationGracePeriodSeconds: 10
       volumes: []
 ---
@@ -2117,9 +2117,9 @@ kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: postgresql-operator
-  name: postgresql-operator-allow-metrics-traffic
-  namespace: postgresql-operator-system
+    app.kubernetes.io/name: postgres-operator
+  name: postgres-operator-allow-metrics-traffic
+  namespace: postgres-operator-system
 spec:
   ingress:
   - from:
@@ -2131,7 +2131,7 @@ spec:
       protocol: TCP
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: postgresql-operator
+      app.kubernetes.io/name: postgres-operator
       control-plane: controller-manager
   policyTypes:
   - Ingress
@@ -2141,8 +2141,8 @@ kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/managed-by: keiailab-postgres-operator
-  name: postgresql-operator-postgres-operator-dataplane-allow-internal
-  namespace: postgresql-operator-system
+  name: postgres-operator-postgres-operator-dataplane-allow-internal
+  namespace: postgres-operator-system
 spec:
   egress:
   - ports:
@@ -2184,8 +2184,8 @@ kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/managed-by: keiailab-postgres-operator
-  name: postgresql-operator-postgres-operator-dataplane-allow-router-ingress
-  namespace: postgresql-operator-system
+  name: postgres-operator-postgres-operator-dataplane-allow-router-ingress
+  namespace: postgres-operator-system
 spec:
   ingress:
   - from:
@@ -2205,8 +2205,8 @@ kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/managed-by: keiailab-postgres-operator
-  name: postgresql-operator-postgres-operator-dataplane-default-deny
-  namespace: postgresql-operator-system
+  name: postgres-operator-postgres-operator-dataplane-default-deny
+  namespace: postgres-operator-system
 spec:
   podSelector:
     matchLabels:

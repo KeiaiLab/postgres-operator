@@ -9,10 +9,10 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "postgresql-operator.fullname" . }}-dataplane-default-deny
+  name: {{ include "postgres-operator.fullname" . }}-dataplane-default-deny
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "postgresql-operator.labels" . | nindent 4 }}
+    {{- include "postgres-operator.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
@@ -22,10 +22,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "postgresql-operator.fullname" . }}-dataplane-allow-internal
+  name: {{ include "postgres-operator.fullname" . }}-dataplane-allow-internal
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "postgresql-operator.labels" . | nindent 4 }}
+    {{- include "postgres-operator.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
@@ -63,10 +63,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "postgresql-operator.fullname" . }}-dataplane-allow-router-ingress
+  name: {{ include "postgres-operator.fullname" . }}-dataplane-allow-router-ingress
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "postgresql-operator.labels" . | nindent 4 }}
+    {{- include "postgres-operator.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:

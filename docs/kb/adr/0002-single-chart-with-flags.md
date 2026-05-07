@@ -10,16 +10,16 @@
 
 ## Decision
 
-`charts/postgresql-operator/` 단일 chart 로 모든 operator 컴포넌트를 패키징하고, 선택 컴포넌트는 `values.yaml` 의 boolean flag 로 토글한다.
+`charts/postgres-operator/` 단일 chart 로 모든 operator 컴포넌트를 패키징하고, 선택 컴포넌트는 `values.yaml` 의 boolean flag 로 토글한다.
 
 핵심 매개변수:
 
-- chart 개수: **1** (`postgresql-operator`).
+- chart 개수: **1** (`postgres-operator`).
 - chart 버전 정책: SemVer + appVersion 일치 (operator 이미지와 chart version lockstep).
 - 컴포넌트 토글 위치: `values.yaml` 최상위 키 (`router.enabled`, `resharder.enabled`, `rebalancer.enabled`, `autoscale.keda.enabled`, `backup.enabled`, `monitoring.serviceMonitor.enabled`, `monitoring.prometheusRule.enabled`, `security.networkPolicies.enabled`).
 - 스키마 검증: `values.schema.json` 을 *strict top-level* (`additionalProperties: false`) 로 작성하여 오타·미지원 키를 install/upgrade 시 즉시 거부.
 - conditional 렌더링: 각 `templates/<component>.yaml` 은 `{{- if .Values.<component>.enabled }} ... {{- end }}` 가드.
-- umbrella sample chart 는 본 chart 에 포함하지 않고 별도 repo (`postgresql-operator-samples`) 로 분리하여 운영 chart 와 데모용 의존성을 격리.
+- umbrella sample chart 는 본 chart 에 포함하지 않고 별도 repo (`postgres-operator-samples`) 로 분리하여 운영 chart 와 데모용 의존성을 격리.
 - Helm 호환성: 3.18+ 필수, 4.0 readiness 확보 (Wasm plugin 미사용, SSA 기본화 호환 검증).
 - ArtifactHub: `artifacthub-repo.yml` + signed `.prov` 로 verified publisher 신청.
 
@@ -48,7 +48,7 @@
 
 | 대안 | 거절 사유 |
 |---|---|
-| (a) 3-chart 분리 (`postgresql-operator-lib` + `postgresql-operator` + `postgresql-operator-sample`) | 1인 maintainer 가 3개 chart 를 lockstep 유지하는 비용 과다. Library chart 의 추상화 가치는 다중 consumer 가 있을 때 발현되지만 본 프로젝트는 단일 consumer (자기 자신). |
+| (a) 3-chart 분리 (`postgres-operator-lib` + `postgres-operator` + `postgres-operator-sample`) | 1인 maintainer 가 3개 chart 를 lockstep 유지하는 비용 과다. Library chart 의 추상화 가치는 다중 consumer 가 있을 때 발현되지만 본 프로젝트는 단일 consumer (자기 자신). |
 | (b) 단일 chart + 외부 sample repo + library chart | library chart 부분 거절. sample repo 분리는 *부분 채택*. operator chart 는 자체 완결성을 가지며 외부 library 에 의존하지 않는다. |
 | (c) operator-sdk / OLM bundle 단독 패키징 (Helm 미지원) | K8s 직접 사용자 (OpenShift 비사용자) 배제. ArtifactHub 의 Helm 패키지 channel 도 활용 불가. |
 | (d) Kustomize overlay 단독 | 버전 관리·릴리스·dependency 표현이 Helm 대비 약함. 사용자는 이미 Helm 생태계를 기대. |

@@ -16,11 +16,11 @@ deploy/
 
 운영 모델: argos 클러스터 ns 통합 정책 (2026-05-06 cycle: 5 차트 모두 `data` ns 단일) 에 따라 operator 와 CR 이 *동일 data ns* 를 공유한다. envName 분리 (`overlays/prod`) 는 환경 식별자로만 유지.
 
-## 현 운영 상태 (2026-05-06)
+## 현 운영 상태 (2026-05-07)
 
-`keiailab/postgresql-operator` 는 *클러스터 미배포 상태* — argos-platform-data 의 ApplicationSet (`platform/data/application.yaml`) path 목록에 postgresql 항목이 없으며, postgresql 워크로드는 cnpg 가 별도 운영 중이다.
+`keiailab/postgres-operator` 의 기존 미배포 원인은 argos-platform-data 의 ApplicationSet (`platform/data/application.yaml`) directories 목록에 operator path 가 없었던 것이다. 현재 production GitOps 진입점은 argos-platform-data 의 `postgres-operator/` Helm wrapper chart 이다.
 
-본 디렉터리는 **Day-0 GitOps 첫 배포 진입점** (RFC-0004 §3). 적용 시 argos-platform-data/application.yaml 의 ApplicationSet directories 에 postgresql path 추가 (또는 본 repo 의 deploy/overlays/prod 를 가리키는 별도 ApplicationSet) 가 선행 작업이다.
+본 디렉터리는 **대체 Kustomize 배포 진입점** (RFC-0004 §3) 으로 유지한다. argos production 은 `platform/data/postgres-operator` 경로를 우선 source of truth 로 사용한다.
 
 ⚠️ **operator readiness 미검증** — F02 cycle 5 (kind smoke 실측) + F03~F05 (election, pgBackRest, chaos-mesh failover) 진척 후 production 적용 권장.
 
@@ -41,7 +41,7 @@ kustomize build deploy/overlays/prod | grep -c "kind: Namespace"   # 0
 
 # 2) operator 적용
 kustomize build deploy/overlays/prod | kubectl apply -f -
-kubectl -n data rollout status deploy/postgresql-operator-controller-manager
+kubectl -n data rollout status deploy/controller-manager
 
 # 3) workload 적용
 kubectl apply -f deploy/postgres-cluster.yaml

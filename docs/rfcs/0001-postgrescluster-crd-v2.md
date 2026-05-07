@@ -290,7 +290,7 @@ Ready ──(any shard primary down > 30s)──▶ Degraded ──(recover)─�
 make manifests && make generate
 go test ./api/v1alpha1/...                        # CEL + struct validation
 make test                                          # 전체 단위
-helm template charts/postgresql-operator | kubectl apply --dry-run=server -f -
+helm template charts/postgres-operator | kubectl apply --dry-run=server -f -
 make test-e2e PILLAR=p1                            # single-shard 시나리오
 ```
 

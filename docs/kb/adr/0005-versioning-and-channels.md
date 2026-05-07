@@ -23,7 +23,7 @@
   - `v1beta1` — P4 진입 시. v1alpha1 도 동시 served (storage version 은 v1beta1). conversion webhook 배포.
   - `v1` — P6 진입 시. v1beta1 served (deprecated, 24개월 후 제거). storage version 은 v1.
 - **이미지 / chart 태그 매핑**:
-  - alpha: `quay.io/postgresql-operator/manager:v0.X.Y-alpha.N` + chart `version: 0.X.Y-alpha.N`.
+  - alpha: `quay.io/postgres-operator/manager:v0.X.Y-alpha.N` + chart `version: 0.X.Y-alpha.N`.
   - beta: `:v0.X.Y-beta.N` + chart `0.X.Y-beta.N`.
   - stable: `:v1.Y.Z` + chart `1.Y.Z`. (0.9.x 는 stable 의 RC 단계로 별도 명시.)
 - **Helm repo 인덱스**: 각 채널은 별도 repo URL 또는 동일 repo 내 `Chart.yaml` annotation 으로 분리 (`artifacthub.io/channel: alpha|beta|stable`).

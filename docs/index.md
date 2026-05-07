@@ -1,5 +1,5 @@
 ---
-title: "keiailab/postgresql-operator"
+title: "keiailab/postgres-operator"
 description: "K8s-native auto-sharding PostgreSQL operator — 자체 분산 SQL, Apache-2.0 단일 라이선스"
 ---
 
