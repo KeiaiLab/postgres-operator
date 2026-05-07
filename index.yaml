@@ -56,7 +56,7 @@ entries:
             executionMode: job
       artifacthub.io/images: |
         - name: manager
-          image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.3
+          image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4
       artifacthub.io/license: Apache-2.0
       artifacthub.io/links: |
         - name: Documentation
@@ -71,12 +71,12 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.4
-    created: "2026-05-07T19:52:14.934496+09:00"
+    created: "2026-05-08T08:06:30.035755+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
       roadmap (ADR 0001, ADR 0003). '
-    digest: cd3f366eb7be8ac5269404eccd198068cb03ee4ca3a1c69fb22e97b28d5476db
+    digest: 09a1f40f0d9e04e9141872f788193a745591932ea1a52bfc231d39ca7cebe938
     home: https://github.com/keiailab/postgres-operator
     keywords:
     - postgresql
@@ -169,7 +169,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.3
-    created: "2026-05-07T19:52:14.933748+09:00"
+    created: "2026-05-08T08:06:30.034875+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -267,7 +267,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.2
-    created: "2026-05-07T19:52:14.932041+09:00"
+    created: "2026-05-08T08:06:30.0341+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -366,7 +366,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.2
-    created: "2026-05-07T19:52:14.935709+09:00"
+    created: "2026-05-08T08:06:30.037005+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -464,7 +464,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.1
-    created: "2026-05-07T19:52:14.935108+09:00"
+    created: "2026-05-08T08:06:30.036384+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -492,4 +492,4 @@ entries:
     urls:
     - https://keiailab.github.io/postgres-operator/postgresql-operator-0.3.0-alpha.1.tgz
     version: 0.3.0-alpha.1
-generated: "2026-05-07T19:52:14.930795+09:00"
+generated: "2026-05-08T08:06:30.0319+09:00"
