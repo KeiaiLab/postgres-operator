@@ -70,3 +70,14 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+
+  - repo: local
+    hooks:
+      - id: dco-signoff
+        name: DCO Signed-off-by check (A-P0-5)
+        description: Warns if Signed-off-by trailer missing. DCO_STRICT=1 to enforce.
+        language: system
+        entry: bash -c 'msg_file="$1"; if ! grep -qE "^Signed-off-by: .+ <.+@.+>" "$msg_file"; then if [ "${DCO_STRICT:-0}" = "1" ]; then echo "❌ DCO Signed-off-by trailer missing — use git commit -s"; exit 1; else echo "[warn] DCO Signed-off-by trailer missing (set DCO_STRICT=1 to enforce)"; fi; fi' --
+        stages: [commit-msg]
+        always_run: true
+        pass_filenames: true
