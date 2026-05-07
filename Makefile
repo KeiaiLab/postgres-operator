@@ -74,8 +74,25 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate fmt vet setup-envtest ## Run tests (combined unit + integration with single cover.out).
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+
+.PHONY: test-unit
+test-unit: fmt vet ## Run unit tests only (no envtest — fast feedback).
+	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... -coverprofile cover-unit.out
+
+.PHONY: test-integration
+test-integration: manifests generate fmt vet setup-envtest ## Run integration tests (envtest required).
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -race ./internal/controller/... ./internal/webhook/... -coverprofile cover-integration.out
+
+.PHONY: coverage-merge
+coverage-merge: ## gocovmerge 로 unit + integration coverage 통합 → cover-final.out
+	@command -v gocovmerge >/dev/null 2>&1 || { echo "[error] gocovmerge not installed: go install github.com/wadey/gocovmerge@latest"; exit 1; }
+	@test -f cover-unit.out || { echo "[error] cover-unit.out 부재 — make test-unit 먼저"; exit 1; }
+	@test -f cover-integration.out || { echo "[error] cover-integration.out 부재 — make test-integration 먼저"; exit 1; }
+	gocovmerge cover-unit.out cover-integration.out > cover-final.out
+	@echo "✓ cover-final.out (unit + integration merged)"
+	@go tool cover -func=cover-final.out | tail -1
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
