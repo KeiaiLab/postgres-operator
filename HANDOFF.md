@@ -2,6 +2,34 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
+## 현재 상태 (2026-05-08, v0.3.0-alpha.4 실제 argos 배포 + Day-0 마일스톤 반영)
+
+- **이번 세션**:
+  - v0.3.0-alpha.4 release 를 기준으로 GitOps rollout 을 강제하고 live digest 를 검증했다.
+  - argos production source of truth 는 `argos-platform-data` 의 `platform/data/postgres-operator` Helm wrapper 이다. repo 의 `deploy/` 는 대체 Kustomize 진입점으로 유지한다.
+  - milestone 표기는 `0.3.0-alpha.4 Day-0 alpha-deployable 실제 배포 완료` 까지만 올린다. P1 0.4.0 production-ready 는 HA replica, backup/restore drill, PITR, 장기 soak 가 남아 있어 완료가 아니다.
+- **live 검증 인용**:
+  ```
+  $ kubectl -n argocd get app platform-data-postgres-operator -o wide
+  platform-data-postgres-operator   Synced   Healthy   cc662773f1a286d6b11a768af151db0ccd47b63f
+
+  $ kubectl -n data get deploy platform-data-postgres-operator-controller-manager \
+      -o jsonpath='{.status.readyReplicas}/{.status.replicas} {.spec.template.spec.containers[0].image} {.spec.template.metadata.annotations.argos\.io/release-index-digest}{"\n"}'
+  1/1 ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4 sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f
+
+  $ kubectl -n data get pod -l control-plane=controller-manager \
+      -o jsonpath='{range .items[?(@.metadata.name contains "platform-data-postgres-operator")]}{.metadata.name} {.status.containerStatuses[0].ready} {.status.containerStatuses[0].imageID}{"\n"}{end}'
+  platform-data-postgres-operator-controller-manager-6666494x22sx true ghcr.io/keiailab/postgres-operator@sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f
+
+  $ kubectl -n data get postgrescluster argos-postgres \
+      -o jsonpath='{.status.phase} {.status.conditions[?(@.type=="Ready")].status} {.status.conditions[?(@.type=="Progressing")].status}{"\n"}'
+  Ready True False
+  ```
+- **다음 진입점**:
+  - release-smoke retry 패턴 이식, release tag 시 SBOM 자동 업로드, P1 HA/backup/PITR 순으로 계속 진행.
+
+<!-- live-verified: 2026-05-08 -->
+
 ## 현재 상태 (2026-05-07, T20 SBOM 타겟 + v0.3.0-alpha.3 SBOM backfill — 통합 plan T0-1 postgres 부분 종결)
 
 - **이번 세션 (it49 — ~/.claude/plans/wondrous-tumbling-porcupine.md T0-1 cross-cut)**:

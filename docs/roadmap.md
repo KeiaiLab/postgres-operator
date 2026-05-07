@@ -22,9 +22,9 @@ description: "postgres-operator Gate 기반 로드맵"
 | 영역 | 상태 | 남은 작업 |
 |---|---|---|
 | Naming | `postgres-operator` 로 repo/chart/GitOps path 정렬 | archive 문서는 history 로 보존 |
-| Release | `0.3.0-alpha.3` image/chart publish | 1.0.0 GA 전환 불가 |
+| Release | `0.3.0-alpha.4` image/chart/SBOM publish 및 release-smoke 12/12 PASS | 1.0.0 GA 전환 불가 |
 | Runtime image | `ghcr.io/keiailab/pg:18` public pull 검증 | multi-arch/runtime SBOM 보강 |
-| Production cluster | `argos-postgres` single-shard Ready | HA replica, backup/restore, long soak |
+| Production cluster | `platform-data-postgres-operator` Synced/Healthy, controller `1/1`, `argos-postgres` Ready=True | HA replica, backup/restore, long soak |
 | Fencing | PVC fence로 split-brain fail-fast | operator-driven recovery/runbook 자동화 |
 | Backup | `BackupJob` CRD 존재 | 실제 backup/restore controller 구현 필요 |
 

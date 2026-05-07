@@ -9,6 +9,8 @@
 
 P0 (0.3.0-alpha redesign reset) 는 완료 (commit df1f2e1). 이전 phase 작업 표는 §"이전 Phase 기록" 참조.
 
+현재 달성 마일스톤: `0.3.0-alpha.4` Day-0 alpha-deployable 실제 argos 배포 완료. 이는 G0 진척이며 P1 전체 완료(HA/backup/PITR)는 아니다.
+
 ## 작업 표 (P1)
 
 | ID    | 기능명 / 요약 | 단계 | 완성도 | 의존 | 영향 | 비고 |
@@ -25,6 +27,7 @@ P0 (0.3.0-alpha redesign reset) 는 완료 (commit df1f2e1). 이전 phase 작업
 | T18   | failover smoke false-pass 제거 + PG18 차단 원인 실측 | 완료 | 100% | T17 | F03,F05 | 2026-05-07. `SMOKE_FAILOVER=1` 이 RTO 미측정/standby 미승격을 성공으로 통과하던 false-pass 제거. macOS `date -d` 의존 제거. 초기 실측은 FAIL 로 원인 확보: 같은 Pod name lease 재점유, `*-1` recovery 유지, PVC fence label 없음. |
 | T19   | PG18 failover 차단 수정 + status 수렴 gate 추가 | 완료 | 100% | T18 | F03,F05 | 2026-05-07. election identity=`podName/podUID`, `ReleaseOnCancel=false`, `POSTGRES_MEMBER_COUNT`, restarted ordinal-0 standby marker/`primary_conninfo` 재구성, CR status polling 추가. PG18 `SHARD_REPLICAS=1 SMOKE_FAILOVER=1` smoke PASS: WAL streaming, RTO 21s(<30s), CR status primary=`quickstart18fo-shard-0-1`, restarted `*-0` standby 확인. |
 | T20   | `make sbom` 타겟 추가 — release-smoke SBOM 단계 PASS 회복 (통합 plan T0-1 postgres 부분) | 완료 | 100% | -    | -    | 2026-05-07 it49 commit e0df946. valkey Makefile L465-472 syft 패턴 byte-identical 이식. v0.3.0-alpha.3 retroactive SBOM upload (gh release upload) 후 `release-smoke-test.sh v0.3.0-alpha.3` **12 PASS / 0 FAIL** 회복. SPDX-2.3, 811455 bytes, 90 packages. mongodb T22 (it48 e898c30) 의 cross-cut 진행. ~/.claude/plans/wondrous-tumbling-porcupine.md T0-1. |
+| T21   | v0.3.0-alpha.4 release digest GitOps rollout + argos Day-0 배포 마일스톤 반영 | 완료 | 100% | T16,T20 | P1/G0 | 2026-05-08. GitHub Release/Pages chart/SBOM release-smoke 12 PASS / 0 FAIL. argos ArgoCD `platform-data-postgres-operator` Synced/Healthy(revision `cc662773f1a286d6b11a768af151db0ccd47b63f`), Deployment `1/1`, image `ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4`, imageID `sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f`, `PostgresCluster/argos-postgres` Ready=True. HA/backup/PITR 는 계속 열린 범위. |
 
 ## 이전 Phase 기록 (P0 — 0.3.0-alpha redesign reset, commit df1f2e1)
 

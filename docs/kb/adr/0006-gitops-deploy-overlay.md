@@ -1,6 +1,6 @@
 # ADR-0006: GitOps deploy 오버레이 도입 (3-repo 정합)
 
-- Date: 2026-05-06 (revised 2026-05-06: cluster live 인벤토리 반영 — ns 통합 정책 + storageClass)
+- Date: 2026-05-06 (revised 2026-05-08: live GitOps 배포 상태 반영)
 - Status: Accepted
 - Authors: @eightynine01
 
@@ -37,7 +37,7 @@ platform-data-valkey     OutOfSync   Degraded
 
 - **ns 통합 정책 적용**: argos 2026-05-06 사용자 명시 cycle 에 따라 5 차트 (cnpg/mongodb/valkey/nats/clickhouse) 모두 `data` ns 단일 통합. 본 ADR 의 `deploy/overlays/prod/kustomization.yaml` 도 `namespace: data` 로 정합 (envName=prod 는 식별자로만 유지).
 - **StorageClass 정합**: `ceph-block` 부재. argos 클러스터의 default = `ceph-rbd`. CR sample 의 `storageClass` 도 `ceph-rbd` 로 변경.
-- **postgresql 미배포**: ApplicationSet path 에 postgresql 없음 (cnpg 가 PG 워크로드 운영 중). 본 deploy/ 는 **Day-0 GitOps 첫 배포 후보 진입점** — F02 cycle 5 (kind smoke) + F03~F05 진척 후 적용 권장.
+- **postgresql 배포 상태 갱신(2026-05-08)**: 최초 2026-05-06 인벤토리에서는 ApplicationSet path 에 postgresql 이 없었으나, 이후 argos-platform-data Helm wrapper (`platform/data/postgres-operator`) 가 production source of truth 로 채택됐다. 현재 `platform-data-postgres-operator` 는 `Synced/Healthy`, controller Deployment 는 `1/1`, `PostgresCluster/argos-postgres` 는 `Ready=True` 이다. 본 deploy/ 는 직접 적용용 대체 진입점으로 유지한다.
 - **mongodb / valkey**: 각각 argos-platform-data umbrella chart 와 bitnami chart 로 운영 중. 본 deploy/ 는 *대안/예비 진입점*. 동시 적용 시 helm release 충돌.
 
 ## Decision
@@ -52,9 +52,9 @@ deploy/
 └── <workload>.yaml             # CR 인스턴스 (db ns, ArgoCD 별도 application)
 ```
 
-- `kustomization.yaml` 의 `namespace: prod` 가 모든 namespaced 리소스에 적용된다.
+- `kustomization.yaml` 의 `namespace: data` 가 모든 namespaced 리소스에 적용된다.
 - `patches.target.name` 은 *namePrefix 적용 전 raw name* (`system`) 으로 잡는다 — overlay 가 `config/default` 가 아닌 `config/manager` 를 직접 import 하므로.
-- CR 인스턴스는 `db` namespace 를 사용하며 별개 ArgoCD application 으로 동기화한다 (operator 와 workload 의 라이프사이클 분리).
+- CR 인스턴스는 `data` namespace 를 사용하며 별개 ArgoCD application 또는 Helm wrapper 로 동기화한다 (operator 와 workload 의 라이프사이클 분리).
 
 ## Consequences
 

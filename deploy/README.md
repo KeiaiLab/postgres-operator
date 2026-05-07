@@ -16,13 +16,15 @@ deploy/
 
 운영 모델: argos 클러스터 ns 통합 정책 (2026-05-06 cycle: 5 차트 모두 `data` ns 단일) 에 따라 operator 와 CR 이 *동일 data ns* 를 공유한다. envName 분리 (`overlays/prod`) 는 환경 식별자로만 유지.
 
-## 현 운영 상태 (2026-05-07)
+## 현 운영 상태 (2026-05-08)
 
 `keiailab/postgres-operator` 의 기존 미배포 원인은 argos-platform-data 의 ApplicationSet (`platform/data/application.yaml`) directories 목록에 operator path 가 없었던 것이다. 현재 production GitOps 진입점은 argos-platform-data 의 `postgres-operator/` Helm wrapper chart 이다.
 
+2026-05-08 live 검증 기준으로 ArgoCD Application `platform-data-postgres-operator` 는 `Synced/Healthy` (revision `cc662773f1a286d6b11a768af151db0ccd47b63f`) 이고, `data` namespace 의 `platform-data-postgres-operator-controller-manager` Deployment 는 `1/1` 로 실행 중이다. live image 는 `ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4` (`sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f`) 이며 `PostgresCluster/argos-postgres` 는 `Ready=True` 이다.
+
 본 디렉터리는 **대체 Kustomize 배포 진입점** (RFC-0004 §3) 으로 유지한다. argos production 은 `platform/data/postgres-operator` 경로를 우선 source of truth 로 사용한다.
 
-⚠️ **operator readiness 미검증** — F02 cycle 5 (kind smoke 실측) + F03~F05 (election, pgBackRest, chaos-mesh failover) 진척 후 production 적용 권장.
+⚠️ **범위 경계** — 위 상태는 Day-0 alpha-deployable single-shard 배포 완료를 뜻한다. HA replica, backup/restore drill, PITR, 장기 soak 가 남아 있으므로 0.4.0 single-shard production-ready 또는 GA 로 표기하지 않는다.
 
 ## 사전 조건 (cluster)
 

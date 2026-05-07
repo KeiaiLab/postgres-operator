@@ -100,7 +100,7 @@ spec:
 YAML
 ```
 
-**현재 (0.3.0-alpha.3)**: argos production namespace 에 single-shard `PostgresCluster` 배포와 재시작 복구가 검증됐다. 단, production DB 로 쓰려면 HA replica, backup/restore drill, PITR, 장기 안정성 검증이 추가로 필요하다.
+**현재 (0.3.0-alpha.4, 2026-05-08)**: argos 실제 Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy` 이고, `data` namespace 의 `platform-data-postgres-operator-controller-manager` Deployment 가 `1/1` 로 실행 중이다. live image 는 `ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4` (`sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f`) 이며 `PostgresCluster/argos-postgres` 는 `Ready=True` 로 확인됐다. 단, 이는 Day-0 alpha-deployable single-shard 배포 완료를 뜻하며 0.4.0 production-ready 로 쓰려면 HA replica, backup/restore drill, PITR, 장기 안정성 검증이 추가로 필요하다.
 
 ## 개발 (Contributing)
 
