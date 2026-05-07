@@ -10,6 +10,7 @@
 [![Helm Chart](https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/keiailab/postgres-operator/main/charts/postgres-operator/Chart.yaml&label=helm%20v)](https://keiailab.github.io/postgres-operator)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/postgres-operator)](https://artifacthub.io/packages/helm/postgres-operator/postgres-operator)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/keiailab/postgres-operator/badge)](https://scorecard.dev/viewer/?uri=github.com/keiailab/postgres-operator)
+[![GitHub Discussions](https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github)](https://github.com/keiailab/postgres-operator/discussions)
 
 ---
 
@@ -121,6 +122,13 @@ GitHub Actions 영구 금지 (RFC 0002 archive). 모든 게이트는 로컬 (pre
 - `docs/api-reference/` — CRD reference (자동 생성 예정)
 - `docs/runbooks/` — 운영 절차 (split / failover / backup, P4+ 작성)
 - `docs/tutorials/` — 단계별 사용 가이드 (P1+ 작성)
+
+## 커뮤니티
+
+- **Discussions**: [GitHub Discussions](https://github.com/keiailab/postgres-operator/discussions) — 사용 질문, 기능 아이디어, 운영 사례 공유
+- **Issues**: [GitHub Issues](https://github.com/keiailab/postgres-operator/issues) — 버그 / 기능 요청 (재현 가능한 사례 우선)
+- **보안 보고**: [SECURITY.md](SECURITY.md) — 취약점은 *비공개* 채널 (GitHub Security Advisory) 사용
+- **거버넌스**: [GOVERNANCE.md](GOVERNANCE.md) — 의사결정 절차 (lazy consensus / 2/3 supermajority)
 
 ## 라이선스
 
