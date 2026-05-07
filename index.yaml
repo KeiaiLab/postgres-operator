@@ -1,5 +1,104 @@
 apiVersion: v1
 entries:
+  postgres-operator:
+  - annotations:
+      artifacthub.io/category: database
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "0.3.0-alpha — 자체 분산 SQL keystone (ADR 0001). AGPL/BUSL 백엔드 의존 영구 제거 (ADR 0003). VersionSpec.Citus + ShardingSpec.Backend=citus 폐기 (BREAKING)."
+        - kind: removed
+          description: "internal/citus/ + internal/plugin/extension/citus/ 패키지 제거. CITUS_LIBPQ_DSN 환경 변수 폐기. citus extension Helm values 제거."
+        - kind: added
+          description: ADR 0001 (self-built distributed SQL keystone) + ADR 0002~0005 + RFC 0001~0005 (PostgresCluster v2 / ShardRange / ShardSplitJob / pg-router / distributed-tx).
+      artifacthub.io/crds: |
+        - kind: PostgresCluster
+          version: v1alpha1
+          name: postgresclusters.postgres.keiailab.io
+          displayName: PostgresCluster
+          description: coordinator, worker pool, stateless router 로 구성된 자체 분산 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, ADR 0001 자체 분산 SQL).
+        - kind: BackupJob
+          version: v1alpha1
+          name: backupjobs.postgres.keiailab.io
+          displayName: BackupJob
+          description: PostgresCluster 대상의 단일 백업 또는 복구 실행 요청을 선언한다
+      artifacthub.io/crdsExamples: |
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresCluster
+          metadata:
+            name: quickstart
+            namespace: default
+          spec:
+            deployment: development
+            version:
+              postgres: "18"
+            coordinator:
+              members: 1
+              storage:
+                size: 10Gi
+            workers:
+              - name: pool-a
+                members: 1
+                storage:
+                  size: 20Gi
+            routers:
+              replicas: 1
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: BackupJob
+          metadata:
+            name: quickstart-full-backup
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            tool: pgbackrest
+            repo: repo1
+            type: full
+            executionMode: job
+      artifacthub.io/images: |
+        - name: manager
+          image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.2
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/keiailab/postgres-operator/blob/main/README.md
+        - name: Source Code
+          url: https://github.com/keiailab/postgres-operator
+        - name: Release Process
+          url: https://github.com/keiailab/postgres-operator/blob/main/docs/releases/release-process.md
+      artifacthub.io/maturity: alpha
+      artifacthub.io/operator: "true"
+      artifacthub.io/operatorCapabilities: Basic Install
+      artifacthub.io/prerelease: "true"
+    apiVersion: v2
+    appVersion: 0.3.0-alpha.2
+    created: "2026-05-07T15:28:21.91144+09:00"
+    description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
+      dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
+      SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
+      도입 (ADR 0001 keystone). '
+    digest: 10c98f18a762dd8ba5ebd35ff3526fd7fbd98e985cc0f17313e7346915095e68
+    home: https://github.com/keiailab/postgres-operator
+    keywords:
+    - postgresql
+    - postgres
+    - postgres-18
+    - operator
+    - kubernetes
+    - keiailab
+    - stateless-router
+    - plugin-sdk
+    kubeVersion: '>=1.26.0-0'
+    maintainers:
+    - email: support@keiailab.com
+      name: keiailab
+      url: https://github.com/keiailab
+    name: postgres-operator
+    sources:
+    - https://github.com/keiailab/postgres-operator
+    type: application
+    urls:
+    - https://keiailab.github.io/postgres-operator/postgres-operator-0.3.0-alpha.2.tgz
+    version: 0.3.0-alpha.2
   postgresql-operator:
   - annotations:
       artifacthub.io/category: database
@@ -71,7 +170,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.2
-    created: "2026-05-07T13:07:23.552455+09:00"
+    created: "2026-05-07T15:28:21.91302+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -169,7 +268,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.1
-    created: "2026-05-07T13:07:23.551606+09:00"
+    created: "2026-05-07T15:28:21.912384+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -197,4 +296,4 @@ entries:
     urls:
     - https://keiailab.github.io/postgres-operator/postgresql-operator-0.3.0-alpha.1.tgz
     version: 0.3.0-alpha.1
-generated: "2026-05-07T13:07:23.550349+09:00"
+generated: "2026-05-07T15:28:21.910318+09:00"
