@@ -21,6 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/keiailab/operator-commons/pkg/security"
+
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 )
@@ -120,23 +122,23 @@ func dataplanePodSecurityContext() *corev1.PodSecurityContext {
 }
 
 // dataplaneContainerSecurityContext는 데이터플레인 Container의 SecurityContext
-// 기본값을 반환한다. ADR 0006 §결정.
+// 기본값을 반환한다.
 //
-// 구성:
-//   - allowPrivilegeEscalation=false (suid/setuid 비활성)
-//   - readOnlyRootFilesystem=true (컨테이너 내 임의 바이너리 작성 차단 — 공급망 공격 완화)
-//   - capabilities.drop=[ALL] (모든 Linux capability 제거)
+// 구성 (commons.RestrictedContainer 기반 — PodSecurity restricted invariant):
+//   - allowPrivilegeEscalation=false (suid/setuid 비활성, commons 가드)
+//   - readOnlyRootFilesystem=true (공급망 공격 완화, postgres-specific)
+//   - capabilities.drop=[ALL] (commons 가드)
+//   - seccompProfile.type=RuntimeDefault (commons 가드, iteration 8 강화)
+//   - runAsNonRoot=true (commons 가드, iteration 8 강화)
 //
 // readOnlyRootFilesystem 동반: PG가 /tmp, /run, /var/run/postgresql에 socket/lock
 // 작성하므로 emptyDir mount 3개 추가(dataplaneEphemeralVolumeMounts/Volumes).
+//
+// iteration 8 (2026-05-07): operator-commons/pkg/security 위임 — 3 operator 공통
+// PodSecurity restricted invariant 단일 진실원. 이전에는 SeccompProfile + RunAsNonRoot
+// 가 container-level 에서 누락되어 Pod-level inherit 에 의존. 이제 명시.
 func dataplaneContainerSecurityContext() *corev1.SecurityContext {
-	return &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptrBool(false),
-		ReadOnlyRootFilesystem:   ptrBool(true),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
-	}
+	return security.RestrictedContainer(security.WithReadOnlyRootFilesystem(true))
 }
 
 // dataplaneEphemeralVolumeMounts는 readOnlyRootFilesystem=true 동반에 필요한
