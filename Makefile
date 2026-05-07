@@ -212,11 +212,24 @@ release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.
 	@PREFLAG=""; case "$(VERSION)" in *alpha*|*beta*|*rc*) PREFLAG="--prerelease";; esac; \
 	mkdir -p "$(RELEASE_TMP)"; \
 	helm package "$(HELM_CHART)" -d "$(RELEASE_TMP)"; \
-	gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
+	if command -v git-cliff >/dev/null 2>&1; then \
+		git-cliff --strip all --tag "$(VERSION)" --unreleased > "/tmp/release-notes-$(VERSION).md" 2>/dev/null && \
+			NOTES_FLAG="--notes-file /tmp/release-notes-$(VERSION).md"; \
+	else \
+		NOTES_FLAG="--notes \"Release $(VERSION). 변경 내역은 CHANGELOG.md 참조.\""; \
+	fi; \
+	SBOM_ASSET=""; \
+	if command -v syft >/dev/null 2>&1; then \
+		echo "=== syft SBOM 생성 (T0-2 자동화) ==="; \
+		syft scan ghcr.io/keiailab/postgres-operator:$(VERSION) -o spdx-json -q > "/tmp/postgres-operator-$(VERSION).spdx.json" 2>/dev/null && \
+			SBOM_ASSET="/tmp/postgres-operator-$(VERSION).spdx.json"; \
+	fi; \
+	eval gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
 		--title "$(VERSION)" \
-		--notes "Release $(VERSION). 변경 내역은 CHANGELOG.md 참조." \
+		$$NOTES_FLAG \
 		"$(RELEASE_TMP)/postgres-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz" \
-		dist/install.yaml; \
+		dist/install.yaml \
+		$$SBOM_ASSET; \
 	rm -rf "$(RELEASE_TMP)"
 	$(MAKE) helm-publish
 	@echo "릴리스 완료: $(VERSION)"
