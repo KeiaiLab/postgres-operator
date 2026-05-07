@@ -46,7 +46,7 @@ make validate
 helm lint --strict charts/postgres-operator
 helm template --include-crds gate charts/postgres-operator
 helm package charts/postgres-operator -d /tmp/postgres-operator-release
-kubectl apply --dry-run=client --validate=false -f dist/install.yaml
+kubectl create --dry-run=client --validate=false -f dist/install.yaml
 rm -rf /tmp/postgres-operator-release
 ```
 

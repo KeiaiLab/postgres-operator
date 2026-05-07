@@ -96,7 +96,7 @@ annotations:
         executionMode: job
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.3
+      image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4
   artifacthub.io/changes: |
     - kind: changed
       description: "0.3.0-alpha — 자체 분산 SQL keystone (ADR 0001). AGPL/BUSL 백엔드 의존 영구 제거 (ADR 0003). VersionSpec.Citus + ShardingSpec.Backend=citus 폐기 (BREAKING)."

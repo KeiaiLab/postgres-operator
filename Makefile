@@ -176,7 +176,7 @@ validate: manifests generate kustomize build-installer ## CRD, Kustomize, Helm, 
 	@test "$$(grep -c '^kind: CustomResourceDefinition' /tmp/postgres-operator-helm.yaml)" -ge 2
 	@test "$$(grep -c '^kind: CustomResourceDefinition' dist/install.yaml)" -ge 2
 	@if "$(KUBECTL)" version --request-timeout=5s >/dev/null 2>&1; then \
-		"$(KUBECTL)" apply --dry-run=client --validate=false -f dist/install.yaml >/dev/null; \
+		"$(KUBECTL)" create --dry-run=client --validate=false -f dist/install.yaml >/dev/null; \
 	else \
 		echo "kubectl API server 미연결: dist/install.yaml client dry-run 생략"; \
 	fi
