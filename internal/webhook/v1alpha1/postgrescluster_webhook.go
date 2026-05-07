@@ -29,6 +29,7 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -124,6 +125,21 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 			"schedule must be non-empty when backup.enabled=true (cron expression, e.g. \"0 2 * * *\")"))
 	}
 
+	// shards.storage.size 하한 1Gi (cross-cut audit, ADR-0016 — mongodb-operator
+	// it46 step 7 + valkey-operator it46 step 12 와 동일 invariant). PVC 가 너무
+	// 작으면 PostgreSQL startup 실패 (data dir + WAL 영역 floor) 또는 즉시 disk
+	// full. CRD `+kubebuilder:validation:Required` 는 *field 존재* 만 강제 —
+	// resource.Quantity 의 zero value (빈 객체 {}) 통과 가능.
+	if !c.Spec.Shards.Storage.Size.IsZero() {
+		min := resource.MustParse("1Gi")
+		if c.Spec.Shards.Storage.Size.Cmp(min) < 0 {
+			errs = append(errs, field.Invalid(
+				field.NewPath("spec", "shards", "storage", "size"),
+				c.Spec.Shards.Storage.Size.String(),
+				"shards.storage.size must be >= 1Gi — PostgreSQL data dir + WAL + temp space floor"))
+		}
+	}
+
 	// RFC 0006 R1: spec.extensions 의 모든 이름이 operator Registry 에 등록된
 	// ExtensionPlugin 이어야 함. 미등록 이름 = admission 차단.
 	if len(c.Spec.Extensions) > 0 && w.Plugins != nil {
@@ -147,9 +163,4 @@ func hasAnyTrigger(t *postgresv1alpha1.AutoSplitTriggers) bool {
 		return false
 	}
 	return t.SizeThresholdGB > 0 || t.P99LatencyMs > 0 || t.CPUPercent > 0
-}
-
-// fieldErr 는 apierrors.NewInvalid 에 넘길 단일 항목 ErrorList 를 만든다.
-func fieldErr(path, detail string) field.ErrorList {
-	return field.ErrorList{field.Invalid(field.NewPath(path), nil, detail)}
 }

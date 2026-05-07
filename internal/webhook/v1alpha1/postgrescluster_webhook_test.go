@@ -152,6 +152,42 @@ func TestValidate_BackupEnabled_WithSchedule_Accepted(t *testing.T) {
 	}
 }
 
+func TestValidate_StorageSize_BelowMin_Rejected(t *testing.T) {
+	// Cross-cut audit (ADR-0016) — mongodb-operator + valkey-operator 와 동일
+	// 1Gi 하한 invariant.
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Shards.Storage.Size = resource.MustParse("512Mi")
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected rejection for storage.size < 1Gi")
+	}
+	if !strings.Contains(err.Error(), "storage.size") {
+		t.Errorf("expected storage.size keyword in error, got: %v", err)
+	}
+}
+
+func TestValidate_StorageSize_Boundary1Gi_Accepted(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Shards.Storage.Size = resource.MustParse("1Gi")
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Fatalf("exactly 1Gi should be accepted, got: %v", err)
+	}
+}
+
+func TestValidate_StorageSize_Zero_Skipped(t *testing.T) {
+	// CRD default 가 채워지지 않은 dry-run path — IsZero() skip 동작 확인
+	// (Type B defensive, ADR-0017).
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.Shards.Storage.Size = resource.Quantity{}
+	// 다른 violation 없으므로 통과 (storage 영역 만 zero).
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Errorf("zero size should skip (Type B defensive), got: %v", err)
+	}
+}
+
 func TestValidate_Update_AppliesSameRules(t *testing.T) {
 	w := newWebhook(t)
 	old := validBaseCluster()
