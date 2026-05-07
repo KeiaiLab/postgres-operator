@@ -6,7 +6,7 @@
 
 1. **개방성**: 모든 의사결정은 공개 채널(GitHub issue/PR/RFC)에서 이뤄집니다.
 2. **최소 합의(Lazy Consensus)**: 일상적 변경은 반대 없으면 진행됩니다.
-3. **명시적 합의(Explicit Consensus)**: 아키텍처 변경, CRD 변경, 보안 모델 변경, 라이선스 변경은 RFC 후 메인테이너 다수 승인.
+3. **명시적 합의(Explicit Consensus)**: 아키텍처 변경, CRD 변경, 보안 모델 변경, 라이선스 변경은 RFC 후 메인테이너 **2/3 supermajority** 승인. 일반 RFC (단일 컴포넌트 / 도구 채택 / 정책 보강) 는 **simple majority (>50%)**. GOVERNANCE 자체 변경 (§ "본 문서 변경") 은 항상 2/3 supermajority.
 4. **공동 책임**: 메인테이너는 코드 품질, 사용자 안전, 커뮤니티 건강에 대해 공동 책임을 집니다.
 
 ## 의사결정 분류
