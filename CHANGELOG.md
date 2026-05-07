@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.3.0-alpha.4] - 2026-05-08
+
+### Fixed
+
+- `dist/install.yaml` / Helm chart / live GitOps dry-run 검증 흐름을 복구해
+  `PostgresCluster` 설치 번들이 server-side dry-run 기준을 다시 통과하도록 했다.
+- 릴리스 게이트 기준을 Go 1.25.10 builder image로 동기화해 stdlib 보안 기준을 맞췄다.
+
 ## [0.3.0-alpha.3] - 2026-05-07
 
 ### Fixed
