@@ -71,6 +71,8 @@ const (
 	// postgresUserUID는 PostgreSQL 표준 postgres user의 UID/GID다.
 	// ADR 0006에 의해 동결된 데이터플레인 Pod의 runAsUser/runAsGroup/fsGroup 기본값.
 	postgresUserUID int64 = 70
+
+	restartPrimaryAsStandbyMarker = ".keiailab-restart-primary-as-standby"
 )
 
 // pgBinDir 는 base PG image 안 postgres binary 디렉터리. Dockerfile.pg 의
@@ -371,14 +373,19 @@ func buildInstanceRoleBinding(cluster *postgresv1alpha1.PostgresCluster) *rbacv1
 //
 // standby.signal 은 instance manager 가 leader election 결과에 따라 OnStartedLeading
 // 에서 제거하고 OnStoppedLeading 에서 재생성한다 (RFC 0006 R3 Task A).
-func buildBootstrapContainer(image, pgMajor string, shardOrdinal int32, primaryEndpoint string) corev1.Container {
+func buildBootstrapContainer(image, pgMajor string, shardOrdinal int32, primaryEndpoint string, members int32) corev1.Container {
 	binDir := pgBinDir(pgMajor)
 	script := `set -eu
 DATA="` + pgDataSubdir + `"
 PRIMARY_ENDPOINT="${PRIMARY_ENDPOINT:-}"
 POD_ORDINAL="${POD_NAME##*-}"
+MEMBER_COUNT="${POSTGRES_MEMBER_COUNT:-1}"
 
 if [ -f "$DATA/PG_VERSION" ]; then
+  if [ "$POD_ORDINAL" = "0" ] && [ "$MEMBER_COUNT" -gt 1 ] && [ ! -f "$DATA/standby.signal" ]; then
+    touch "$DATA/` + restartPrimaryAsStandbyMarker + `"
+    echo "existing ordinal-0 PGDATA in HA cluster; marking for standby restart"
+  fi
   echo "PGDATA already initialized at $DATA — skipping bootstrap"
   exit 0
 fi
@@ -410,6 +417,7 @@ fi
 		Env: []corev1.EnvVar{
 			{Name: "SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
 			{Name: "PRIMARY_ENDPOINT", Value: primaryEndpoint},
+			{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
 			{
 				Name: "POD_NAME",
 				ValueFrom: &corev1.EnvVarSource{
@@ -426,7 +434,7 @@ fi
 
 // buildInstanceEnv 는 instance manager (PID 1) 에 주입할 환경 변수 집합을 만든다.
 // downward API + spec 매개변수 + 고정 경로의 합산.
-func buildInstanceEnv(clusterName string, shardOrdinal int32, pgMajor string) []corev1.EnvVar {
+func buildInstanceEnv(clusterName string, shardOrdinal int32, pgMajor string, members int32) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		// downward API — Pod / Namespace 식별자.
 		{
@@ -441,10 +449,17 @@ func buildInstanceEnv(clusterName string, shardOrdinal int32, pgMajor string) []
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
 			},
 		},
+		{
+			Name: "POD_UID",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.uid"},
+			},
+		},
 		// spec 매개변수 — election lease 명명 + role 분기.
 		{Name: "POSTGRES_CLUSTER", Value: clusterName},
 		{Name: "POSTGRES_ROLE", Value: "shard"},
 		{Name: "POSTGRES_SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
+		{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
 		// supervise.Config — image 안 표준 경로 + ConfigMap mount + Unix socket.
 		{Name: "POSTGRES_BIN_DIR", Value: pgBinDir(pgMajor)},
 		{Name: "POSTGRES_DATA_DIR", Value: pgDataSubdir},
@@ -514,13 +529,13 @@ func buildPGStatefulSet(
 				Spec: corev1.PodSpec{
 					SecurityContext:    dataplanePodSecurityContext(),
 					ServiceAccountName: InstanceServiceAccountName(cluster.Name),
-					InitContainers:     []corev1.Container{buildBootstrapContainer(image, pgMajor, shardOrdinal, primaryEndpoint)},
+					InitContainers:     []corev1.Container{buildBootstrapContainer(image, pgMajor, shardOrdinal, primaryEndpoint, members)},
 					Containers: []corev1.Container{{
 						Name:            pgContainerName,
 						Image:           image,
 						Resources:       resources,
 						SecurityContext: dataplaneContainerSecurityContext(),
-						Env:             buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor),
+						Env:             buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor, members),
 						Ports: []corev1.ContainerPort{
 							{Name: "postgres", ContainerPort: pgPort, Protocol: corev1.ProtocolTCP},
 							{Name: "probe", ContainerPort: instanceProbePort, Protocol: corev1.ProtocolTCP},

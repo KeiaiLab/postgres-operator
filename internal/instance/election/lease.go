@@ -141,7 +141,7 @@ func (r *Real) Run(ctx context.Context) error {
 
 	le, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
 		Lock:            lock,
-		ReleaseOnCancel: true,
+		ReleaseOnCancel: false,
 		LeaseDuration:   r.durations.LeaseDuration,
 		RenewDeadline:   r.durations.RenewDeadline,
 		RetryPeriod:     r.durations.RetryPeriod,

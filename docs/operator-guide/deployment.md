@@ -119,6 +119,11 @@ production 적용 전 확인:
 ```fish
 ./hack/smoke.sh           # cleanup 후 종료
 ./hack/smoke.sh --keep    # cluster 유지 (디버깅)
+PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17 ./hack/smoke.sh
+PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18 ./hack/smoke.sh
+PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17ha SHARD_REPLICAS=1 ./hack/smoke.sh
+PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18ha SHARD_REPLICAS=1 ./hack/smoke.sh
+PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18fo SHARD_REPLICAS=1 SMOKE_FAILOVER=1 ./hack/smoke.sh
 ```
 
 본 스크립트는:
@@ -129,16 +134,26 @@ production 적용 전 확인:
 4. quickstart sample apply
 5. StatefulSet ReadyReplicas≥1 대기 (5분 timeout)
 6. `psql -c 'SELECT 1'` round-trip 검증
+7. `SHARD_REPLICAS>=1` 이면 `pg_stat_replication` 에서 streaming standby 관측
+8. `SMOKE_FAILOVER=1` 이면 primary Pod 삭제 후 standby promote RTO 측정
+
+`PG_MAJOR` 는 빌드할 runtime image 의 base major 를, `POSTGRES_VERSION` 은
+`PostgresCluster.spec.postgresVersion` 을 지정한다. 0.3.0-alpha 기준 smoke
+matrix 는 PG17 + PG18 이다. `SHARD_REPLICAS` 는 `spec.shards.replicas` 에
+그대로 반영된다.
 
 ## 6. alpha 단계 한계 (production 도입 전 인지 사항)
 
 - **secret 미통합** — postgres user password 가 alpha 에서는 trust/peer auth 의존.
   scram-sha-256 host auth 는 ConfigMap 으로만 활성. K8s Secret + dynamic
   password rotation 은 후속 cycle (F04 backup 과 같이).
-- **failover 미검증** — primary kill → new primary 선출까지의 RTO/RPO 는 RFC 0003
-  문서값이지 e2e 검증 결과 아님. F05 e2e 시나리오에서 chaos-mesh 검증.
-- **standby 재구성 미구현** — primary demote → standby 재진입의 standby.signal /
-  primary_conninfo 자동 구성은 F03 후속.
+- **HA 검증 범위 제한** — 2026-05-07 PG18 `SHARD_REPLICAS=1 SMOKE_FAILOVER=1`
+  smoke 에서 primary Pod 삭제 → standby promote RTO 21s(<30s), CR status primary 수렴,
+  restarted old primary standby 재진입을 확인했다. 다만 chaos-mesh kill/network
+  partition, multi-node 장애, pgBackRest 결합까지 검증한 production HA 는 F05 후속이다.
+- **standby 재구성 범위 제한** — restarted ordinal-0 primary 의 standby.signal /
+  primary_conninfo 자동 구성은 실장됐다. 임의 old primary 재합류와 외부 fencing/STONITH
+  계열 검증은 F03 후속이다.
 - **단일 shard 만 GA** — shardingMode=native + multi-shard + router 는 P2 진입 후
   의미. 본 alpha 는 shardingMode=none (single shard) 만 보장.
 

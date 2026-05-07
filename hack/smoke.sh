@@ -8,6 +8,8 @@
 #
 # 사용:
 #   ./hack/smoke.sh [--keep]  # --keep 이면 종료 후에도 kind cluster 유지
+#   PG_MAJOR=17 POSTGRES_VERSION=17 SHARD_REPLICAS=1 ./hack/smoke.sh
+#   SMOKE_FAILOVER=1 SHARD_REPLICAS=1 ./hack/smoke.sh
 #
 # 흐름:
 #   1. kind cluster 생성 (이미 있으면 재사용)
@@ -16,7 +18,9 @@
 #   4. quickstart sample apply
 #   5. Pod Ready 대기 (5분 timeout)
 #   6. psql round-trip 검증 (`kubectl exec ... -- psql -c 'SELECT 1'`)
-#   7. cleanup (--keep 미지정 시 cluster 삭제)
+#   7. replicas>=1 이면 streaming standby 를 pg_stat_replication 으로 확인
+#   8. SMOKE_FAILOVER=1 이면 primary Pod 삭제 후 standby promote RTO 측정
+#   9. cleanup (--keep 미지정 시 cluster 삭제)
 
 set -euo pipefail
 
@@ -26,12 +30,12 @@ if [[ "${1:-}" == "--keep" ]]; then
 fi
 
 CLUSTER_NAME="${CLUSTER_NAME:-postgres-operator-smoke}"
-# NS 는 sample CR (config/samples/...) 의 metadata.namespace 와 정합돼야 한다.
-# sample 이 'default' 로 hardcoded 이므로 env override 를 받지 않는다 (false-negative
-# 회피 — 이전 cycle 에서 부모 shell 의 NS=dev 가 STS wait 를 dev 로 보내 timeout).
-NS="default"
+NS="${NS:-default}"
 CR_NAME="${CR_NAME:-quickstart}"
-PG_IMG="${PG_IMG:-ghcr.io/keiailab/pg:18}"
+POSTGRES_VERSION="${POSTGRES_VERSION:-${PG_MAJOR:-18}}"
+PG_MAJOR="${PG_MAJOR:-$POSTGRES_VERSION}"
+PG_IMG="${PG_IMG:-ghcr.io/keiailab/pg:${PG_MAJOR}}"
+SHARD_REPLICAS="${SHARD_REPLICAS:-${POSTGRES_REPLICAS:-${REPLICAS:-0}}}"
 # install.yaml 이 config/manager/kustomization.yaml 의 newTag 를 사용하고, 그 값은
 # charts/postgresql-operator/Chart.yaml 의 appVersion 과 동기화돼 있다 (Makefile §3 IMAGE_TAG).
 # smoke.sh 가 다른 태그 (예: ":smoke") 로 빌드/로드하면 kubelet 이 install.yaml 의 태그를
@@ -40,6 +44,15 @@ OPERATOR_TAG="${OPERATOR_TAG:-$(awk '/^appVersion:/ { gsub(/"/, "", $2); print $
 OPERATOR_IMG="${OPERATOR_IMG:-ghcr.io/keiailab/postgres-operator:${OPERATOR_TAG}}"
 
 log() { printf '\n[smoke] %s\n' "$*" >&2; }
+
+format_utc_ts() {
+    local epoch="$1"
+    if date -u -r "$epoch" +%FT%TZ >/dev/null 2>&1; then
+        date -u -r "$epoch" +%FT%TZ
+    else
+        date -u -d "@$epoch" +%FT%TZ
+    fi
+}
 
 cleanup() {
     if [[ "$KEEP" == "0" ]]; then
@@ -63,8 +76,8 @@ kubectl cluster-info --context "kind-${CLUSTER_NAME}"
 # 2. images — local build + kind load
 log "Building operator image $OPERATOR_IMG"
 docker build -t "$OPERATOR_IMG" .
-log "Building PG image $PG_IMG"
-docker build -f Dockerfile.pg --build-arg PG_MAJOR=18 -t "$PG_IMG" .
+log "Building PG image $PG_IMG (PG_MAJOR=$PG_MAJOR)"
+docker build -f Dockerfile.pg --build-arg PG_MAJOR="$PG_MAJOR" -t "$PG_IMG" .
 log "Loading images into kind"
 kind load docker-image "$OPERATOR_IMG" --name "$CLUSTER_NAME"
 kind load docker-image "$PG_IMG" --name "$CLUSTER_NAME"
@@ -80,9 +93,26 @@ log "Waiting for operator manager Pod"
 kubectl -n postgresql-operator-system wait --for=condition=Available deployment \
     -l control-plane=controller-manager --timeout=180s
 
-# 4. sample CR
-log "Applying quickstart sample"
-kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
+# 4. quickstart CR
+log "Applying quickstart sample (namespace=$NS postgresVersion=$POSTGRES_VERSION shardReplicas=$SHARD_REPLICAS)"
+if ! kubectl get namespace "$NS" >/dev/null 2>&1; then
+    kubectl create namespace "$NS"
+fi
+kubectl apply -f - <<EOF
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresCluster
+metadata:
+  name: ${CR_NAME}
+  namespace: ${NS}
+spec:
+  postgresVersion: "${POSTGRES_VERSION}"
+  shardingMode: none
+  shards:
+    initialCount: 1
+    replicas: ${SHARD_REPLICAS}
+    storage:
+      size: 10Gi
+EOF
 
 # 5. Pod Ready 대기 (5분 timeout — initdb + 첫 부팅 여유)
 STS_NAME="${CR_NAME}-shard-0"
@@ -130,8 +160,30 @@ if [[ "${REPLICAS:-1}" -ge 2 ]]; then
         "pgbench -h /var/run/postgresql -U postgres -c 10 -t 100 postgres 2>&1 | tail -2" || true
     # primary 의 pg_stat_replication 으로 standby 의 replay_lag 조회
     log "  pg_stat_replication.replay_lag (target: < 1s)"
-    kubectl -n "$NS" exec "$POD" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At \
-        -c "SELECT application_name, state, write_lag, flush_lag, replay_lag FROM pg_stat_replication;" || true
+    wal_lag=""
+    wal_error=""
+    end=$(( $(date +%s) + 60 ))
+    while [[ $(date +%s) -lt $end ]]; do
+        if wal_lag=$(kubectl -n "$NS" exec "$POD" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At \
+            -c "SELECT application_name, state, write_lag, flush_lag, replay_lag FROM pg_stat_replication WHERE state = 'streaming';" 2>&1); then
+            wal_error=""
+            if [[ -n "${wal_lag//$'\n'/}" ]]; then
+                break
+            fi
+        else
+            wal_error="$wal_lag"
+        fi
+        sleep 2
+    done
+    if [[ -n "$wal_lag" ]]; then
+        printf '%s\n' "$wal_lag" >&2
+    fi
+    if [[ -z "${wal_lag//$'\n'/}" ]]; then
+        log "ERROR: streaming standby was not observed in pg_stat_replication within 60s"
+        [[ -n "$wal_error" ]] && log "last psql error: $wal_error"
+        kubectl -n "$NS" get pods -l "app.kubernetes.io/instance=${CR_NAME}" -o wide || true
+        exit 1
+    fi
 else
     log "  skip — REPLICAS=$REPLICAS (standby 부재)"
 fi
@@ -143,20 +195,56 @@ if [[ "${REPLICAS:-1}" -ge 2 ]] && [[ "${SMOKE_FAILOVER:-0}" == "1" ]]; then
     log "[8/8] Failover RTO measurement (SMOKE_FAILOVER=1)"
     KILL_TS=$(date +%s)
     kubectl -n "$NS" delete pod "$POD" --wait=false || true
-    log "  primary killed at $(date -u -d @$KILL_TS +%FT%TZ) — waiting for new primary"
+    log "  primary killed at $(format_utc_ts "$KILL_TS") — waiting for new primary"
     # 다른 pod (-1) 에서 새 primary 도달 대기 (max 60s)
     end=$(( KILL_TS + 60 ))
+    failover_done=0
     while [[ $(date +%s) -lt $end ]]; do
         new_primary=$(kubectl -n "$NS" exec "${STS_NAME}-1" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_is_in_recovery();' 2>/dev/null || echo "")
         if [[ "$new_primary" == "f" ]]; then
             RECOVER_TS=$(date +%s)
             RTO=$(( RECOVER_TS - KILL_TS ))
             log "  RTO = ${RTO}s (target < 30s)"
-            [[ "$RTO" -le 30 ]] && log "  PASS: RTO < 30s" || log "  WARN: RTO > 30s — F05 chaos-mesh 검증 필요"
+            if [[ "$RTO" -le 30 ]]; then
+                log "  PASS: RTO < 30s"
+                failover_done=1
+            else
+                log "ERROR: RTO > 30s"
+                exit 1
+            fi
             break
         fi
         sleep 2
     done
+    if [[ "$failover_done" != "1" ]]; then
+        log "ERROR: standby did not promote within 60s"
+        kubectl -n "$NS" get postgrescluster "$CR_NAME" -o yaml | tail -60 || true
+        kubectl -n "$NS" get pods -l "app.kubernetes.io/instance=${CR_NAME}" -o wide || true
+        kubectl -n "$NS" logs "${STS_NAME}-1" -c postgres --tail=200 || true
+        exit 1
+    fi
+    log "  waiting for CR status primary=${STS_NAME}-1"
+    end=$(( $(date +%s) + 60 ))
+    status_primary=""
+    while [[ $(date +%s) -lt $end ]]; do
+        status_primary=$(kubectl -n "$NS" get postgrescluster "$CR_NAME" -o jsonpath='{.status.shards[0].primary.pod}' 2>/dev/null || echo "")
+        if [[ "$status_primary" == "${STS_NAME}-1" ]]; then
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$status_primary" != "${STS_NAME}-1" ]]; then
+        log "ERROR: CR status primary=$status_primary, want ${STS_NAME}-1"
+        kubectl -n "$NS" get postgrescluster "$CR_NAME" -o yaml | tail -80 || true
+        exit 1
+    fi
+    old_primary_recovery=$(kubectl -n "$NS" exec "${STS_NAME}-0" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_is_in_recovery();' 2>/dev/null || echo "")
+    if [[ "$old_primary_recovery" != "t" ]]; then
+        log "ERROR: restarted old primary recovery=$old_primary_recovery, want t"
+        kubectl -n "$NS" logs "${STS_NAME}-0" -c postgres --tail=200 || true
+        exit 1
+    fi
+    log "  PASS: CR status reflects ${STS_NAME}-1 and restarted old primary is standby"
 else
     log "[8/8] skip failover RTO — SMOKE_FAILOVER=${SMOKE_FAILOVER:-unset} (set SMOKE_FAILOVER=1 to enable)"
 fi

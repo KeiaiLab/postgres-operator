@@ -13,6 +13,7 @@ package supervise
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,45 @@ func TestCreateStandbySignal_Idempotent(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("file perms = %o, want 0600", mode)
+	}
+}
+
+func TestPrepareRestartedPrimaryAsStandby_NoMarker(t *testing.T) {
+	dir := t.TempDir()
+	prepared, err := PrepareRestartedPrimaryAsStandby(dir, "primary.svc:5432")
+	if err != nil {
+		t.Fatalf("PrepareRestartedPrimaryAsStandby: %v", err)
+	}
+	if prepared {
+		t.Fatal("prepared = true, want false without marker")
+	}
+}
+
+func TestPrepareRestartedPrimaryAsStandby_ConfiguresStandby(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, RestartPrimaryAsStandbyMarker)
+	if err := os.WriteFile(marker, []byte("1"), 0o600); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	prepared, err := PrepareRestartedPrimaryAsStandby(dir, "primary.svc.cluster.local:5432")
+	if err != nil {
+		t.Fatalf("PrepareRestartedPrimaryAsStandby: %v", err)
+	}
+	if !prepared {
+		t.Fatal("prepared = false, want true")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "standby.signal")); err != nil {
+		t.Fatalf("standby.signal missing: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "postgresql.auto.conf"))
+	if err != nil {
+		t.Fatalf("read postgresql.auto.conf: %v", err)
+	}
+	if !strings.Contains(string(raw), "primary_conninfo = 'host=primary.svc.cluster.local port=5432 user=postgres'") {
+		t.Fatalf("primary_conninfo not configured, got:\n%s", raw)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("marker still exists or unexpected stat error: %v", err)
 	}
 }

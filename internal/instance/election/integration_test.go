@@ -221,7 +221,7 @@ func TestIntegration_LeaderHandover(t *testing.T) {
 		t.Errorf("pod-b Status before handover = %v, want Follower", b.r.Status())
 	}
 
-	// pod-a 종료(graceful) → ReleaseOnCancel=true이므로 lease 즉시 해제.
+	// pod-a 종료(graceful) → lease duration 만료 후 pod-b 가 승계.
 	cancelA()
 	a.wg.Wait()
 

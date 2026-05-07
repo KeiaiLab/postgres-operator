@@ -29,6 +29,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -44,6 +45,8 @@ import (
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 )
+
+const statusPollInterval = 5 * time.Second
 
 // PostgresClusterReconciler 는 PostgresCluster CR 을 reconcile 한다.
 type PostgresClusterReconciler struct {
@@ -238,7 +241,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: statusPollInterval}, nil
 }
 
 // applyClusterConditions 는 reconcile 산출물 (shard 준비 상태, router 활성/준비

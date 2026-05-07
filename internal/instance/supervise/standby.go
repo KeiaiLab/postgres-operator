@@ -42,6 +42,10 @@ import (
 // standbySignalFile 은 PG 가 인식하는 standby 모드 sentinel 파일명 (PG 12+).
 const standbySignalFile = "standby.signal"
 
+// RestartPrimaryAsStandbyMarker 는 HA 클러스터에서 ordinal-0 이 기존 primary
+// PGDATA 로 재시작했음을 bootstrap 이 instance manager 에 전달하는 marker 다.
+const RestartPrimaryAsStandbyMarker = ".keiailab-restart-primary-as-standby"
+
 // IsStandby 는 dataDir 안에 standby.signal 파일이 존재하는지 검사한다.
 // stat 오류가 ErrNotExist 이외인 경우에도 false 로 보수적 판정 (호출 측이
 // boolean 만 보므로 별도 error 반환 없음 — promote 결정의 부수 게이트로만 쓰임).
@@ -83,4 +87,55 @@ func CreateStandbySignal(dataDir string) error {
 		return fmt.Errorf("close %s: %w", path, err)
 	}
 	return nil
+}
+
+// PrepareRestartedPrimaryAsStandby 는 marker 가 있을 때 기존 ordinal-0 PGDATA 를
+// standby 로 부팅하도록 standby.signal + primary_conninfo 를 구성한다.
+func PrepareRestartedPrimaryAsStandby(dataDir, primaryEndpoint string) (bool, error) {
+	marker := filepath.Join(dataDir, RestartPrimaryAsStandbyMarker)
+	if _, err := os.Stat(marker); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat %s: %w", marker, err)
+	}
+	if primaryEndpoint == "" {
+		return false, errors.New("primaryEndpoint must not be empty")
+	}
+	if err := CreateStandbySignal(dataDir); err != nil {
+		return false, err
+	}
+	if err := appendPrimaryConninfo(dataDir, primaryEndpoint); err != nil {
+		return false, err
+	}
+	if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("remove %s: %w", marker, err)
+	}
+	return true, nil
+}
+
+func appendPrimaryConninfo(dataDir, endpoint string) error {
+	host, port := splitEndpoint(endpoint)
+	path := filepath.Join(dataDir, "postgresql.auto.conf")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	if _, err := fmt.Fprintf(f, "primary_conninfo = 'host=%s port=%s user=postgres'\n", host, port); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", path, err)
+	}
+	return nil
+}
+
+func splitEndpoint(endpoint string) (string, string) {
+	for i := len(endpoint) - 1; i >= 0; i-- {
+		if endpoint[i] == ':' {
+			return endpoint[:i], endpoint[i+1:]
+		}
+	}
+	return endpoint, "5432"
 }

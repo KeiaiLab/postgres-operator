@@ -121,6 +121,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		"POSTGRES_CLUSTER":       "demo",
 		"POSTGRES_ROLE":          "shard",
 		"POSTGRES_SHARD_ORDINAL": "3",
+		"POSTGRES_MEMBER_COUNT":  "1",
 		"POSTGRES_BIN_DIR":       "/usr/lib/postgresql/18/bin",
 		"POSTGRES_DATA_DIR":      "/var/lib/postgresql/data/pgdata",
 		"POSTGRES_CONFIG_FILE":   "/etc/postgres-operator/conf/postgresql.conf",
@@ -138,7 +139,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		}
 	}
 	// downward API — POD_NAME / POD_NAMESPACE 는 ValueFrom.FieldRef 만 검증.
-	for _, name := range []string{"POD_NAME", "POD_NAMESPACE"} {
+	for _, name := range []string{"POD_NAME", "POD_NAMESPACE", "POD_UID"} {
 		e, ok := envByName[name]
 		if !ok {
 			t.Errorf("env %s missing", name)
@@ -199,7 +200,7 @@ func TestBuildPGStatefulSet_HasBootstrapAndServiceAccount(t *testing.T) {
 func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 	t.Parallel()
 
-	c := buildBootstrapContainer("img:18", "18", 0, "")
+	c := buildBootstrapContainer("img:18", "18", 0, "", 2)
 	if c.Name != bootstrapContainerName {
 		t.Errorf("Name = %q, want bootstrap", c.Name)
 	}
@@ -214,6 +215,9 @@ func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 	// StatefulSet 명명 규약 (`<sts>-<ordinal>`) 에 의존.
 	if !strings.Contains(script, `POD_ORDINAL="${POD_NAME##*-}"`) {
 		t.Error(`script must contain POD_ORDINAL extraction: POD_ORDINAL="${POD_NAME##*-}"`)
+	}
+	if !strings.Contains(script, restartPrimaryAsStandbyMarker) {
+		t.Errorf("script must contain restart marker %q", restartPrimaryAsStandbyMarker)
 	}
 	// 연산자 반전 가드: bash 분기 조건의 `||` 연산자가 `&&` 등으로 뒤집히면
 	// ENV 기반 검증만으로는 잡히지 않으므로 리터럴 substring 으로 고정한다.
@@ -231,6 +235,9 @@ func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 	}
 	if got := envByName["PRIMARY_ENDPOINT"].Value; got != "" {
 		t.Errorf("PRIMARY_ENDPOINT env = %q, want empty", got)
+	}
+	if got := envByName["POSTGRES_MEMBER_COUNT"].Value; got != "2" {
+		t.Errorf("POSTGRES_MEMBER_COUNT env = %q, want 2", got)
 	}
 	// POD_NAME 은 downward API (metadata.name) — Value 는 비어 있고 ValueFrom 만 설정.
 	pn, ok := envByName["POD_NAME"]
@@ -250,7 +257,7 @@ func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
 	t.Parallel()
 
-	c := buildBootstrapContainer("img:18", "18", 1, "primary.svc:5432")
+	c := buildBootstrapContainer("img:18", "18", 1, "primary.svc:5432", 2)
 	if c.Name != bootstrapContainerName {
 		t.Errorf("Name = %q, want bootstrap", c.Name)
 	}
@@ -276,6 +283,9 @@ func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
 	}
 	if got := envByName["PRIMARY_ENDPOINT"].Value; got != "primary.svc:5432" {
 		t.Errorf("PRIMARY_ENDPOINT env = %q, want primary.svc:5432", got)
+	}
+	if got := envByName["POSTGRES_MEMBER_COUNT"].Value; got != "2" {
+		t.Errorf("POSTGRES_MEMBER_COUNT env = %q, want 2", got)
 	}
 	pn, ok := envByName["POD_NAME"]
 	if !ok {

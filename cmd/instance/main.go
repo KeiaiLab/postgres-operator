@@ -87,6 +87,7 @@ func main() {
 	// downward API 환경 변수 (RFC 0001 v2 — shard ordinal 기반).
 	// role 은 현재 "shard" 만 지원. router 는 별도 binary 분기 (F02b 도입).
 	podName := envOrDie("POD_NAME")
+	podUID := envOrDie("POD_UID")
 	namespace := envOrDie("POD_NAMESPACE")
 	cluster := envOrDie("POSTGRES_CLUSTER")
 	role := envOrDie("POSTGRES_ROLE")
@@ -101,15 +102,22 @@ func main() {
 			shardOrdinalRaw, err)
 		os.Exit(1)
 	}
+	memberCount := parsePositiveIntEnv("POSTGRES_MEMBER_COUNT")
+	podOrdinal := parsePodOrdinalOrDie(podName)
+	electionIdentity := buildElectionIdentity(podName, podUID)
 
 	logger.Info("Instance manager starting",
 		"version", "v0.0.0-pillar-p2-t1",
 		"probeAddr", probeAddr,
 		"podName", podName,
+		"podUID", podUID,
+		"identity", electionIdentity,
 		"namespace", namespace,
 		"cluster", cluster,
 		"role", role,
 		"shardOrdinal", shardOrdinal,
+		"podOrdinal", podOrdinal,
+		"memberCount", memberCount,
 		"electionDisabled", electionDisabled,
 	)
 
@@ -119,6 +127,9 @@ func main() {
 	// dataDir — election callback 의 standby.signal lifecycle (RFC 0006 R3) 와
 	// supervise.NewReal 양쪽에서 사용. 한 번만 읽고 클로저로 캡쳐한다.
 	dataDir := envOrDie("POSTGRES_DATA_DIR")
+	restartedPrimaryAsStandby := prepareRestartedPrimaryAsStandby(
+		dataDir, cluster, namespace, int32(shardOrdinal), podOrdinal, memberCount, logger,
+	)
 
 	// Supervisor — postgres 자식 fork + Promote/Stop SQL 추상.
 	// supervise-disabled 모드에서는 nil 로 두고 callback 안에서 분기.
@@ -184,14 +195,14 @@ func main() {
 	}
 
 	if electionDisabled {
-		elect = election.NewNull(podName, cb)
+		elect = election.NewNull(electionIdentity, cb)
 		logger.Warn("Election disabled — Null election (always Leader). Use only in development.")
 	} else {
 		real, err := election.NewReal(election.RealConfig{
 			Client:    clientset,
 			LeaseName: leaseName,
 			Namespace: namespace,
-			Identity:  podName,
+			Identity:  electionIdentity,
 			Callbacks: cb,
 			Durations: election.Durations{
 				LeaseDuration: leaseDuration,
@@ -227,6 +238,9 @@ func main() {
 	// Supervisor 시작 — postgres child 종료를 감지하면 main 도 종료.
 	// election 보다 먼저 Start 해야 OnStartedLeading 안에서 Promote 호출 가능.
 	supExitCh := startSupervisor(ctx, sup, logger)
+	if restartedPrimaryAsStandby {
+		delayElectionForRestartedPrimary(ctx, leaseDuration+retryPeriod, podName, logger)
+	}
 
 	// HTTP 서버 goroutine
 	srvErrCh := make(chan error, 1)
@@ -342,6 +356,78 @@ func runOnStartedLeading(
 	logger.Info("Leadership acquired — postgres promoted to primary",
 		"identity", podName, "lease", leaseName,
 		"todo", "분산 SQL metadata 갱신 (RFC 0002 ShardRange 후속)")
+}
+
+func buildElectionIdentity(podName, podUID string) string {
+	return podName + "/" + podUID
+}
+
+func parsePositiveIntEnv(key string) int {
+	raw := envOrDie(key)
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		fmt.Fprintf(os.Stderr, "instance: %s must be a positive int, got %q (err=%v)\n", key, raw, err)
+		os.Exit(1)
+	}
+	return v
+}
+
+func parsePodOrdinalOrDie(podName string) int {
+	for i := len(podName) - 1; i >= 0; i-- {
+		if podName[i] != '-' {
+			continue
+		}
+		ord, err := strconv.Atoi(podName[i+1:])
+		if err != nil || ord < 0 {
+			fmt.Fprintf(os.Stderr, "instance: POD_NAME must end with StatefulSet ordinal, got %q (err=%v)\n", podName, err)
+			os.Exit(1)
+		}
+		return ord
+	}
+	fmt.Fprintf(os.Stderr, "instance: POD_NAME must contain StatefulSet ordinal suffix, got %q\n", podName)
+	os.Exit(1)
+	return 0
+}
+
+func prepareRestartedPrimaryAsStandby(
+	dataDir, cluster, namespace string,
+	shardOrdinal int32,
+	podOrdinal, memberCount int,
+	logger *slog.Logger,
+) bool {
+	if podOrdinal != 0 || memberCount <= 1 {
+		return false
+	}
+	endpoint := standbyCandidateEndpoint(cluster, shardOrdinal, namespace)
+	prepared, err := supervise.PrepareRestartedPrimaryAsStandby(dataDir, endpoint)
+	if err != nil {
+		logger.Error("Failed to prepare restarted ordinal-0 primary as standby", "error", err)
+		os.Exit(1)
+	}
+	if prepared {
+		logger.Warn("Restarted ordinal-0 primary prepared as standby",
+			"endpoint", endpoint,
+			"reason", "HA failover prefers existing standby promotion before same ordinal reuse")
+	}
+	return prepared
+}
+
+func standbyCandidateEndpoint(cluster string, shardOrdinal int32, namespace string) string {
+	return fmt.Sprintf("%s-shard-%d-1.%s-shard-%d-headless.%s.svc.cluster.local:5432",
+		cluster, shardOrdinal, cluster, shardOrdinal, namespace)
+}
+
+func delayElectionForRestartedPrimary(ctx context.Context, delay time.Duration, podName string, logger *slog.Logger) {
+	if delay <= 0 {
+		return
+	}
+	logger.Warn("Delaying election for restarted ordinal-0 primary",
+		"podName", podName,
+		"delay", delay.String())
+	select {
+	case <-ctx.Done():
+	case <-time.After(delay):
+	}
 }
 
 // startStatusReporterIfPossible 는 clientset 이 사용 가능하면 status reporter goroutine 을

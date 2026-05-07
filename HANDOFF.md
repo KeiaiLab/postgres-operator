@@ -2,6 +2,53 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
+## 현재 상태 (2026-05-07, PG17/PG18 HA smoke + PG18 failover smoke 통과)
+
+- **이번 세션**:
+  - `hack/smoke.sh` 에 `PG_MAJOR` / `POSTGRES_VERSION` / `NS` / `SHARD_REPLICAS` override 지원 추가.
+  - hardcoded dev sample apply 대신 smoke 스크립트가 quickstart `PostgresCluster` 를 지정 namespace/version 으로 생성한다.
+  - PG17 + PG18 각각 Kind 에서 runtime image build/load → operator deploy → PostgresCluster Ready → `psql SELECT 1` round-trip PASS.
+  - `SHARD_REPLICAS=1` smoke 로 primary+standby 2 Pod, `pg_stat_replication WHERE state='streaming'` 을 PG17/PG18 양쪽에서 PASS.
+  - `SMOKE_FAILOVER=1` false-pass 제거: RTO 미측정/standby 미승격은 exit 1 로 처리. macOS `date -d` 의존 제거.
+  - PG18 failover 차단 원인 수정: election identity 를 `podName/podUID` 로 바꾸고, `ReleaseOnCancel=false`, restarted ordinal-0 standby marker, `POSTGRES_MEMBER_COUNT`, CR status polling 을 추가했다.
+  - PG18 `SHARD_REPLICAS=1 SMOKE_FAILOVER=1` smoke 재실행 결과 standby `*-1` 이 primary 로 승격, 기존 `*-0` 은 standby 로 재진입, CR status primary 도 `*-1` 로 수렴했다.
+- **검증 인용**:
+  ```
+  $ ./hack/smoke.sh
+  SUCCESS — quickstart cluster Ready, psql SELECT 1 = 1  # PG18 default
+
+  $ CLUSTER_NAME=postgres-operator-smoke-17 PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17 ./hack/smoke.sh
+  SUCCESS — quickstart cluster Ready, psql SELECT 1 = 1
+  spec.postgresVersion: "17"
+
+  $ CLUSTER_NAME=postgres-operator-smoke-18 PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18 ./hack/smoke.sh
+  SUCCESS — quickstart cluster Ready, psql SELECT 1 = 1
+  spec.postgresVersion: "18"
+
+  $ CLUSTER_NAME=postgres-operator-smoke-17-ha PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17ha SHARD_REPLICAS=1 ./hack/smoke.sh
+  walreceiver|streaming|00:00:00.00007|00:00:00.000244|00:00:00.000283
+
+  $ CLUSTER_NAME=postgres-operator-smoke-18-ha PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18ha SHARD_REPLICAS=1 ./hack/smoke.sh
+  walreceiver|streaming|00:00:00.000096|00:00:00.000277|00:00:00.000279
+
+  $ CLUSTER_NAME=postgres-operator-smoke-18-failover PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18fo SHARD_REPLICAS=1 SMOKE_FAILOVER=1 ./hack/smoke.sh
+  walreceiver|streaming|00:00:00.000093|00:00:00.000321|00:00:00.000367
+  RTO = 21s (target < 30s)
+  PASS: RTO < 30s
+  PASS: CR status reflects quickstart18fo-shard-0-1 and restarted old primary is standby
+
+  $ make test
+  PASS (non-e2e all packages)
+
+  $ make lint
+  0 issues
+
+  $ make validate
+  helm lint --strict PASS, helm template CRD count PASS, dist/install.yaml generated
+  ```
+- **남은 리스크**:
+  - PG18 primary Pod delete smoke 는 RTO < 30s 로 통과했다. 다만 chaos-mesh 기반 kill/network partition, multi-node 장애, pgBackRest 결합, 일반화된 fencing/old-primary 재합류는 아직 F03/F05 범위로 남아 있다.
+
 ## 현재 상태 (2026-05-07, governance 표준 정합 — P0+P1 baseline 도달)
 
 - **이번 세션 (상용 제품 수준 trajectory)**:
