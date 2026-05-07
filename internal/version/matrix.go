@@ -85,3 +85,19 @@ func Stable() []Combo {
 	}
 	return out
 }
+
+// SupportedMajors — PostgresMajor 의 *string-only view*. webhook 에서
+// commons.ValidateWithPredicate 의 *allowed []string* 인자 용 (ADR-0009).
+// dedup 처리 — 동일 major 의 multi-channel entry 가 있어도 한 번만 노출.
+func SupportedMajors() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, c := range supported {
+		if _, ok := seen[c.PostgresMajor]; ok {
+			continue
+		}
+		seen[c.PostgresMajor] = struct{}{}
+		out = append(out, c.PostgresMajor)
+	}
+	return out
+}

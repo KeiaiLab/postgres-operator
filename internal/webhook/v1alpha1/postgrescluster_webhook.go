@@ -35,6 +35,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	commonswebhook "github.com/keiailab/operator-commons/pkg/webhook"
+
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 	"github.com/keiailab/postgres-operator/internal/version"
@@ -77,8 +79,14 @@ func (w *PostgresClusterWebhook) ValidateDelete(_ context.Context, _ *postgresv1
 }
 
 // validate 는 ValidateCreate / ValidateUpdate 공통 본체다.
+//
+// iteration 34 (ADR-0009): immediate-return → accumulate-errors 변환. 모든
+// invalid 를 *errs ErrorList* 로 누적 후 일괄 NewInvalid — 사용자가 *모든 invalid
+// 한 번에* 보게 함 (apply 반복 cycle 감소). version validation 은 commons.
+// ValidateWithPredicate 위임 (FeatureGates 는 closure 로 capture).
 func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (admission.Warnings, error) {
 	gv := schema.GroupKind{Group: postgresv1alpha1.GroupVersion.Group, Kind: "PostgresCluster"}
+	var errs field.ErrorList
 
 	pgVersion := c.Spec.PostgresVersion
 	if pgVersion == "" {
@@ -86,20 +94,33 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 		// 예외적 경로를 방어 (e.g. dry-run + omitempty).
 		pgVersion = "18"
 	}
-	if _, ok := version.IsSupported(pgVersion, w.FeatureGates); !ok {
-		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.postgresVersion",
+	// commons.ValidateWithPredicate 위임 (closure 로 FeatureGates capture).
+	predicate := func(v string) bool {
+		_, ok := version.IsSupported(v, w.FeatureGates)
+		return ok
+	}
+	if err := commonswebhook.ValidateWithPredicate(
+		field.NewPath("spec", "postgresVersion"), pgVersion,
+		predicate, version.SupportedMajors(),
+	); err != nil {
+		// 기존 error message keyword "supported matrix" 보존 — TestValidate_VersionRejected_NotInMatrix
+		// 의 strings.Contains assertion 호환.
+		errs = append(errs, field.Invalid(
+			field.NewPath("spec", "postgresVersion"), pgVersion,
 			fmt.Sprintf("postgres=%q is not in supported matrix (see internal/version/matrix.go)", pgVersion)))
 	}
 
 	if as := c.Spec.AutoSplit; as != nil && as.Enabled {
 		if !hasAnyTrigger(as.Triggers) {
-			return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.autoSplit.triggers",
+			errs = append(errs, field.Invalid(
+				field.NewPath("spec", "autoSplit", "triggers"), nil,
 				"at least one trigger threshold (sizeThresholdGB / p99LatencyMs / cpuPercent) must be > 0 when autoSplit.enabled=true"))
 		}
 	}
 
 	if b := c.Spec.Backup; b != nil && b.Enabled && b.Schedule == "" {
-		return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.backup.schedule",
+		errs = append(errs, field.Invalid(
+			field.NewPath("spec", "backup", "schedule"), nil,
 			"schedule must be non-empty when backup.enabled=true (cron expression, e.g. \"0 2 * * *\")"))
 	}
 
@@ -108,11 +129,15 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 	if len(c.Spec.Extensions) > 0 && w.Plugins != nil {
 		_, missing := w.Plugins.EnabledExtensions(c.Spec.Extensions)
 		if len(missing) > 0 {
-			return nil, apierrors.NewInvalid(gv, c.Name, fieldErr("spec.extensions",
+			errs = append(errs, field.Invalid(
+				field.NewPath("spec", "extensions"), c.Spec.Extensions,
 				fmt.Sprintf("unknown extension(s): %v — operator Registry 에 미등록. 운영자에게 새 ExtensionPlugin 추가 또는 image 의 .so 보유 여부 확인 요청.", missing)))
 		}
 	}
 
+	if len(errs) > 0 {
+		return nil, apierrors.NewInvalid(gv, c.Name, errs)
+	}
 	return nil, nil
 }
 

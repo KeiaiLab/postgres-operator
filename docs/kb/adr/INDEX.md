@@ -17,6 +17,7 @@
 | [ADR-0006](0006-gitops-deploy-overlay.md) | GitOps deploy 오버레이 도입 (3-repo 정합) | Accepted | 2026-05-06 |
 | [ADR-0007](0007-pre-commit-instead-of-lefthook.md) | Hook 도구로 pre-commit 채택 (글로벌 lefthook 표준 분기) | Accepted | 2026-05-06 |
 | [ADR-0008](0008-operator-commons-adoption.md) | operator-commons 채택 + Container SecurityContext invariant 강화 | Accepted | 2026-05-07 |
+| [ADR-0009](0009-webhook-accumulate-errors.md) | Webhook validate — immediate-return → accumulate-errors 변환 (commons.ValidateWithPredicate 위임) | Accepted | 2026-05-07 |
 
 ## Archived (v0.x — 재설계 이전 결정 기록)
 
