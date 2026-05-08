@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.3.0-alpha.11] - 2026-05-08
+
+### Fixed
+
+- helm chart 의 rbac.yaml 에 cert-manager.io/certificates rule 누락 (alpha.10 의 controller-gen 갱신은 config/rbac/role.yaml 만 sync, helm chart rbac.yaml 은 manually maintained). live cluster 의 ClusterRole 가 동기화되지 않아 Certificate Forbidden 지속.
+
 ## [0.3.0-alpha.10] - 2026-05-08
 
 ### Fixed
