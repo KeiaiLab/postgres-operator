@@ -83,3 +83,5 @@ allowPrivilegeEscalation) 가 명시 적용.
 - operator-commons v0.1.2 (github.com/keiailab/operator-commons)
 - iteration 8 plan: ~/.claude/plans/iridescent-squishing-locket.md
 - archived: docs/kb/adr/_archive/v0.x/0006-security-defaults-rationale.md
+
+<!-- live-verified: 2026-05-09 -->

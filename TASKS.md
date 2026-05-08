@@ -10,6 +10,7 @@
 P0 (0.3.0-alpha redesign reset) 는 완료 (commit df1f2e1). 이전 phase 작업 표는 §"이전 Phase 기록" 참조.
 
 현재 달성 마일스톤: `0.3.0-alpha.4` Day-0 alpha-deployable 실제 argos 배포 완료. 이는 G0 진척이며 P1 전체 완료(HA/backup/PITR)는 아니다.
+<!-- live-verified: 2026-05-09 -->
 
 ## 작업 표 (P1)
 

@@ -7,6 +7,7 @@
 ## Context
 
 글로벌 표준 `~/Documents/ai-dev/standards/enforcement.md §1.1` 은 git hook 관리 도구로 **lefthook** (Go 단일 바이너리, 언어 중립) 을 명시한다. 본 repo 는 `.pre-commit-config.yaml` 기반의 **pre-commit** (Python 기반) 을 운영 중이며, 표준과 분기한 상태로 `mongodb-operator` / `postgres-operator` 두 repo 가 동일 패턴을 사용하고 있다 (3-repo 중 valkey-operator 만 lefthook).
+<!-- live-verified: 2026-05-09 -->
 
 본 repo 의 `.pre-commit-config.yaml` 은 RFC 0002 의 4 계층 게이트 (`standards/ci.md §1`) 를 명시 매핑 중이며 (L1 pre-commit → golangci-lint, L2 pre-push → test/audit/secrets/go-mod-tidy-drift), `_archive/v0.x/0009-no-github-actions-rfc-0002.md` 가 이를 docs 화한 상태다.
 
@@ -57,3 +58,5 @@
 - 정합 사례: `valkey-operator/.lefthook.yml`
 - 본 repo 운영: `.pre-commit-config.yaml`
 - 관련 ADR: `_archive/v0.x/0009-no-github-actions-rfc-0002.md` (4 계층 게이트 매핑 history)
+
+<!-- live-verified: 2026-05-09 -->
