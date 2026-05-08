@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- audit (4-repo cross-cut, 2026-05-09) RFC-0017 §3.4 EventRecorder 도입: PostgresClusterReconciler + BackupJobReconciler 에 `Recorder record.EventRecorder` 필드 + SetupWithManager 자동 주입. BackupJobReconciler.markFailed 에 Eventf(Warning) 1줄 — 모든 error 분기 (ClusterNotFound / PluginNotRegistered / InvalidSpec) 자동 K8s Event 발행. PostgresClusterReconciler reconcile 분기 Eventf 는 후속 PR (ADR-0010 AI-PG10-2).
+
+### Changed
+
+- audit (2026-05-09): RFC-0017 채택 — `.lefthook.yml` 신설, ADR-0010 등재. 본 repo `.golangci.yml` + `.custom-gcl.yml` (logcheck) 가 4-repo 표준 원본으로 승격됨 (변경 없음).
+
 ## [0.3.0-alpha.12] - 2026-05-08
 
 ### Fixed

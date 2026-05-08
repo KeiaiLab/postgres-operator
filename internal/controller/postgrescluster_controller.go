@@ -112,12 +112,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// 0. instance manager 가 사용할 RBAC (ServiceAccount + Role + RoleBinding) upsert.
 	// shard StatefulSet 보다 먼저 — Pod 가 SA reference 를 사용하므로 fail-fast 회피.
 	if name, err := r.reconcileInstanceRBAC(ctx, &cluster); err != nil {
-		return r.handleUpsertErr(ctx, err, name, logger)
+		return r.handleUpsertErr(ctx, &cluster, err, name, logger)
 	}
 
 	// 0.5. (Pillar P7 §7) TLS reconcile — Certificate CR upsert.
 	if err := r.reconcileTLS(ctx, &cluster); err != nil {
-		return r.handleUpsertErr(ctx, err, "tls Certificate", logger)
+		return r.handleUpsertErr(ctx, &cluster, err, "tls Certificate", logger)
 	}
 
 	// 1. shard 자원 3종 upsert (ordinal 0..InitialCount-1)
@@ -132,10 +132,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		stsName := ShardStatefulSetName(cluster.Name, ord)
 
 		if err := r.upsert(ctx, &cluster, buildConfigMap(&cluster, cmName, "shard", ord, r.Plugins)); err != nil {
-			return r.handleUpsertErr(ctx, err, "shard ConfigMap", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "shard ConfigMap", logger)
 		}
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
-			return r.handleUpsertErr(ctx, err, "shard Service", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "shard Service", logger)
 		}
 		// primaryEndpoint 결정: 이전 reconcile 에서 관측된 primary 가 존재하면
 		// 그 endpoint 를 init container 로 전달 → ord!=0 의 첫 부팅 시 pg_basebackup
@@ -156,7 +156,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			primaryEndpoint,
 		)
 		if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
-			return r.handleUpsertErr(ctx, err, "shard StatefulSet", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
 		}
 
 		// observed STS 를 다시 조회하여 readyReplicas 기반 status 산출.
@@ -201,10 +201,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		depName := RouterDeploymentName(cluster.Name)
 
 		if err := r.upsert(ctx, &cluster, buildConfigMap(&cluster, cmName, "router", -1, r.Plugins)); err != nil {
-			return r.handleUpsertErr(ctx, err, "router ConfigMap", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "router ConfigMap", logger)
 		}
 		if err := r.upsert(ctx, &cluster, buildClientService(&cluster, svcName, "router")); err != nil {
-			return r.handleUpsertErr(ctx, err, "router Service", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "router Service", logger)
 		}
 		// router 이미지: P12-T2 까지 PG 베이스 이미지 placeholder.
 		desiredDep := buildRouterDeployment(
@@ -213,7 +213,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			cluster.Spec.Router.Resources,
 		)
 		if err := r.upsert(ctx, &cluster, desiredDep); err != nil {
-			return r.handleUpsertErr(ctx, err, "router Deployment", logger)
+			return r.handleUpsertErr(ctx, &cluster, err, "router Deployment", logger)
 		}
 
 		// router Deployment 도 cache propagation 지연을 graceful 처리.
@@ -434,11 +434,24 @@ func copySpec(dst, src client.Object) {
 }
 
 // handleUpsertErr 는 upsert 실패를 일관된 형태로 처리한다 (conflict → requeue).
-func (r *PostgresClusterReconciler) handleUpsertErr(_ context.Context, err error, what string, logger logSink) (ctrl.Result, error) {
+//
+// RFC-0017 §3.4: conflict 가 *아닌* 실패에 대해서만 K8s Event(Warning) 를
+// 발행한다 — conflict 는 정상 requeue 동작이므로 운영 noise 회피. Recorder 가
+// nil 이면 Eventf 호출을 skip (테스트 환경 보호).
+func (r *PostgresClusterReconciler) handleUpsertErr(
+	_ context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	err error, what string,
+	logger logSink,
+) (ctrl.Result, error) {
 	if apierrors.IsConflict(err) {
 		return ctrl.Result{Requeue: true}, nil
 	}
 	logger.Error(err, "upsert failed", "resource", what)
+	if r.Recorder != nil && cluster != nil {
+		r.Recorder.Eventf(cluster, corev1.EventTypeWarning, "UpsertFailed",
+			"resource=%q: %v", what, err)
+	}
 	return ctrl.Result{}, err
 }
 
