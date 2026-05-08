@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.3.0-alpha.10] - 2026-05-08
+
+### Fixed
+
+- ClusterRole 에 cert-manager.io/certificates RBAC 누락 → Phase 2 Certificate CR upsert 시 Forbidden. kubebuilder:rbac marker 추가.
+
 ## [0.3.0-alpha.9] - 2026-05-08
 
 ### Fixed
