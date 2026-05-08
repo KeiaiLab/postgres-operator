@@ -322,6 +322,56 @@ type PostgresClusterSpec struct {
 	//
 	// +optional
 	Extensions []string `json:"extensions,omitempty"`
+
+	// TLS 는 PostgreSQL server-side TLS 설정 (Pillar P7 §7).
+	// 0.3.0-alpha.5+ Phase 1 facade — CRD field 만 정의. Phase 2 에서 cert-manager
+	// Certificate CR 통합 + Phase 3 에서 reconciler 의 server.crt/server.key emit
+	// + postgresql.conf ssl=on 봉인. 본 alpha 버전 에서는 enabled=false (default)
+	// 만 의미 있음 — true 설정 시 webhook reject (NotImplemented Phase 1).
+	// +optional
+	TLS *TLSSpec `json:"tls,omitempty"`
+}
+
+// TLSSpec 은 PostgreSQL server-side TLS 설정.
+//
+// Roadmap (3-phase):
+//
+//	Phase 1 (alpha.5): 본 CRD field facade. enabled=true 시 webhook reject.
+//	Phase 2 (alpha.6): cert-manager Certificate CR 자동 생성 (Issuer 참조).
+//	Phase 3 (alpha.7): reconciler 가 server cert secret 을 STS volume mount +
+//	                   postgresql.conf 의 ssl=on + ssl_cert_file/ssl_key_file 명시.
+//
+// 회복 대상 = 외부 client (예: argos cluster 의 infisical) 의 sslmode=verify-ca
+// 정공. 현재 ssl=off → sslmode=disable 회귀 (ADR-0062 cycle 봉인).
+type TLSSpec struct {
+	// Enabled 는 server-side TLS 활성 여부. Phase 1 에서는 false 만 동작.
+	// +kubebuilder:default=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// IssuerRef 는 cert-manager Issuer 또는 ClusterIssuer 참조.
+	// Phase 2 부터 의미 있음. 미설정 시 self-signed 자체 발급 (Phase 3 default).
+	// +optional
+	IssuerRef *TLSIssuerRef `json:"issuerRef,omitempty"`
+
+	// CertSecretName 은 server cert 가 저장될 Secret 이름. 미설정 시
+	// "<cluster>-tls" default. Phase 2 에서 cert-manager Certificate.spec.secretName
+	// 으로 사용됨.
+	// +optional
+	CertSecretName string `json:"certSecretName,omitempty"`
+}
+
+// TLSIssuerRef 는 cert-manager Issuer/ClusterIssuer 참조.
+type TLSIssuerRef struct {
+	// Name 은 Issuer 이름.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Kind 는 Issuer 또는 ClusterIssuer.
+	// +kubebuilder:validation:Enum=Issuer;ClusterIssuer
+	// +kubebuilder:default=Issuer
+	// +optional
+	Kind string `json:"kind,omitempty"`
 }
 
 // ClusterPhase 는 cluster 의 상위 단계.

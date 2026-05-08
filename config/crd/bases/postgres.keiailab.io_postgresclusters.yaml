@@ -1371,6 +1371,43 @@ spec:
                 - initialCount
                 - storage
                 type: object
+              tls:
+                description: |-
+                  TLS 는 PostgreSQL server-side TLS 설정 (Pillar P7 §7).
+                  0.3.0-alpha.5+ Phase 1 facade — CRD field 만 정의. Phase 2 에서 cert-manager
+                  Certificate CR 통합 + Phase 3 에서 reconciler 의 server.crt/server.key emit
+                  만 의미 있음 — true 설정 시 webhook reject (NotImplemented Phase 1).
+                properties:
+                  certSecretName:
+                    description: |-
+                      CertSecretName 은 server cert 가 저장될 Secret 이름. 미설정 시
+                      "<cluster>-tls" default. Phase 2 에서 cert-manager Certificate.spec.secretName
+                      으로 사용됨.
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled 는 server-side TLS 활성 여부. Phase 1 에서는 false
+                      만 동작.
+                    type: boolean
+                  issuerRef:
+                    description: |-
+                      IssuerRef 는 cert-manager Issuer 또는 ClusterIssuer 참조.
+                      Phase 2 부터 의미 있음. 미설정 시 self-signed 자체 발급 (Phase 3 default).
+                    properties:
+                      kind:
+                        default: Issuer
+                        description: Kind 는 Issuer 또는 ClusterIssuer.
+                        enum:
+                        - Issuer
+                        - ClusterIssuer
+                        type: string
+                      name:
+                        description: Name 은 Issuer 이름.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
             required:
             - shards
             type: object

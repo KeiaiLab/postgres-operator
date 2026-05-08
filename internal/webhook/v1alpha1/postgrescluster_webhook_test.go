@@ -167,6 +167,31 @@ func TestValidate_StorageSize_BelowMin_Rejected(t *testing.T) {
 	}
 }
 
+func TestValidate_TLS_Enabled_Phase1_Rejected(t *testing.T) {
+	// Pillar P7 §7 Phase 1 facade — CRD field 만 정의, reconciler 미통합.
+	// enabled=true 시 NotImplemented reject (Phase 2/3 통합 후 본 테스트 제거).
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.TLS = &postgresv1alpha1.TLSSpec{Enabled: true}
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected rejection for spec.tls.enabled=true (Phase 1 NotImplemented)")
+	}
+	if !strings.Contains(err.Error(), "NotImplemented") {
+		t.Errorf("expected NotImplemented keyword in error, got: %v", err)
+	}
+}
+
+func TestValidate_TLS_Disabled_Accepted(t *testing.T) {
+	// TLS 미설정 또는 enabled=false 는 통과 (default behavior).
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.TLS = &postgresv1alpha1.TLSSpec{Enabled: false}
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Fatalf("tls.enabled=false should be accepted, got: %v", err)
+	}
+}
+
 func TestValidate_StorageSize_Boundary1Gi_Accepted(t *testing.T) {
 	w := newWebhook(t)
 	c := validBaseCluster()

@@ -151,6 +151,18 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 		}
 	}
 
+	// Pillar P7 §7 — TLS Phase 1 facade reject. CRD field 는 정의됐으나 reconciler
+	// 통합 (Phase 2/3) 미완 → enabled=true 시 admission 차단으로 사용자가 *미구현
+	// 기능 호출* 을 명시적 인지하게 함. Phase 2 alpha.6 에서 cert-manager Certificate
+	// CR 생성 + Phase 3 alpha.7 에서 reconciler 통합 시 본 reject 제거.
+	if c.Spec.TLS != nil && c.Spec.TLS.Enabled {
+		errs = append(errs, field.Invalid(
+			field.NewPath("spec", "tls", "enabled"), true,
+			"spec.tls.enabled=true is NotImplemented in 0.3.0-alpha.5 (Phase 1 facade). "+
+				"Phase 2 (alpha.6) adds cert-manager Certificate CR; Phase 3 (alpha.7) wires "+
+				"server.crt into STS volume mount + postgresql.conf ssl=on. Use enabled=false until then."))
+	}
+
 	if len(errs) > 0 {
 		return nil, apierrors.NewInvalid(gv, c.Name, errs)
 	}
