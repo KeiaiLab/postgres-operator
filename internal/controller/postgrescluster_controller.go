@@ -103,24 +103,13 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// 0. instance manager 가 사용할 RBAC (ServiceAccount + Role + RoleBinding) upsert.
 	// shard StatefulSet 보다 먼저 — Pod 가 SA reference 를 사용하므로 fail-fast 회피.
-	if err := r.upsert(ctx, &cluster, buildInstanceServiceAccount(&cluster)); err != nil {
-		return r.handleUpsertErr(ctx, err, "instance ServiceAccount", logger)
-	}
-	if err := r.upsert(ctx, &cluster, buildInstanceRole(&cluster)); err != nil {
-		return r.handleUpsertErr(ctx, err, "instance Role", logger)
-	}
-	if err := r.upsert(ctx, &cluster, buildInstanceRoleBinding(&cluster)); err != nil {
-		return r.handleUpsertErr(ctx, err, "instance RoleBinding", logger)
+	if name, err := r.reconcileInstanceRBAC(ctx, &cluster); err != nil {
+		return r.handleUpsertErr(ctx, err, name, logger)
 	}
 
-	// 0.5. (Pillar P7 §7 Phase 2) cert-manager Certificate CR upsert.
-	// TLS.Enabled=true + IssuerRef 명시 시 server cert Secret 자동 발급 위임.
-	// Phase 3 에서 STS volume mount + postgresql.conf ssl=on 통합 — 본 Phase 는
-	// Certificate CR 만 emit, postgres pod 는 cert 사용 안 함 (sslmode=disable 그대로).
-	if cert := buildCertificate(&cluster); cert != nil {
-		if err := r.upsert(ctx, &cluster, cert); err != nil {
-			return r.handleUpsertErr(ctx, err, "tls Certificate", logger)
-		}
+	// 0.5. (Pillar P7 §7) TLS reconcile — Certificate CR upsert.
+	if err := r.reconcileTLS(ctx, &cluster); err != nil {
+		return r.handleUpsertErr(ctx, err, "tls Certificate", logger)
 	}
 
 	// 1. shard 자원 3종 upsert (ordinal 0..InitialCount-1)
@@ -298,6 +287,49 @@ func applyClusterConditions(
 		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonProgressing, "reconcile in progress")
 		setCondition(conds, ConditionProgressing, metav1.ConditionTrue, ReasonReconciling, "creating or waiting for subresources")
 	}
+}
+
+// reconcileTLS 는 Pillar P7 §7 의 cert-manager Certificate CR upsert 를 처리한다.
+// TLS 미활성 시 (cluster.Spec.TLS == nil 또는 enabled=false 또는 IssuerRef 누락)
+// no-op 으로 즉시 반환 — Phase 3a 의 STS volume mount + Phase 3b 의 ssl=on 도
+// tlsEnabled() 동일 결정값을 공유하므로 일관 동작.
+//
+// 본 helper 가 Reconcile 의 cyclomatic complexity 분리 (gocyclo < 30 baseline 정합)
+// + 후속 Phase (cert renewal observability, Issuer auto self-signed, mTLS client
+// auth) 의 단일 진입점.
+// reconcileInstanceRBAC 는 instance manager (postgres pod) 가 사용할 SA + Role +
+// RoleBinding 3종을 단일 진입점에서 upsert. 첫 실패 자원 이름을 반환하여 caller
+// 가 handleUpsertErr 로 condition 메시지 표기 — Reconcile 의 cyclomatic
+// complexity 절감 (gocyclo < 30 baseline).
+func (r *PostgresClusterReconciler) reconcileInstanceRBAC(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+) (string, error) {
+	specs := []struct {
+		name string
+		obj  client.Object
+	}{
+		{"instance ServiceAccount", buildInstanceServiceAccount(cluster)},
+		{"instance Role", buildInstanceRole(cluster)},
+		{"instance RoleBinding", buildInstanceRoleBinding(cluster)},
+	}
+	for _, s := range specs {
+		if err := r.upsert(ctx, cluster, s.obj); err != nil {
+			return s.name, err
+		}
+	}
+	return "", nil
+}
+
+func (r *PostgresClusterReconciler) reconcileTLS(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+) error {
+	cert := buildCertificate(cluster)
+	if cert == nil {
+		return nil
+	}
+	return r.upsert(ctx, cluster, cert)
 }
 
 // upsert 는 owner reference 부착 후 CreateOrUpdate 로 desired 객체를 적용한다.
