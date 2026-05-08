@@ -102,6 +102,11 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			fmt.Sprintf("PG=%q is not in supported matrix (or feature gate missing)", pgVersion))
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
+		// RFC-0017 §3.4: version rejection 운영 가시 Event.
+		if r.Recorder != nil {
+			r.Recorder.Eventf(&cluster, corev1.EventTypeWarning, ReasonVersionRejected,
+				"PG=%q is not in supported matrix (or feature gate missing)", pgVersion)
+		}
 		if err := r.Status().Update(ctx, &cluster); err != nil {
 			logger.Error(err, "Failed to update status with version rejection")
 			return ctrl.Result{}, err
@@ -235,10 +240,18 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// 3. status 종합.
+	prevPhase := cluster.Status.Phase
 	cluster.Status.Shards = shardStatuses
 	cluster.Status.Router = routerStatus
 	cluster.Status.ObservedGeneration = cluster.Generation
 	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus)
+
+	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —
+	// 매 reconcile noise 회피). prevPhase 비교로 transition 감지.
+	if r.Recorder != nil && cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
+		r.Recorder.Eventf(&cluster, corev1.EventTypeNormal, "ClusterReady",
+			"PostgresCluster %d/%d shards primary ready, router=%v", shardCount, shardCount, routerActive)
+	}
 
 	if err := r.Status().Update(ctx, &cluster); err != nil {
 		if apierrors.IsConflict(err) {
