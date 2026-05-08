@@ -1935,6 +1935,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -2112,7 +2124,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.9
+        image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.10
         livenessProbe:
           httpGet:
             path: /healthz
