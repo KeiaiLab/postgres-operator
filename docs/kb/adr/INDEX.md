@@ -21,6 +21,7 @@
 | [ADR-0010](0010-rfc-0017-tooling-unification-adoption.md) | RFC-0017 operator tooling unification 채택 (lefthook + EventRecorder 도입 + HEALTHCHECK) | Proposed | 2026-05-09 |
 | [ADR-0011](0011-rfc-0018-pkg-status-partial-adoption.md) | RFC-0018 부분 채택 — pkg/status (Ready type only) + pkg/finalizer 비대칭 보존 (PR-A7 first cut) | Accepted | 2026-05-09 |
 | [ADR-0012](0012-pkg-version-matrix-commons-delegation.md) | pkg/version Matrix[Combo] commons 위임 (Plan §2 D12, PR-B3 — go.mod commons v0.7.0 bump) | Accepted | 2026-05-09 |
+| [ADR-0013](0013-operatorhub-bundle-scaffold.md) | OperatorHub.io bundle scaffold cross-cut — operator-sdk 1.42 + kustomize, 2 CRD owned, Makefile bundle/bundle-build (PR-B9, valkey ADR-0037 패턴 이식) | Accepted | 2026-05-10 |
 
 ## Archived (v0.x — 재설계 이전 결정 기록)
 

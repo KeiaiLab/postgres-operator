@@ -1,0 +1,353 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "postgres.keiailab.io/v1alpha1",
+          "kind": "PostgresCluster",
+          "metadata": {
+            "name": "quickstart",
+            "namespace": "default"
+          },
+          "spec": {
+            "postgresVersion": "18",
+            "shardingMode": "none",
+            "shards": {
+              "initialCount": 1,
+              "replicas": 0,
+              "storage": {
+                "size": "10Gi"
+              }
+            }
+          }
+        }
+      ]
+    capabilities: Seamless Upgrades
+    categories: Database, Storage
+    containerImage: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.15
+    createdAt: "2026-05-09T23:41:39Z"
+    description: |
+      Apache-2.0 PostgreSQL Kubernetes Operator — vanilla PG18+, license-clean,
+      PGO-class 운영 품질을 목표로 하되 외부 operator/backend 를 fork, embed,
+      wrapper 로 사용하지 않는 독립 신규 구현. PG17/PG18 양 메이저 지원.
+    operators.operatorframework.io/builder: operator-sdk-v1.42.2
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
+    repository: https://github.com/keiailab/postgres-operator
+    support: https://github.com/keiailab/postgres-operator/issues
+  name: postgres-operator.v0.3.0-alpha.15
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: BackupJob 은 PostgresCluster 의 pgBackRest 기반 backup/restore Job
+        추상이다.
+      displayName: Backup Job
+      kind: BackupJob
+      name: backupjobs.postgres.keiailab.io
+      version: v1alpha1
+    - description: PostgresCluster 는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적 표현이다 (ADR
+        0001).
+      displayName: Postgres Cluster
+      kind: PostgresCluster
+      name: postgresclusters.postgres.keiailab.io
+      version: v1alpha1
+  description: |
+    # Postgres Operator
+
+    Apache-2.0 licensed Kubernetes operator for PostgreSQL — manages the
+    `PostgresCluster` CRD with shard-aware topology (primary + standby
+    streaming replication), automated failover (RTO < 30s verified),
+    pgBackRest integration, and PG17/PG18 compatibility.
+
+    ## Features
+
+    - **PostgresCluster CRD** — declarative shard-aware topology (primary +
+      standby streaming replication, hot-standby read scaling).
+    - **Automated failover** — primary Pod delete smoke verified RTO < 30s.
+    - **PG17 + PG18 multi-major support** — runtime image build/load via
+      `hack/smoke.sh`, kind cluster smoke includes psql round-trip +
+      streaming replication assertion.
+    - **pgBackRest integration** — BackupJob CRD reconciles pgBackRest backup
+      Jobs (full / differential / incremental).
+    - **Supply chain** — Cosign signed container images + SBOM (SPDX-2.3).
+    - **Security baseline** — Pod Security Standards Restricted, RBAC
+      least-privilege, NetworkPolicy isolation, non-root runAsUser.
+
+    ## Documentation
+
+    - GitHub: https://github.com/keiailab/postgres-operator
+    - Helm Chart: https://artifacthub.io/packages/helm/postgresql-operator/postgresql-operator
+    - Discussions: https://github.com/keiailab/postgres-operator/discussions
+
+    ## Prerequisites
+
+    - Kubernetes 1.26+
+    - Storage class for PVCs (recommended: ceph-rbd or comparable RWO)
+    - (Optional) cert-manager for automatic TLS certificate management
+    - (Optional) Prometheus Operator for `ServiceMonitor` scraping
+  displayName: Postgres Operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - secrets
+          - serviceaccounts
+          - services
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims
+          - pods
+          verbs:
+          - get
+          - list
+          - patch
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - deployments
+          - statefulsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - cert-manager.io
+          resources:
+          - certificates
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - postgres.keiailab.io
+          resources:
+          - backupjobs
+          - postgresclusters
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - postgres.keiailab.io
+          resources:
+          - backupjobs/finalizers
+          - postgresclusters/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - postgres.keiailab.io
+          resources:
+          - backupjobs/status
+          - postgresclusters/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - rbac.authorization.k8s.io
+          resources:
+          - rolebindings
+          - roles
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
+        serviceAccountName: controller-manager
+      deployments:
+      - label:
+          app.kubernetes.io/managed-by: kustomize
+          app.kubernetes.io/name: postgres-operator
+          control-plane: controller-manager
+        name: controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-operator
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              annotations:
+                kubectl.kubernetes.io/default-container: manager
+              labels:
+                app.kubernetes.io/name: postgres-operator
+                control-plane: controller-manager
+            spec:
+              containers:
+              - args:
+                - --leader-elect
+                - --health-probe-bind-address=:8081
+                command:
+                - /manager
+                image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.15
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                name: manager
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
+                    port: 8081
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 10m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                  readOnlyRootFilesystem: true
+              securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              serviceAccountName: controller-manager
+              terminationGracePeriodSeconds: 10
+      permissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        serviceAccountName: controller-manager
+    strategy: deployment
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - postgres
+  - postgresql
+  - database
+  - high-availability
+  - replication
+  - failover
+  - pgbackrest
+  - backup
+  links:
+  - name: GitHub
+    url: https://github.com/keiailab/postgres-operator
+  - name: Documentation
+    url: https://github.com/keiailab/postgres-operator/blob/main/README.md
+  - name: Helm Chart (ArtifactHub)
+    url: https://artifacthub.io/packages/helm/postgresql-operator/postgresql-operator
+  - name: Discussions
+    url: https://github.com/keiailab/postgres-operator/discussions
+  maintainers:
+  - email: help@masblue.studio
+    name: Keiailab
+  maturity: alpha
+  minKubeVersion: 1.26.0
+  provider:
+    name: Keiailab
+    url: https://github.com/keiailab
+  version: 0.3.0-alpha.15
