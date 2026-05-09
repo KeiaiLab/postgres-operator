@@ -2,6 +2,58 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
+## 2026-05-09 Sprint A 진입 (PR-A7) + Sprint B 예고 (PR-B3) — Helm 차트 비교 plan
+
+> Plan: `~/.claude/plans/1-https-artifacthub-io-packages-helm-clo-synthetic-gem.md`
+>
+> postgres-operator 측은 *비대칭 보존 결정* (ADR-0008 cascade-delete-by-
+> OwnerReference) 으로 인해 RFC-0018 의 pkg/finalizer 미채택. pkg/status
+> 만 채택.
+
+### PR-A7: pkg/status migration + ADR-0008 갱신 (T3, Sprint A)
+
+- **의존**: operator-commons v0.6.0 tag 머지.
+- **변경 범위**:
+  - `internal/controller/status.go` 의 `setCondition` 호출 → commons
+    `SetReady` / `SetReadyFalse` / `SetAvailable` 위임.
+  - 도메인 ConditionType 보존: `ShardsReady`, `RouterReady`, `BackupHealthy`,
+    `AutoSplitEligible` — generic 4종 (Ready/Progressing/Degraded/Available)
+    만 commons 사용.
+  - **pkg/finalizer 비대칭**: ADR-0008 cascade-delete-by-OwnerReference
+    결정 *유지*. 본 PR 은 pkg/finalizer 미채택, ADR-0008 본문에 사유 명시
+    추가.
+- **ADR**:
+  - ADR-0008 갱신: "operator-commons/pkg/finalizer 미채택 사유 — cascade
+    delete by OwnerReference + BackupCleanupJob CRD 가 외부 자원 cleanup
+    분리 처리".
+  - 신규 ADR (현재 postgres INDEX 최신 +1): `docs/kb/adr/NNNN-rfc-0018-
+    pkg-status-adoption.md`.
+- **회귀**: `cascade_delete_test.go` 검증 강화.
+
+### PR-B3 예고: matrix.go → commons/pkg/version generic Matrix[E] 위임 (T3, Sprint B)
+
+- **의존**: commons v0.7.0 (PR-B1 의 `pkg/version` generic `Matrix[E any]`
+  추가).
+- **변경 범위**:
+  - `internal/version/matrix.go` 의 `Combo`/`Channel`/`FeatureGate`
+    타입을 commons `Matrix[Combo]` 로 위임.
+  - export 표면 (`commonsversion.NewSupportedAllOf` 호출부) 무변경.
+- **ADR**: ADR-0005 (versioning-and-channels) 갱신 + commons ADR (별개).
+- **회귀**: webhook unit test (`internal/webhook/*`) + `internal/version/matrix_test.go`.
+
+### 차단점
+
+- PR-A7: commons v0.6.0 의존 (PR-A1 tag).
+- PR-B3: commons v0.7.0 의존 (PR-B1 — Sprint B 의 첫 PR).
+
+### 근거 링크
+
+- Plan §2 D11 (postgres pkg/status migration), D12 (matrix.go generic).
+- RFC-0018 §3.2 Migration 단계 2 (postgres pkg/finalizer 비대칭 보존).
+- ADR-0008 (postgres): cascade-delete-by-OwnerReference (보존 대상).
+
+---
+
 ## 현재 상태 (2026-05-08, v0.3.0-alpha.4 실제 argos 배포 + Day-0 마일스톤 반영)
 
 - **이번 세션**:
