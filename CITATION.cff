@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: postgres-operator
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - name: "Keiailab"
+    website: "https://github.com/keiailab"
+repository-code: "https://github.com/keiailab/postgres-operator"
+url: "https://artifacthub.io/packages/helm/postgresql-operator/postgresql-operator"
+abstract: >-
+  Kubernetes operator for PostgreSQL — manages PostgresCluster CRD with
+  shard-aware topology (primary + standby streaming replication), automated
+  failover (RTO < 30s verified), pgBackRest integration, and PG17/PG18
+  compatibility. Apache 2.0 licensed, ArtifactHub published.
+keywords:
+  - kubernetes
+  - operator
+  - postgresql
+  - database
+  - high-availability
+  - pgbackrest
+license: Apache-2.0
+version: v0.3.0-alpha.15
