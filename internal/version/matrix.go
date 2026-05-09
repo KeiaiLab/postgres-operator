@@ -9,6 +9,10 @@
 //   - 매트릭스 갱신은 RFC 0002 §7 예외 외에는 로컬에서 사람이 PR로 진행 (자동 cron 폐기).
 package version
 
+import (
+	commonsversion "github.com/keiailab/operator-commons/pkg/version"
+)
+
 // Channel은 본 오퍼레이터의 릴리즈 채널을 표현한다.
 type Channel string
 
@@ -35,10 +39,19 @@ type Combo struct {
 	FeatureGate string
 }
 
+// PrimaryKey — commons Matrix[Combo] 의 MatrixEntry interface 구현
+// (Plan §2 D12, ADR commons-0004). PostgresMajor 가 unique 식별자 —
+// duplicate 시 init-time panic (MustMatrix).
+func (c Combo) PrimaryKey() string { return c.PostgresMajor }
+
 // supported는 본 오퍼레이터가 빌드/검증 매트릭스로 지원하는 조합 전체.
 //
 // 갱신 정책: Stable 추가/제거는 ADR. Beta 추가는 routine. Channel 강등(Stable→Beta)은 ADR.
-var supported = []Combo{
+//
+// Plan §2 D12 / commons-ADR-0004: commons `Matrix[Combo]` 로 위임. 기존
+// `[]Combo` slice 와 외부 contract (IsSupported / All / Stable /
+// SupportedMajors) 동등 — 내부 storage 만 commons 위임.
+var supported = commonsversion.MustMatrix(
 	// ============================================================================
 	// Vanilla PostgreSQL — Stable Tier (ADR 0001, 0.3.0-alpha)
 	// ============================================================================
@@ -46,39 +59,39 @@ var supported = []Combo{
 	// 의존 (AGPL/BUSL/CSL/SSPL) 은 영구 금지 (ADR 0003).
 
 	// PG 18 — 권장 default (최신 stable).
-	{PostgresMajor: "18", Image: "ghcr.io/keiailab/pg:18", Channel: ChannelStable},
+	Combo{PostgresMajor: "18", Image: "ghcr.io/keiailab/pg:18", Channel: ChannelStable},
 	// PG 17 — gradual upgrade path.
-	{PostgresMajor: "17", Image: "ghcr.io/keiailab/pg:17", Channel: ChannelStable},
+	Combo{PostgresMajor: "17", Image: "ghcr.io/keiailab/pg:17", Channel: ChannelStable},
 	// PG 16 — legacy support.
-	{PostgresMajor: "16", Image: "ghcr.io/keiailab/pg:16", Channel: ChannelStable},
-}
+	Combo{PostgresMajor: "16", Image: "ghcr.io/keiailab/pg:16", Channel: ChannelStable},
+)
 
 // IsSupported는 주어진 PG major가 매트릭스에 있는지 확인한다.
 // gates는 활성화된 feature gate 집합(예: {"PostgresEighteen": true}).
+//
+// Plan §2 D12: commons `supported.Find` 위임. gate 검증은 본 함수가 보존.
 func IsSupported(pgMajor string, gates map[string]bool) (Combo, bool) {
-	for _, c := range supported {
-		if c.PostgresMajor != pgMajor {
-			continue
-		}
-		if c.FeatureGate != "" && !gates[c.FeatureGate] {
-			continue
-		}
-		return c, true
+	c, ok := supported.Find(pgMajor)
+	if !ok {
+		return Combo{}, false
 	}
-	return Combo{}, false
+	if c.FeatureGate != "" && !gates[c.FeatureGate] {
+		return Combo{}, false
+	}
+	return c, true
 }
 
 // All은 매트릭스 전체를 반환한다(CI matrix 생성용).
+//
+// Plan §2 D12: commons `supported.Entries()` 위임 (방어 복사 보존).
 func All() []Combo {
-	out := make([]Combo, len(supported))
-	copy(out, supported)
-	return out
+	return supported.Entries()
 }
 
 // Stable은 stable 채널 조합만 반환한다.
 func Stable() []Combo {
 	var out []Combo
-	for _, c := range supported {
+	for _, c := range supported.Entries() {
 		if c.Channel == ChannelStable {
 			out = append(out, c)
 		}
@@ -88,16 +101,10 @@ func Stable() []Combo {
 
 // SupportedMajors — PostgresMajor 의 *string-only view*. webhook 에서
 // commons.ValidateWithPredicate 의 *allowed []string* 인자 용 (ADR-0009).
-// dedup 처리 — 동일 major 의 multi-channel entry 가 있어도 한 번만 노출.
+//
+// Plan §2 D12: commons `supported.Keys()` 위임. dedup 은 MustMatrix
+// 가 init-time 검증 — duplicate PrimaryKey panic 으로 *runtime dedup*
+// 대신 *init-time 보장*.
 func SupportedMajors() []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, c := range supported {
-		if _, ok := seen[c.PostgresMajor]; ok {
-			continue
-		}
-		seen[c.PostgresMajor] = struct{}{}
-		out = append(out, c.PostgresMajor)
-	}
-	return out
+	return supported.Keys()
 }
