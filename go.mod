@@ -4,7 +4,7 @@ go 1.25.10
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/keiailab/operator-commons v0.5.0
+	github.com/keiailab/operator-commons v0.6.0
 	github.com/lib/pq v1.12.3
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
