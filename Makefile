@@ -264,6 +264,32 @@ release-notes: ## git-cliff 로 release notes 자동 생성 — /tmp/release-not
 	git-cliff --strip all --tag "$(VERSION)" --unreleased > "/tmp/release-notes-$(VERSION).md"
 	@echo "✓ release notes: /tmp/release-notes-$(VERSION).md"
 
+.PHONY: bundle
+bundle: ## OperatorHub.io bundle 생성 — operator-sdk + kustomize. VERSION 필수 (e.g. 0.3.0-alpha.15). PR-B9 / ADR-0013.
+	@command -v operator-sdk >/dev/null 2>&1 || { echo "[error] operator-sdk not installed: brew install operator-sdk"; exit 1; }
+	@command -v kustomize >/dev/null 2>&1 || { echo "[error] kustomize not installed"; exit 1; }
+	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION 필수 (e.g. make bundle VERSION=0.3.0-alpha.15)"; exit 1; fi
+	@echo "=== operator-sdk generate kustomize manifests ==="
+	operator-sdk generate kustomize manifests --apis-dir=api -q --interactive=false
+	@echo "=== set image controller=ghcr.io/keiailab/postgres-operator:$(VERSION) ==="
+	cd config/manager && kustomize edit set image controller=ghcr.io/keiailab/postgres-operator:$(VERSION)
+	@echo "=== kustomize build config/manifests | operator-sdk generate bundle ==="
+	kustomize build config/manifests | operator-sdk generate bundle \
+		--overwrite \
+		--version "$(VERSION)" \
+		--channels alpha \
+		--default-channel alpha \
+		--package postgres-operator
+	@echo "=== operator-sdk bundle validate ==="
+	operator-sdk bundle validate ./bundle
+	@echo "✓ bundle: ./bundle/ ($(VERSION), channel alpha)"
+
+.PHONY: bundle-build
+bundle-build: bundle ## bundle image 빌드 — registry push 는 community-operators PR 시점에 별.
+	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION 필수"; exit 1; fi
+	docker buildx build --platform linux/amd64 -f bundle.Dockerfile -t ghcr.io/keiailab/postgres-operator-bundle:$(VERSION) .
+	@echo "✓ bundle image: ghcr.io/keiailab/postgres-operator-bundle:$(VERSION)"
+
 .PHONY: sbom
 sbom: ## syft 로 SBOM (SPDX-2.3) 생성 — image 의 binary + Go modules. SLSA / EU CRA 표준.
 	@command -v syft >/dev/null 2>&1 || { echo "[error] syft not installed: brew install syft"; exit 1; }
