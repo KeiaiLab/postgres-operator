@@ -1,0 +1,32 @@
+# standards/testing.md §5: 변경된 코드 커버 여부 우선, 라인 70%+ 권장.
+# 4-repo audit (2026-05-09) RFC-0017 채택 — codecov target 절대 floor 통일.
+coverage:
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 1%
+        informational: false
+        base: auto
+    patch:
+      default:
+        target: 70%
+        threshold: 1%
+        informational: false
+        base: auto
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  hide_project_coverage: false
+
+ignore:
+  - "**/*_test.go"
+  - "**/zz_*.go"
+  - "**/*.pb.go"
+  - "third_party/**"
+  - "vendor/**"
+
