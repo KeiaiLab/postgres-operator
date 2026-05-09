@@ -269,8 +269,6 @@ bundle: ## OperatorHub.io bundle 생성 — operator-sdk + kustomize. VERSION �
 	@command -v operator-sdk >/dev/null 2>&1 || { echo "[error] operator-sdk not installed: brew install operator-sdk"; exit 1; }
 	@command -v kustomize >/dev/null 2>&1 || { echo "[error] kustomize not installed"; exit 1; }
 	@if [ -z "$(VERSION)" ]; then echo "ERROR: VERSION 필수 (e.g. make bundle VERSION=0.3.0-alpha.15)"; exit 1; fi
-	@echo "=== operator-sdk generate kustomize manifests ==="
-	operator-sdk generate kustomize manifests --apis-dir=api -q --interactive=false
 	@echo "=== set image controller=ghcr.io/keiailab/postgres-operator:$(VERSION) ==="
 	cd config/manager && kustomize edit set image controller=ghcr.io/keiailab/postgres-operator:$(VERSION)
 	@echo "=== kustomize build config/manifests | operator-sdk generate bundle ==="
