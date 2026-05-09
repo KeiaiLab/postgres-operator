@@ -19,6 +19,7 @@
 | [ADR-0008](0008-operator-commons-adoption.md) | operator-commons 채택 + Container SecurityContext invariant 강화 | Accepted | 2026-05-07 |
 | [ADR-0009](0009-webhook-accumulate-errors.md) | Webhook validate — immediate-return → accumulate-errors 변환 (commons.ValidateWithPredicate 위임) | Accepted | 2026-05-07 |
 | [ADR-0010](0010-rfc-0017-tooling-unification-adoption.md) | RFC-0017 operator tooling unification 채택 (lefthook + EventRecorder 도입 + HEALTHCHECK) | Proposed | 2026-05-09 |
+| [ADR-0011](0011-rfc-0018-pkg-status-partial-adoption.md) | RFC-0018 부분 채택 — pkg/status (Ready type only) + pkg/finalizer 비대칭 보존 (PR-A7 first cut) | Accepted | 2026-05-09 |
 
 ## Archived (v0.x — 재설계 이전 결정 기록)
 

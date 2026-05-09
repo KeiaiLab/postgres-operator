@@ -13,6 +13,8 @@ package controller
 import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	commonsstatus "github.com/keiailab/operator-commons/pkg/status"
 )
 
 // 본 파일은 PostgresClusterStatus.Conditions를 다루는 헬퍼들이다.
@@ -74,7 +76,20 @@ const (
 // setCondition은 지정된 type/status/reason/message로 Condition을 추가/갱신한다.
 // LastTransitionTime은 status가 바뀌었을 때만 갱신된다(meta.SetStatusCondition
 // 의 표준 동작).
+//
+// RFC-0018 §3.1 부분 채택 (PR-A7, ADR-0011): generic Ready type 만
+// commons.SetReady 위임. 도메인 type (ShardsReady / RouterReady /
+// BackupHealthy / AutoSplitEligible) 은 본 wrapper 가 직접 처리하여
+// postgres-specific signal 보존.
+//
+// observedGeneration=0 — 호출자가 cluster.Generation 전달 안 함. 후속
+// PR-A7.2 에서 호출자 시그니처 확장 (Progressing/Degraded/Available
+// 위임 + observedGeneration 의무 인자).
 func setCondition(conds *[]metav1.Condition, condType string, status metav1.ConditionStatus, reason, message string) {
+	if condType == commonsstatus.TypeReady {
+		commonsstatus.SetReady(conds, status, reason, message, 0)
+		return
+	}
 	meta.SetStatusCondition(conds, metav1.Condition{
 		Type:    condType,
 		Status:  status,
