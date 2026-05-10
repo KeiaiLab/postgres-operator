@@ -14,10 +14,10 @@ kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — alpha 단계, breaking change 가능. SemVer 준수.
 # alpha.N iterative pre-release 표기 (mongodb-operator beta.N 패턴 정합).
-version: 0.3.0-alpha.15
+version: 0.3.0-alpha.16
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
-appVersion: "0.3.0-alpha.15"
+appVersion: "0.3.0-alpha.16"
 
 home: https://github.com/keiailab/postgres-operator
 sources:
@@ -96,7 +96,7 @@ annotations:
         executionMode: job
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.15
+      image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.16
   artifacthub.io/changes: |
     - kind: changed
       description: "0.3.0-alpha — 자체 분산 SQL keystone (ADR 0001). AGPL/BUSL 백엔드 의존 영구 제거 (ADR 0003). VersionSpec.Citus + ShardingSpec.Backend=citus 폐기 (BREAKING)."
