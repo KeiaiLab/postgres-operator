@@ -79,6 +79,8 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
+//
+//nolint:gocyclo // 33 cyclomatic — 단일 reconcile 의 step-by-step 직관성 우위. helper 분해는 별 cycle.
 func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("postgrescluster", req.NamespacedName)
 
@@ -479,6 +481,8 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// RFC-0017 §3.4: EventRecorder 자동 주입. 이름 "postgrescluster-controller" 는
 	// kubectl describe 의 Events Source.Component 에 표시된다.
 	if r.Recorder == nil {
+		//lint:ignore SA1019 client-go record.EventRecorder 유지. events.k8s.io 전환은
+		// Recorder field migration 과 함께 별 cycle (mongodb ADR-0022 동일 패턴).
 		r.Recorder = mgr.GetEventRecorderFor("postgrescluster-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
