@@ -619,7 +619,7 @@ func buildPGStatefulSet(
 					Affinity:                  cluster.Spec.Shards.Affinity,
 					Tolerations:               cluster.Spec.Shards.Tolerations,
 					PriorityClassName:         cluster.Spec.Shards.PriorityClassName,
-					TopologySpreadConstraints: cluster.Spec.Shards.TopologySpreadConstraints,
+					TopologySpreadConstraints: defaultedTopologySpread(cluster.Spec.Shards.TopologySpreadConstraints, cluster.Spec.Shards.Replicas, labels),
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
