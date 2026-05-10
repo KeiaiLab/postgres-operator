@@ -78,6 +78,8 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
@@ -249,6 +251,16 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			ReadyReplicas: observedReady,
 			Endpoint:      fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName, cluster.Namespace, pgPort),
 		}
+	}
+
+	// 2.5. PVC online expansion (PR #33): Spec.Shards.Storage.Size 증가 시
+	// 기존 PVC 직접 patch. valkey-operator PR #39 패턴 cross-operator 이식.
+	stsNamesForResize := make([]string, 0, shardCount)
+	for ord := range shardCount {
+		stsNamesForResize = append(stsNamesForResize, ShardStatefulSetName(cluster.Name, ord))
+	}
+	if err := expandDataPVCs(ctx, r.Client, cluster.Namespace, stsNamesForResize, cluster.Spec.Shards.Storage.Size); err != nil {
+		logger.Error(err, "PVC resize failed (best-effort, reconcile 계속)")
 	}
 
 	// 3. status 종합.
