@@ -12,6 +12,21 @@
 
 - audit (2026-05-09): RFC-0017 채택 — `.lefthook.yml` 신설, ADR-0010 등재. 본 repo `.golangci.yml` + `.custom-gcl.yml` (logcheck) 가 4-repo 표준 원본으로 승격됨 (변경 없음).
 
+## [0.3.0-alpha.16] - 2026-05-10
+
+### Bug Fixes
+
+- *(lint)* SA1019 + gocyclo nolint (mongodb ADR-0022 패턴 정합)
+- *(bundle)* Generate-kustomize-manifests 단계 제거 (PR-B9.4, mongodb ADR-0023 정합) (#25)
+
+### Chores
+
+- *(oss)* CITATION.cff 추가 (#23)
+
+### Features
+
+- *(bundle)* OperatorHub.io bundle scaffold + ADR-0013 (PR-B9 cross-cut) (#24)
+
 ## [0.3.0-alpha.12] - 2026-05-08
 
 ### Fixed
