@@ -166,6 +166,14 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
 		}
 
+		// shard PDB (PR #31): members>=2 시 자동 생성. valkey-operator PR #49 패턴.
+		if shouldAutoCreatePDB(members) {
+			pdb := BuildShardPDB(&cluster, ord, members)
+			if err := r.upsert(ctx, &cluster, pdb); err != nil {
+				return r.handleUpsertErr(ctx, &cluster, err, "shard PDB", logger)
+			}
+		}
+
 		// observed STS 를 다시 조회하여 readyReplicas 기반 status 산출.
 		// 방금 Create 한 STS 는 cache propagation 지연으로 NotFound 가 잠깐 보일
 		// 수 있다 — 그 경우 readiness=false 로 단순화 (다음 reconcile 에 실제
