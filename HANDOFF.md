@@ -2,6 +2,44 @@
 
 > 다음 세션이 *컨버세이션 컨텍스트 없이* 재개 가능해야 한다. 시작 의식: 본 파일 → `TASKS.md` → 마지막 commit log 순서로 읽는다.
 
+## 2026-05-10 v0.3.0-alpha.16 release + OperatorHub bundle scaffold 운영 배포
+
+본 세션 (Ralph loop, 2026-05-10) 의 결정적 산출:
+
+| 영역 | PR | 결과 |
+|---|---|---|
+| OSS hygiene (CITATION.cff) | #23 | merged |
+| OperatorHub bundle scaffold (PR-B9, ADR-0013) | #24 | merged |
+| Makefile bundle target 정합 (PR-B9.4) | #25 | merged |
+| release v0.3.0-alpha.16 prep (Chart bump) | #26 | merged |
+| CSV icon 빈 블록 제거 (community-operators 정합) | #27 | merged |
+| lint nolint (SA1019 + gocyclo, mongodb ADR-0022 정합) | direct main | merged |
+| CHANGELOG v0.3.0-alpha.16 entry | direct main | merged |
+
+### v0.3.0-alpha.16 production 배포
+
+- GHCR image: `ghcr.io/keiailab/postgres-operator:v0.3.0-alpha.16`
+- Git tag v0.3.0-alpha.16 / GH Release / Helm gh-pages publish (fa10bb4)
+- argos-platform-data PR #10 (umbrella 0.1.5 → 0.1.6) merged
+- ArgoCD sync 후 운영 `platform-data-postgres-operator-controller-manager` 가
+  v0.3.0-alpha.16 image active
+
+### OperatorHub.io 등록 신청 (외부)
+
+community-operators PR [#8093](https://github.com/k8s-operatorhub/community-operators/pull/8093)
+(`keiailab-postgres-operator` 0.3.0-alpha.15, Zalando 의 기존 `postgres-operator` namespace
+충돌 회피 위해 `keiailab-` prefix). CSV icon 빈 블록 lint fail 후 force push fix. CI
+재실행 진행 중.
+
+### 후속 (다음 ralph-loop iteration)
+
+1. community-operators PR #8093 CI 재검증 + reviewer 응답.
+2. logo (postgres + Keiailab) base64 PNG 추가 후속 PR.
+3. F02 잔여 (Pod env 주입 / readiness HTTP) — pre-existing 트랙.
+4. P1 production-ready (HA replica + backup/restore drill + PITR + 장기 soak) — pre-existing.
+
+---
+
 ## 2026-05-09 Sprint A 진입 (PR-A7) + Sprint B 예고 (PR-B3) — Helm 차트 비교 plan
 
 > Plan: `~/.claude/plans/1-https-artifacthub-io-packages-helm-clo-synthetic-gem.md`
