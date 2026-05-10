@@ -135,9 +135,6 @@ spec:
     - (Optional) cert-manager for automatic TLS certificate management
     - (Optional) Prometheus Operator for `ServiceMonitor` scraping
   displayName: Postgres Operator
-  icon:
-  - base64data: ""
-    mediatype: ""
   install:
     spec:
       deployments: null
