@@ -33,6 +33,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -76,6 +77,7 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
@@ -442,6 +444,11 @@ func copySpec(dst, src client.Object) {
 		if d.RoleRef.Kind == "" {
 			d.RoleRef = s.RoleRef
 		}
+		d.Labels = s.Labels
+	case *policyv1.PodDisruptionBudget:
+		// PR #31 + fix: PDB upsert 지원. Spec 전체 복사 (Selector + MinAvailable).
+		s := src.(*policyv1.PodDisruptionBudget)
+		d.Spec = s.Spec
 		d.Labels = s.Labels
 	case *unstructured.Unstructured:
 		// cert-manager Certificate CR (Phase 2) — unstructured.Unstructured 로 emit.
