@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
@@ -85,12 +86,24 @@ type PostgresClusterReconciler struct {
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
 //
 //nolint:gocyclo // 33 cyclomatic — 단일 reconcile 의 step-by-step 직관성 우위. helper 분해는 별 cycle.
-func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (rresult ctrl.Result, rerr error) {
 	logger := log.FromContext(ctx).WithValues("postgrescluster", req.NamespacedName)
+
+	// SLO observability — reconcile latency Histogram (valkey PR #47 이식).
+	MetricReconcileTotal.WithLabelValues(req.Namespace, req.Name).Inc()
+	timer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
+		result := "success"
+		if rerr != nil {
+			result = "error"
+		}
+		MetricReconcileLatency.WithLabelValues(req.Namespace, req.Name, result).Observe(v)
+	}))
+	defer timer.ObserveDuration()
 
 	var cluster postgresv1alpha1.PostgresCluster
 	if err := r.Get(ctx, req.NamespacedName, &cluster); err != nil {
 		if apierrors.IsNotFound(err) {
+			DeleteMetricsFor(req.Namespace, req.Name)
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to fetch PostgresCluster")
