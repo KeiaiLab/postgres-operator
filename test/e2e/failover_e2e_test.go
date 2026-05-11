@@ -41,7 +41,7 @@ import (
 //   - It #2: ord-1 이 standby 로 부팅 (instance-status.role=replica + standby.signal 존재).
 //   - It #3: primary kill → 새 primary 자동 promote, RTO < 30s (RFC 0006 §7 beta 기준).
 //   - It #4: 옛 primary 가 K8s 재기동 후 standby 로 rejoin (annotation role=replica + standby.signal),
-//            새 primary 의 psql round-trip 정상.
+//     새 primary 의 psql round-trip 정상.
 //
 // Label("p2") = roadmap §10 Pillar-2 (HA 자동 failover).
 // 본 Describe 는 p1 suite 와 *별도 namespace* (pg-failover-e2e) + replicas=1 (Pod 2 개) 사용.
