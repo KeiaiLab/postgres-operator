@@ -4,7 +4,7 @@ title: "HA Leader Election"
 
 # HA Leader Election — 운영 가이드 (P2-M1)
 
-> 본 문서는 Pillar P2(HA / Failover)의 첫 번째 안정 산출물인 **K8s lease 기반 leader election**의 운영 인터페이스를 설명한다. 결정 근거·동결 매개변수는 [ADR 0002 — Patroni 미사용 (archived)](../kb/adr/_archive/v0.x/0002-no-patroni-instance-manager.md) 참조.
+> 본 문서는 Pillar P2(HA / Failover)의 첫 번째 안정 산출물인 **K8s lease 기반 leader election**의 운영 인터페이스를 설명한다. 결정 근거·동결 매개변수는 [RFC-0007 — HA Election + PVC Fencing 프로토콜 (Draft)](../rfcs/0007-ha-election-and-fencing.md), [ADR 0002 — Patroni 미사용 (archived)](../kb/adr/_archive/v0.x/0002-no-patroni-instance-manager.md) 참조.
 
 ## 1. 무엇이 동작하는가
 
@@ -87,7 +87,7 @@ K8s가 namespace 안에서 POD_NAME을 unique 보장하므로, 동일 노드에 
 3. follower가 만료 감지 후 새 lease 획득 시도
 4. 시나리오 B와 동일 후속
 
-**PVC Fencing (P2-T2, 2026-04-28부터 활성)** — 시나리오 C에서 옛 leader Pod이 살아돌아오는 split-brain은 PVC label 기반 fencing으로 차단된다. 자세한 프로토콜은 RFC 부록 A (재발행 예정 — 본 운영 가이드 §10이 임시 SSOT) 참조. 운영 노브: `--fencing-disabled` (개발 모드 전용, 프로덕션 사용 금지).
+**PVC Fencing (P2-T2, 2026-04-28부터 활성)** — 시나리오 C에서 옛 leader Pod이 살아돌아오는 split-brain은 PVC label 기반 fencing으로 차단된다. 자세한 프로토콜은 [RFC-0007 부록 A — PVC Fencing 프로토콜](../rfcs/0007-ha-election-and-fencing.md#6-부록-a--pvc-fencing-프로토콜-상세-p2-t2-implemented-2026-04-28) 참조. 운영 노브: `--fencing-disabled` (개발 모드 전용, 프로덕션 사용 금지).
 
 ## 6. 관찰
 
@@ -163,7 +163,7 @@ instance manager ServiceAccount는 자기 namespace의 PVC `get`/`patch` 권한 
 
 ## 11. 참조
 
-- RFC — HA Election + Fencing 프로토콜 (재발행 예정 — 본 운영 가이드가 임시 SSOT, 부록 A: PVC Fencing 은 §10 참조)
+- [RFC-0007 — HA Election + PVC Fencing 프로토콜 (Draft)](../rfcs/0007-ha-election-and-fencing.md) (부록 A: PVC Fencing 상세)
 - [ADR 0002 — Patroni 미사용 (archived)](../kb/adr/_archive/v0.x/0002-no-patroni-instance-manager.md)
 - 코드: `internal/instance/election/`, `internal/instance/fencing/`
 - 후속 작업: P2-T3 (failover controller) / P2-T4 (pg_rewind 통합)
