@@ -369,22 +369,13 @@ docker-build-pg: ## Build PG runtime image (instance manager + postgres).
 docker-push-pg: ## Push PG runtime image.
 	$(CONTAINER_TOOL) push $(PG_IMG)
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+# docker-buildx target 제거 (2026-05-11) — CLAUDE.md §2 위반:
+# - "기본 빌더 default 사용. 커스텀 빌더 인스턴스 금지" → `buildx create --name
+#   postgres-operator-builder` 가 위반.
+# - "멀티아키텍처 빌드 금지" → `--platform=$(PLATFORMS)` 다중 플랫폼 의도가 위반.
+# linux/amd64 single-arch 빌드는 위 docker-build target (기본 빌더 사용) 이 처리.
+# .lefthook.yml 의 platforms-amd64-guard 가 멀티아키 PLATFORMS 재발 차단.
 PLATFORMS ?= linux/amd64
-.PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name postgres-operator-builder
-	$(CONTAINER_TOOL) buildx use postgres-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm postgres-operator-builder
-	rm Dockerfile.cross
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
