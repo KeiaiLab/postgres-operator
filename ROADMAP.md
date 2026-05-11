@@ -59,7 +59,7 @@
 - [~] PVC fence (split-brain fail-fast) — fencing 골격만 존재, runbook 자동화 잔여
 - [ ] **자동 failover 로직** — `internal/controller/failover/` 신규 디렉토리
   - [x] Primary 장애 감지 — `internal/controller/failover/detection.go` `DetectPrimaryFailure` + `SelectPromotionCandidate` (순수 함수, 4 FailureReason enum, 9 단위 테스트, PR #38)
-  - [ ] Standby promotion (`pg_ctl promote` 또는 logical replication 승격)
+  - [x] Standby promotion (`pg_ctl promote` 또는 logical replication 승격) — `internal/controller/failover/promotion.go` `BuildPromotionPlan` + `Promoter` interface + `PromoteFromDecision` helper (4-step plan: RemoveStandbySignal/PgCtlPromote/WaitNotInRecovery/UpdateInstanceRole, 6 단위 테스트, PR #39). Pod exec 구현은 controller layer 후속.
   - [ ] Replica 재합류 (`pg_basebackup` or `pg_rewind`)
   - [ ] HA election 분산락 (K8s Lease)
 - [ ] **Backup/Restore controller 실구현** — `internal/controller/backupjob_controller.go` 보강
