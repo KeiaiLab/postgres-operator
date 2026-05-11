@@ -412,6 +412,17 @@ if [ -f "$DATA/PG_VERSION" ]; then
     rm -f "$DATA/postmaster.pid"
     echo "removed empty postmaster.pid (stale crash artifact)"
   fi
+  # cycle 23 INC-0046 P19 ⑲ fix: non-empty stale postmaster.pid handling.
+  # K3s ungraceful shutdown → postmaster.pid non-empty (PID + epoch + ports 보존)
+  # → main postgres FATAL "lock file already exists" CrashLoop. /proc/$PID 검사로
+  # non-alive 만 제거 (busybox 호환, kill -0 signal handling 차이 회피).
+  if [ -f "$DATA/postmaster.pid" ] && [ -s "$DATA/postmaster.pid" ]; then
+    STALE_PID=$(head -1 "$DATA/postmaster.pid" 2>/dev/null | tr -d "[:space:]")
+    if [ -n "$STALE_PID" ] && [ ! -d "/proc/$STALE_PID" ]; then
+      rm -f "$DATA/postmaster.pid"
+      echo "removed stale postmaster.pid (PID $STALE_PID not alive in /proc)"
+    fi
+  fi
   if [ "$POD_ORDINAL" = "0" ] && [ "$MEMBER_COUNT" -gt 1 ] && [ ! -f "$DATA/standby.signal" ]; then
     touch "$DATA/` + restartPrimaryAsStandbyMarker + `"
     echo "existing ordinal-0 PGDATA in HA cluster; marking for standby restart"
