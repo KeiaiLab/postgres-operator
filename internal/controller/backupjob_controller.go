@@ -125,7 +125,7 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// 신규 CR. Pending 으로 전이 + requeue.
 		bj.Status.Phase = postgresv1alpha1.BackupJobPending
 		bj.Status.ObservedGeneration = bj.Generation
-		setBackupJobCondition(&bj, BackupJobConditionReady, metav1.ConditionFalse,
+		setBackupJobCondition(&bj, metav1.ConditionFalse,
 			BackupJobReasonAwaitingInvocation,
 			"BackupJob accepted — awaiting plugin invocation")
 		return ctrl.Result{Requeue: true}, r.statusUpdate(ctx, &bj)
@@ -136,7 +136,7 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		bj.Status.Phase = postgresv1alpha1.BackupJobRunning
 		bj.Status.StartedAt = &now
 		bj.Status.ObservedGeneration = bj.Generation
-		setBackupJobCondition(&bj, BackupJobConditionReady, metav1.ConditionFalse,
+		setBackupJobCondition(&bj, metav1.ConditionFalse,
 			BackupJobReasonBackupInProgress,
 			"BackupPlugin "+bj.Spec.Tool+" invocation in progress")
 		return ctrl.Result{Requeue: true}, r.statusUpdate(ctx, &bj)
@@ -157,7 +157,7 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		bj.Status.ObservedGeneration = bj.Generation
 		if err != nil {
 			bj.Status.Phase = postgresv1alpha1.BackupJobFailed
-			setBackupJobCondition(&bj, BackupJobConditionReady, metav1.ConditionFalse,
+			setBackupJobCondition(&bj, metav1.ConditionFalse,
 				BackupJobReasonBackupFailed,
 				"BackupPlugin "+bj.Spec.Tool+" failed: "+err.Error())
 			if r.Recorder != nil {
@@ -170,7 +170,7 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		bj.Status.Phase = postgresv1alpha1.BackupJobSucceeded
 		bj.Status.BackupID = result.BackupID
 		bj.Status.Bytes = result.Bytes
-		setBackupJobCondition(&bj, BackupJobConditionReady, metav1.ConditionTrue,
+		setBackupJobCondition(&bj, metav1.ConditionTrue,
 			BackupJobReasonBackupSucceeded,
 			"BackupPlugin "+bj.Spec.Tool+" succeeded: backupID="+result.BackupID)
 		if r.Recorder != nil {
@@ -193,7 +193,7 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func (r *BackupJobReconciler) markFailed(bj *postgresv1alpha1.BackupJob, reason, message string) {
 	bj.Status.Phase = postgresv1alpha1.BackupJobFailed
 	bj.Status.ObservedGeneration = bj.Generation
-	setBackupJobCondition(bj, BackupJobConditionReady, metav1.ConditionFalse, reason, message)
+	setBackupJobCondition(bj, metav1.ConditionFalse, reason, message)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(bj, nil, corev1.EventTypeWarning, reason, reason, "%s", message)
 	}
@@ -213,9 +213,9 @@ func (r *BackupJobReconciler) statusUpdate(ctx context.Context, bj *postgresv1al
 
 // setBackupJobCondition은 K8s 표준 meta.SetStatusCondition 패턴을 사용한다
 // (status.go의 setCondition과 동일 동작).
-func setBackupJobCondition(bj *postgresv1alpha1.BackupJob, condType string, status metav1.ConditionStatus, reason, message string) {
+func setBackupJobCondition(bj *postgresv1alpha1.BackupJob, status metav1.ConditionStatus, reason, message string) {
 	meta.SetStatusCondition(&bj.Status.Conditions, metav1.Condition{
-		Type:               condType,
+		Type:               BackupJobConditionReady,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
