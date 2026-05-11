@@ -521,9 +521,9 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// RFC-0017 §3.4: EventRecorder 자동 주입. 이름 "postgrescluster-controller" 는
 	// kubectl describe 의 Events Source.Component 에 표시된다.
 	if r.Recorder == nil {
-		//lint:ignore SA1019 client-go record.EventRecorder 유지. events.k8s.io 전환은
-		// Recorder field migration 과 함께 별 cycle (mongodb ADR-0022 동일 패턴).
-		r.Recorder = mgr.GetEventRecorderFor("postgrescluster-controller")
+		// client-go record.EventRecorder 유지. events.k8s.io 전환은 Recorder
+		// field migration 과 함께 별 cycle (mongodb ADR-0022 동일 패턴).
+		r.Recorder = mgr.GetEventRecorderFor("postgrescluster-controller") //nolint:staticcheck // SA1019: events API 마이그레이션 별도 RFC
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&postgresv1alpha1.PostgresCluster{}).
