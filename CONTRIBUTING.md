@@ -16,11 +16,14 @@
 - Docker (buildx 활성화)
 - kubectl, kind, kubebuilder v4
 - make
+- [lefthook](https://github.com/evilmartians/lefthook) (pre-commit hook 관리)
 
 ### 로컬 개발
 ```bash
 git clone https://github.com/keiailab/postgres-operator.git
 cd postgres-operator
+brew install lefthook   # 또는 go install github.com/evilmartians/lefthook@latest
+lefthook install        # pre-commit / commit-msg / pre-push hook 설치
 make test            # envtest + 단위 테스트
 make lint            # golangci-lint
 make e2e             # kind 기반 e2e (5~10분)
