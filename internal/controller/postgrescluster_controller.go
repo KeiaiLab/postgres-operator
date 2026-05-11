@@ -40,7 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -65,7 +65,7 @@ type PostgresClusterReconciler struct {
 	// Recorder 는 K8s Event 발행 (kubectl describe 의 Events 표시) 용. RFC-0017
 	// §3.4. SetupWithManager 가 자동 주입 — cmd/main.go 측에서는 명시 setting
 	// 불필요. nil 이면 Eventf 호출이 panic — Setup 호출 보장 의무.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -123,7 +123,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		cluster.Status.ObservedGeneration = cluster.Generation
 		// RFC-0017 §3.4: version rejection 운영 가시 Event.
 		if r.Recorder != nil {
-			r.Recorder.Eventf(&cluster, corev1.EventTypeWarning, ReasonVersionRejected,
+			r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, ReasonVersionRejected, ReasonVersionRejected,
 				"PG=%q is not in supported matrix (or feature gate missing)", pgVersion)
 		}
 		if err := r.Status().Update(ctx, &cluster); err != nil {
@@ -286,7 +286,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —
 	// 매 reconcile noise 회피). prevPhase 비교로 transition 감지.
 	if r.Recorder != nil && cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
-		r.Recorder.Eventf(&cluster, corev1.EventTypeNormal, "ClusterReady",
+		r.Recorder.Eventf(&cluster, nil, corev1.EventTypeNormal, "ClusterReady", "ClusterReady",
 			"PostgresCluster %d/%d shards primary ready, router=%v", shardCount, shardCount, routerActive)
 	}
 
@@ -504,7 +504,7 @@ func (r *PostgresClusterReconciler) handleUpsertErr(
 	}
 	logger.Error(err, "upsert failed", "resource", what)
 	if r.Recorder != nil && cluster != nil {
-		r.Recorder.Eventf(cluster, corev1.EventTypeWarning, "UpsertFailed",
+		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "UpsertFailed", "UpsertFailed",
 			"resource=%q: %v", what, err)
 	}
 	return ctrl.Result{}, err
@@ -521,9 +521,8 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// RFC-0017 §3.4: EventRecorder 자동 주입. 이름 "postgrescluster-controller" 는
 	// kubectl describe 의 Events Source.Component 에 표시된다.
 	if r.Recorder == nil {
-		// client-go record.EventRecorder 유지. events.k8s.io 전환은 Recorder
-		// field migration 과 함께 별 cycle (mongodb ADR-0022 동일 패턴).
-		r.Recorder = mgr.GetEventRecorderFor("postgrescluster-controller") //nolint:staticcheck // SA1019: events API 마이그레이션 별도 RFC
+		// events API 마이그레이션 완료 (RFC-0023 Phase 2, 2026-05-11).
+		r.Recorder = mgr.GetEventRecorder("postgrescluster-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&postgresv1alpha1.PostgresCluster{}).

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -42,7 +42,7 @@ type BackupJobReconciler struct {
 	Plugins *plugin.Registry
 
 	// Recorder 는 K8s Event 발행 용 (RFC-0017 §3.4). SetupWithManager 가 주입.
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // BackupJob Conditions reason 상수 (status.go의 SOT 패턴 차용).
@@ -118,7 +118,7 @@ func (r *BackupJobReconciler) markFailed(bj *postgresv1alpha1.BackupJob, reason,
 	bj.Status.ObservedGeneration = bj.Generation
 	setBackupJobCondition(bj, BackupJobConditionReady, metav1.ConditionFalse, reason, message)
 	if r.Recorder != nil {
-		r.Recorder.Eventf(bj, corev1.EventTypeWarning, reason, "%s", message)
+		r.Recorder.Eventf(bj, nil, corev1.EventTypeWarning, reason, reason, "%s", message)
 	}
 }
 
@@ -150,9 +150,8 @@ func setBackupJobCondition(bj *postgresv1alpha1.BackupJob, condType string, stat
 func (r *BackupJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// RFC-0017 §3.4: EventRecorder 자동 주입.
 	if r.Recorder == nil {
-		// client-go record.EventRecorder 유지. events.k8s.io 전환은 Recorder
-		// field migration 과 함께 별 cycle (mongodb ADR-0022 동일 패턴).
-		r.Recorder = mgr.GetEventRecorderFor("backupjob-controller") //nolint:staticcheck // SA1019: events API 마이그레이션 별도 RFC
+		// events API 마이그레이션 완료 (RFC-0023 Phase 2, 2026-05-11).
+		r.Recorder = mgr.GetEventRecorder("backupjob-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&postgresv1alpha1.BackupJob{}).
