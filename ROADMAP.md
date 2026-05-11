@@ -63,7 +63,7 @@
   - [ ] Replica 재합류 (`pg_basebackup` or `pg_rewind`)
   - [ ] HA election 분산락 (K8s Lease)
 - [ ] **Backup/Restore controller 실구현** — `internal/controller/backupjob_controller.go` 보강
-  - [ ] `BackupJob.Phase` 전이 (Pending → Running → Succeeded/Failed)
+  - [x] `BackupJob.Phase` 전이 (Pending → Running → Succeeded/Failed) — `internal/controller/backupjob_controller.go` Reconcile switch + 8 단위 테스트
   - [ ] Plugin invocation (pgbackrest/walg/barman)
   - [ ] Sidecar 모드 + Job 모드 분기
 - [ ] **PITR 복원** — `BackupRestoreSpec.{TargetTime, BackupID}` 활용
@@ -169,5 +169,6 @@
 
 | Date | Change |
 |---|---|
+| 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` 전이 (Pending → Running → Succeeded/Failed) 구현 + 단위 테스트 8 — `[x]` (ralph-loop iter#3) |
 | 2026-05-11 | 전면 재작성 — Gate 별 sub-task 체크리스트 입자도 도입, 완충율 표기, 날짜 기반 표현 0건 정렬 |
 | 2026-05-07 | `0.3.0-alpha.3` 배포, GHCR public pull 전환, legacy staging operator 제거, 외부 시스템 내장 금지 원칙 명시 |
