@@ -127,7 +127,12 @@ func TestHandleStoppedLeading_SkipsFenceAndDemoteForSingleMember(t *testing.T) {
 	fencer := fencing.NewMock()
 	sup := supervise.NewMock()
 
-	handleStoppedLeading(fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary", 1, discardLogger())
+	// promotedAtLeastOnce=true so the single-member short-circuit is the
+	// only reason fencing is skipped (proves the memberCount<=1 guard works).
+	handleStoppedLeading(
+		fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary",
+		1, true, discardLogger(),
+	)
 
 	mark, _, _ := fencer.Calls()
 	if mark != 0 {
@@ -145,7 +150,12 @@ func TestHandleStoppedLeading_FencesAndDemotesMultiMember(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	handleStoppedLeading(fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary", 2, discardLogger())
+	// promotedAtLeastOnce=true — this models "pod was the primary, lost
+	// leadership, expects to be fenced to prevent zombie resurrection".
+	handleStoppedLeading(
+		fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary",
+		2, true, discardLogger(),
+	)
 
 	mark, _, _ := fencer.Calls()
 	if mark != 1 {
@@ -153,6 +163,30 @@ func TestHandleStoppedLeading_FencesAndDemotesMultiMember(t *testing.T) {
 	}
 	if sup.StopCalls != 1 {
 		t.Fatalf("Stop calls = %d, want 1", sup.StopCalls)
+	}
+}
+
+// TestHandleStoppedLeading_SkipsFenceWhenNeverPromoted is a regression
+// guard for the PG18 HA kind smoke iter#1 bootstrap crashloop: a pod that
+// acquired the lease but exited *before* a successful pg_promote (initdb
+// not finished, waitSupReady timed out, …) must not fence its own PVC.
+// Otherwise every subsequent boot refuses to promote and the cluster
+// never converges.
+func TestHandleStoppedLeading_SkipsFenceWhenNeverPromoted(t *testing.T) {
+	fencer := fencing.NewMock()
+	sup := supervise.NewMock()
+
+	handleStoppedLeading(
+		fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary",
+		2, false, discardLogger(),
+	)
+
+	mark, _, _ := fencer.Calls()
+	if mark != 0 {
+		t.Fatalf("MarkFenced calls = %d, want 0 (never promoted)", mark)
+	}
+	if sup.StopCalls != 0 {
+		t.Fatalf("Stop calls = %d, want 0 (never promoted)", sup.StopCalls)
 	}
 }
 

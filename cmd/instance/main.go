@@ -39,6 +39,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -176,12 +177,23 @@ func main() {
 
 	// Election 인스턴스 결정 (Real | Null).
 	var elect election.Election
+	// promotedAtLeastOnce flips to true the moment runOnStartedLeading
+	// successfully promotes postgres. handleStoppedLeading only marks
+	// the PVC fenced when this flag is true — i.e., the pod has actually
+	// served primary traffic and a zombie revival would risk split-brain.
+	// Without this guard, a bootstrap pod that exits before promote
+	// (initdb still running, lease lost during waitSupReady) would fence
+	// its own PVC and crashloop forever (PG18 HA kind smoke iter#1).
+	var promotedAtLeastOnce atomic.Bool
 	cb := election.Callbacks{
 		OnStartedLeading: func(ctx context.Context) {
-			runOnStartedLeading(ctx, fencer, sup, dataDir, podName, leaseName, fencingErrCh, logger)
+			if runOnStartedLeading(ctx, fencer, sup, dataDir, podName, leaseName, fencingErrCh, logger) {
+				promotedAtLeastOnce.Store(true)
+			}
 		},
 		OnStoppedLeading: func() {
-			handleStoppedLeading(fencer, sup, dataDir, podName, leaseName, memberCount, logger)
+			handleStoppedLeading(fencer, sup, dataDir, podName, leaseName, memberCount,
+				promotedAtLeastOnce.Load(), logger)
 		},
 		OnNewLeader: func(id string) {
 			logger.Info("Observed new leader", "identity", id, "self", podName)
@@ -294,14 +306,20 @@ func main() {
 	logger.Info("Instance manager exited cleanly")
 }
 
-// runOnStartedLeading 은 election leader acquisition 시 실행되는 promote 시퀀스다.
-// 단일 함수로 추출하여 main 의 cyclomatic complexity 를 30 이하로 유지한다.
+// runOnStartedLeading is the promote sequence executed on election leader
+// acquisition. Extracted as a single function to keep main's cyclomatic
+// complexity below 30.
 //
-// 시퀀스:
-//  1. PVC fence 검사 — fenced 면 promote 거절 + fencingErrCh 로 신호.
-//  2. postgres readiness 대기 (30s).
-//  3. standby.signal 제거 (RFC 0006 R3) — 실패 시 promote 차단.
-//  4. pg_promote() 호출.
+// Sequence:
+//  1. PVC fence check — refuse promote + signal fencingErrCh if fenced.
+//  2. Wait for postgres readiness (30s).
+//  3. Remove standby.signal (RFC 0006 R3) — block promote on failure.
+//  4. Call pg_promote().
+//
+// Returns true ONLY when postgres has been successfully promoted (or
+// supervisor is disabled in dev mode). The caller uses this signal to
+// flip the promotedAtLeastOnce atomic, which gates whether a future
+// OnStoppedLeading fences the local PVC.
 func runOnStartedLeading(
 	ctx context.Context,
 	fencer fencing.Fencer,
@@ -309,7 +327,7 @@ func runOnStartedLeading(
 	dataDir, podName, leaseName string,
 	fencingErrCh chan<- error,
 	logger *slog.Logger,
-) {
+) bool {
 	if err := fencer.VerifyNotFenced(ctx); err != nil {
 		logger.Error("PVC is fenced — refusing to promote",
 			"identity", podName, "lease", leaseName, "error", err)
@@ -317,29 +335,29 @@ func runOnStartedLeading(
 		case fencingErrCh <- err:
 		default:
 		}
-		return
+		return false
 	}
 	if sup != nil {
-		// postgres unix socket 가 listen 시작할 때까지 대기 (race 회피).
-		// 30s 타임아웃 — 정상 부팅 시간보다 충분.
+		// Wait until the postgres unix socket starts listening (race avoidance).
+		// 30s timeout — comfortably above a normal boot time.
 		if err := waitSupReady(ctx, sup, 30*time.Second); err != nil {
 			logger.Error("postgres readiness wait failed", "identity", podName, "error", err)
 			select {
 			case fencingErrCh <- fmt.Errorf("readiness: %w", err):
 			default:
 			}
-			return
+			return false
 		}
-		// RFC 0006 R3: pg_promote() 호출 전 standby.signal 정리. 실패 시
-		// promote 를 차단해야 — 파일이 남아 있는 상태로 promote 가 성공해도
-		// 다음 재시작 때 다시 standby 로 돌아가 split-role 이 발생.
+		// RFC 0006 R3: clean up standby.signal before calling pg_promote().
+		// If we leave it in place and promote succeeds anyway, the next
+		// restart drops back into standby and creates a split-role.
 		if err := supervise.RemoveStandbySignal(dataDir); err != nil {
 			logger.Error("RemoveStandbySignal failed", "identity", podName, "error", err)
 			select {
 			case fencingErrCh <- fmt.Errorf("standby-signal cleanup: %w", err):
 			default:
 			}
-			return
+			return false
 		}
 		if err := sup.Promote(ctx); err != nil {
 			logger.Error("Promote failed", "identity", podName, "error", err)
@@ -347,12 +365,12 @@ func runOnStartedLeading(
 			case fencingErrCh <- fmt.Errorf("promote: %w", err):
 			default:
 			}
-			return
+			return false
 		}
 	}
 	logger.Info("Leadership acquired — postgres promoted to primary",
-		"identity", podName, "lease", leaseName,
-		"todo", "분산 SQL metadata 갱신 (RFC 0002 ShardRange 후속)")
+		"identity", podName, "lease", leaseName)
+	return true
 }
 
 func handleStoppedLeading(
@@ -360,6 +378,7 @@ func handleStoppedLeading(
 	sup supervise.Supervisor,
 	dataDir, podName, leaseName string,
 	memberCount int,
+	promotedAtLeastOnce bool,
 	logger *slog.Logger,
 ) {
 	if memberCount <= 1 {
@@ -368,13 +387,25 @@ func handleStoppedLeading(
 		return
 	}
 
-	// Skip PVC fencing if standby.signal is still in dataDir — this pod has
-	// never actually been promoted to primary, so there is no risk of stale
-	// primary data even on a zombie revival. (HA bootstrap race: a pod that
-	// just acquired the lease but failed waitSupReady would otherwise fence
-	// its own PVC on shutdown and crashloop on every subsequent boot —
-	// observed in PG18 HA kind smoke iter#1.) The check is dataDir-only so it
-	// works without postgres being live.
+	// Skip the PVC fence if this pod never successfully promoted to primary.
+	// The fence is only valuable for zombie-revival split-brain — and only a
+	// formerly running primary can resurrect with stale data. A pod that
+	// acquired the lease but exited before promote (initdb still running,
+	// readiness wait timed out, etc.) has no primary data to guard. Without
+	// this guard, the PG18 HA kind smoke iter#1 crashlooped both shard pods
+	// because the first failed waitSupReady fenced the PVC permanently.
+	if !promotedAtLeastOnce {
+		logger.Warn(
+			"Leadership stop observed before this pod ever promoted — "+
+				"skipping fence, no primary data at risk",
+			"identity", podName, "lease", leaseName,
+		)
+		return
+	}
+
+	// Defensive belt-and-braces: even if promotedAtLeastOnce is somehow set,
+	// a standby.signal-on-disk pod is also no fencing risk. The two checks
+	// together cover the worst-case race where promote partially completed.
 	if supervise.IsStandby(dataDir) {
 		logger.Warn(
 			"Leadership stop observed while still in standby (standby.signal present) "+
