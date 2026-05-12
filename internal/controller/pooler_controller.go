@@ -14,12 +14,16 @@ package controller
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +40,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+)
+
+const (
+	// poolerBuiltinRoleName 은 spec.pgbouncer.authSecretRef 가 비었을 때 operator
+	// 가 PostgresCluster 에 자동 생성하는 PgBouncer 전용 LOGIN role 이름이다.
+	// CNPG 의 `cnpg_pooler_pgbouncer` 패턴과 호환되는 keiailab prefix.
+	poolerBuiltinRoleName = "keiailab_pooler_pgbouncer"
+
+	// poolerBuiltinAuthSecretSuffix 는 auto-generated userlist.txt Secret 이름의
+	// suffix 다. 최종 이름은 `<pooler-name><suffix>` 형식이다.
+	poolerBuiltinAuthSecretSuffix = "-builtin-auth"
 )
 
 const (
@@ -122,9 +137,19 @@ func (r *PoolerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		r.markPoolerFailed(&pooler, PoolerReasonInvalidSpec, invalid)
 		return ctrl.Result{}, r.statusUpdate(ctx, &pooler)
 	}
-	if invalid, err := r.validatePoolerAuthSecret(ctx, &pooler); invalid != "" || err != nil {
+	if invalid, requeue, err := r.validatePoolerAuthSecret(ctx, &pooler, &cluster); invalid != "" || requeue != nil || err != nil {
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+		if requeue != nil {
+			// PostgresCluster primary 가 아직 ready 가 아닌 built-in auth path —
+			// Pending 상태를 유지하고 짧은 간격 뒤 재시도.
+			r.markPoolerPending(&pooler, "BuiltinAuthWaitingForPrimary",
+				"PostgresCluster "+cluster.Name+" primary not ready yet — built-in auth role provisioning will retry")
+			if statusErr := r.statusUpdate(ctx, &pooler); statusErr != nil {
+				return ctrl.Result{}, statusErr
+			}
+			return *requeue, nil
 		}
 		r.markPoolerFailed(&pooler, PoolerReasonInvalidSpec, invalid)
 		return ctrl.Result{}, r.statusUpdate(ctx, &pooler)
@@ -224,9 +249,10 @@ func validatePoolerSpec(pooler *postgresv1alpha1.Pooler, cluster *postgresv1alph
 	if strings.TrimSpace(pooler.Spec.PgBouncer.Image) == "" {
 		return "Pooler spec.pgbouncer.image is required"
 	}
-	if pooler.Spec.PgBouncer.AuthSecretRef == nil || strings.TrimSpace(pooler.Spec.PgBouncer.AuthSecretRef.Name) == "" {
-		return "Pooler spec.pgbouncer.authSecretRef.name is required and must provide userlist.txt"
-	}
+	// AuthSecretRef 가 비어 있으면 built-in auth path (operator 가 PostgresCluster
+	// 에 LOGIN role 을 자동 생성 + userlist.txt Secret 자동 생성) 로 진행한다.
+	// 명시된 경우에는 기존 user-supplied path 검증이 validatePoolerAuthSecret 에서
+	// 별도 수행된다.
 	if pooler.Spec.PgBouncer.Exporter != nil && strings.TrimSpace(pooler.Spec.PgBouncer.Exporter.Image) == "" {
 		return "Pooler spec.pgbouncer.exporter.image is required when exporter is configured"
 	}
@@ -360,19 +386,148 @@ func isSupportedPgBouncerParameter(key string) bool {
 	}
 }
 
-func (r *PoolerReconciler) validatePoolerAuthSecret(ctx context.Context, pooler *postgresv1alpha1.Pooler) (string, error) {
-	var secret corev1.Secret
-	key := client.ObjectKey{Namespace: pooler.Namespace, Name: pooler.Spec.PgBouncer.AuthSecretRef.Name}
-	if err := r.Get(ctx, key, &secret); err != nil {
-		if apierrors.IsNotFound(err) {
-			return "Pooler spec.pgbouncer.authSecretRef.name must reference an existing Secret", nil
+// poolerAuthSecretName 은 Pooler 가 mount 할 userlist.txt Secret 의 이름을 결정한다.
+// 사용자가 spec.pgbouncer.authSecretRef.name 을 지정한 경우 그 값, 비어 있으면
+// `<pooler-name>-builtin-auth` (operator 가 자동 생성).
+func poolerAuthSecretName(pooler *postgresv1alpha1.Pooler) string {
+	if pooler.Spec.PgBouncer.AuthSecretRef != nil && strings.TrimSpace(pooler.Spec.PgBouncer.AuthSecretRef.Name) != "" {
+		return pooler.Spec.PgBouncer.AuthSecretRef.Name
+	}
+	return pooler.Name + poolerBuiltinAuthSecretSuffix
+}
+
+// poolerAuthIsBuiltin 은 현재 Pooler 가 operator-managed built-in auth 경로를 쓰는지
+// 판정한다 (AuthSecretRef 미지정 시 true).
+func poolerAuthIsBuiltin(pooler *postgresv1alpha1.Pooler) bool {
+	return pooler.Spec.PgBouncer.AuthSecretRef == nil || strings.TrimSpace(pooler.Spec.PgBouncer.AuthSecretRef.Name) == ""
+}
+
+// generatePoolerPassword 는 24 byte crypto/rand 를 base64 url-encoding 으로
+// 인코딩해 PgBouncer userlist.txt 가 안전하게 보관할 수 있는 평문 password
+// 를 만든다. 결과 길이는 32 character.
+func generatePoolerPassword() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("read crypto/rand: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// poolerMD5Password 는 PostgreSQL md5 형식 password 를 만든다 — `md5` 접두사
+// + md5(password+role) hex. userlist.txt 가 사용하는 형식.
+func poolerMD5Password(password, role string) string {
+	sum := md5.Sum([]byte(password + role)) //nolint:gosec // PostgreSQL md5 password 형식이 mandate
+	return "md5" + hex.EncodeToString(sum[:])
+}
+
+// validatePoolerAuthSecret 은 user-supplied 또는 built-in auth path 를 분기 처리한다.
+// 결과:
+//   - invalid != "" : spec 위반 — caller 가 PoolerFailed 로 mark.
+//   - result != nil : reconcile 의 조기 종료 (requeue) 신호.
+//   - err != nil    : transient error.
+func (r *PoolerReconciler) validatePoolerAuthSecret(
+	ctx context.Context,
+	pooler *postgresv1alpha1.Pooler,
+	cluster *postgresv1alpha1.PostgresCluster,
+) (string, *ctrl.Result, error) {
+	if !poolerAuthIsBuiltin(pooler) {
+		var secret corev1.Secret
+		key := client.ObjectKey{Namespace: pooler.Namespace, Name: pooler.Spec.PgBouncer.AuthSecretRef.Name}
+		if err := r.Get(ctx, key, &secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				return "Pooler spec.pgbouncer.authSecretRef.name must reference an existing Secret", nil, nil
+			}
+			return "", nil, err
 		}
-		return "", err
+		if strings.TrimSpace(string(secret.Data["userlist.txt"])) == "" {
+			return "Pooler auth Secret must contain non-empty userlist.txt", nil, nil
+		}
+		return "", nil, nil
 	}
-	if strings.TrimSpace(string(secret.Data["userlist.txt"])) == "" {
-		return "Pooler auth Secret must contain non-empty userlist.txt", nil
+	return r.ensurePoolerBuiltinAuth(ctx, pooler, cluster)
+}
+
+// ensurePoolerBuiltinAuth 는 operator-managed userlist.txt Secret 을 동기화한다.
+//  1. Secret 이 이미 있으면 OwnerReference 검증 + ready 반환.
+//  2. 없으면 PostgresCluster ready primary Pod 의 postgres 컨테이너에서 psql
+//     로 `keiailab_pooler_pgbouncer` LOGIN role 을 CREATE/ALTER 한다.
+//  3. 생성된 평문 password 의 PostgreSQL md5 형식을 userlist.txt 로 Secret
+//     에 기록한다. Secret 는 Pooler OwnerReference 로 자동 GC 된다.
+//  4. PostgresCluster primary 가 아직 ready 가 아니면 10s requeue.
+func (r *PoolerReconciler) ensurePoolerBuiltinAuth(
+	ctx context.Context,
+	pooler *postgresv1alpha1.Pooler,
+	cluster *postgresv1alpha1.PostgresCluster,
+) (string, *ctrl.Result, error) {
+	secretName := poolerAuthSecretName(pooler)
+	key := client.ObjectKey{Namespace: pooler.Namespace, Name: secretName}
+
+	var existing corev1.Secret
+	if err := r.Get(ctx, key, &existing); err == nil {
+		if !metav1.IsControlledBy(&existing, pooler) {
+			return "Pooler built-in auth Secret " + secretName + " exists but is not owned by this Pooler — delete it or set spec.pgbouncer.authSecretRef", nil, nil
+		}
+		if strings.TrimSpace(string(existing.Data["userlist.txt"])) == "" {
+			return "Pooler built-in auth Secret " + secretName + " is empty — delete it to let the operator regenerate", nil, nil
+		}
+		return "", nil, nil
+	} else if !apierrors.IsNotFound(err) {
+		return "", nil, err
 	}
-	return "", nil
+
+	if r.PodExecutor == nil {
+		return "Pooler PodExecutor is not configured — built-in auth requires SQL exec capability (cmd/main.go wiring missing)", nil, nil
+	}
+	target, ok := backupSidecarTarget(cluster)
+	if !ok {
+		return "", &ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	password, err := generatePoolerPassword()
+	if err != nil {
+		return "", nil, err
+	}
+	hashed := poolerMD5Password(password, poolerBuiltinRoleName)
+
+	sql := fmt.Sprintf(`DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%[1]s') THEN
+    CREATE ROLE %[1]s LOGIN PASSWORD '%[2]s';
+  ELSE
+    ALTER ROLE %[1]s WITH LOGIN PASSWORD '%[2]s';
+  END IF;
+END$$;`, poolerBuiltinRoleName, password)
+
+	if _, execErr := r.PodExecutor.Exec(ctx, target, []string{
+		"psql", "-h", "/var/run/postgresql", "-U", "postgres", "-d", "postgres",
+		"-v", "ON_ERROR_STOP=1", "-c", sql,
+	}); execErr != nil {
+		return "", nil, fmt.Errorf("apply Pooler built-in role %s: %w", poolerBuiltinRoleName, execErr)
+	}
+
+	userlist := fmt.Sprintf("\"%s\" \"%s\"\n", poolerBuiltinRoleName, hashed)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: pooler.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "postgres-operator",
+				"postgres.keiailab.io/pooler":  pooler.Name,
+				"postgres.keiailab.io/cluster": cluster.Name,
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"userlist.txt": []byte(userlist),
+		},
+	}
+	if err := controllerutil.SetControllerReference(pooler, secret, r.Scheme); err != nil {
+		return "", nil, fmt.Errorf("set OwnerReference on Pooler built-in auth Secret: %w", err)
+	}
+	if err := r.Create(ctx, secret); err != nil {
+		return "", nil, fmt.Errorf("create Pooler built-in auth Secret: %w", err)
+	}
+	return "", nil, nil
 }
 
 func (r *PoolerReconciler) validatePoolerTLSSecrets(ctx context.Context, pooler *postgresv1alpha1.Pooler) (string, error) {
@@ -1066,7 +1221,7 @@ func upsertPoolerVolumes(volumes []corev1.Volume, pooler *postgresv1alpha1.Poole
 		corev1.Volume{
 			Name: "pgbouncer-auth",
 			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-				SecretName: pooler.Spec.PgBouncer.AuthSecretRef.Name,
+				SecretName: poolerAuthSecretName(pooler),
 			}},
 		},
 	)
@@ -1275,6 +1430,15 @@ func (r *PoolerReconciler) markPoolerFailed(pooler *postgresv1alpha1.Pooler, rea
 	pooler.Status.Paused = false
 	pooler.Status.BackendTargets = nil
 	pooler.Status.ConfigHash = ""
+	pooler.Status.ObservedGeneration = pooler.Generation
+	setPoolerCondition(pooler, metav1.ConditionFalse, reason, message)
+}
+
+// markPoolerPending 은 spec 위반은 아니지만 prerequisite (예: PostgresCluster
+// primary 미준비) 가 아직 갖춰지지 않은 상태를 표면화한다. ConfigHash 와
+// BackendTargets 등 누적 상태는 유지해 다음 reconcile cycle 에서 재사용 가능.
+func (r *PoolerReconciler) markPoolerPending(pooler *postgresv1alpha1.Pooler, reason, message string) {
+	pooler.Status.Phase = postgresv1alpha1.PoolerPending
 	pooler.Status.ObservedGeneration = pooler.Generation
 	setPoolerCondition(pooler, metav1.ConditionFalse, reason, message)
 }

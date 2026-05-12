@@ -1,0 +1,34 @@
+# Pooler 샘플 — operator-managed built-in auth (PgBouncer 1.24.1).
+#
+# 본 sample 은 spec.pgbouncer.authSecretRef 를 명시하지 않는다. operator 가
+# 다음을 자동으로 수행한다:
+#   1. PostgresCluster 의 ready primary Pod 에 LOGIN role `keiailab_pooler_pgbouncer`
+#      를 CREATE/ALTER (random 24-byte base64 password).
+#   2. userlist.txt 가 들어 있는 Secret `<pooler-name>-builtin-auth` 를
+#      Pooler OwnerReference 와 함께 생성. 비밀번호는 PostgreSQL md5 형식.
+#   3. PgBouncer Deployment 가 위 Secret 을 mount 해 PG round-trip.
+#
+# 적용 (quickstart PostgresCluster Ready 후):
+#   kubectl apply -f config/samples/postgres_v1alpha1_pooler_builtin_auth.yaml
+#
+# 검증:
+#   kubectl get secret quickstart-rw-builtin-pooler-builtin-auth -o yaml
+#   kubectl exec -n default <pg-pod> -c postgres -- \
+#     psql -U postgres -At -c "SELECT rolname FROM pg_roles WHERE rolname = 'keiailab_pooler_pgbouncer'"
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: Pooler
+metadata:
+  name: quickstart-rw-builtin
+  namespace: default
+spec:
+  cluster:
+    name: quickstart
+  instances: 2
+  type: rw
+  pgbouncer:
+    image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+    poolMode: session
+    # authSecretRef 미지정 → operator built-in auth path.
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "20"

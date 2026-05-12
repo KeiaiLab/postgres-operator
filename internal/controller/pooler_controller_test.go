@@ -1323,6 +1323,9 @@ func TestPoolerReconcileRecordsFailedPhaseMetric(t *testing.T) {
 	scheme := newScheme(t)
 	cluster := newPoolerCluster()
 	pooler := newPooler()
+	// Pooler 이름을 unique 로 둬서 t.Parallel() 다른 test 의 reconcile 이 동일
+	// MetricPoolerPhase label set 을 0 으로 덮어쓰는 race 를 피한다.
+	pooler.Name = "demo-rw-failmetric"
 	pooler.Spec.PgBouncer.AuthSecretRef = nil
 	defer DeletePoolerMetricsFor(pooler.Namespace, pooler.Name)
 	c := fake.NewClientBuilder().WithScheme(scheme).
@@ -1334,7 +1337,7 @@ func TestPoolerReconcileRecordsFailedPhaseMetric(t *testing.T) {
 	reconcilePoolerOnce(t, r, c, pooler)
 
 	if got := testutil.ToFloat64(MetricPoolerPhase.WithLabelValues(
-		"default", "demo-rw", "demo", "rw", "Failed",
+		"default", pooler.Name, "demo", "rw", "Failed",
 	)); got != 1 {
 		t.Fatalf("Pooler Failed phase metric = %v, want 1", got)
 	}
@@ -1455,6 +1458,98 @@ func findContainer(containers []corev1.Container, name string) *corev1.Container
 		}
 	}
 	return nil
+}
+
+// TestPoolerBuiltinAuth_RequeuesWhenPrimaryNotReady 는 AuthSecretRef 가 비고
+// PostgresCluster primary 가 아직 ready 아닐 때 reconcile 이 PoolerPending
+// 으로 표면화하고 짧은 간격 뒤 재시도하는지 검증한다.
+func TestPoolerBuiltinAuth_RequeuesWhenPrimaryNotReady(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	cluster := newPoolerCluster()
+	// primary not ready — backupSidecarTarget 이 false 반환.
+	cluster.Status.Shards[0].Primary.Ready = false
+	pooler := newPooler()
+	pooler.Name = "demo-rw-builtin-requeue"
+	pooler.Spec.PgBouncer.AuthSecretRef = nil
+	defer DeletePoolerMetricsFor(pooler.Namespace, pooler.Name)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(cluster, pooler).
+		WithStatusSubresource(&postgresv1alpha1.Pooler{}).
+		Build()
+
+	exec := &fakePoolerPodExecutor{}
+	r := &PoolerReconciler{Client: c, Scheme: scheme, PodExecutor: exec}
+	got := reconcilePoolerOnce(t, r, c, pooler)
+
+	if got.Status.Phase != postgresv1alpha1.PoolerPending {
+		t.Fatalf("phase = %q, want Pending (built-in auth waiting for primary)", got.Status.Phase)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, PoolerConditionReady)
+	if cond == nil || cond.Reason != "BuiltinAuthWaitingForPrimary" {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+	if exec.called != 0 {
+		t.Fatalf("PodExecutor called %d times before primary ready, want 0", exec.called)
+	}
+
+	var secret corev1.Secret
+	err := c.Get(context.Background(), client.ObjectKey{Namespace: pooler.Namespace, Name: pooler.Name + "-builtin-auth"}, &secret)
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("built-in auth Secret get error = %v, want NotFound (primary not ready)", err)
+	}
+}
+
+// TestPoolerBuiltinAuth_CreatesSecretAndExecutesRoleSQL 는 AuthSecretRef 가
+// 비고 PostgresCluster primary 가 ready 일 때 ensurePoolerBuiltinAuth 가
+// LOGIN role SQL 을 적용하고 userlist.txt Secret 을 생성하는지 검증한다.
+func TestPoolerBuiltinAuth_CreatesSecretAndExecutesRoleSQL(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	cluster := newPoolerCluster()
+	pooler := newPooler()
+	pooler.Name = "demo-rw-builtin-create"
+	pooler.Spec.PgBouncer.AuthSecretRef = nil
+	defer DeletePoolerMetricsFor(pooler.Namespace, pooler.Name)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(cluster, pooler).
+		WithStatusSubresource(&postgresv1alpha1.Pooler{}).
+		Build()
+
+	exec := &fakePoolerPodExecutor{}
+	r := &PoolerReconciler{Client: c, Scheme: scheme, PodExecutor: exec}
+	reconcilePoolerOnce(t, r, c, pooler)
+
+	// 1. PodExecutor 가 psql DO $$ CREATE/ALTER ROLE 로 호출됐는지 확인.
+	if exec.called < 1 {
+		t.Fatalf("PodExecutor called %d times, want >= 1 for role SQL", exec.called)
+	}
+	cmd := strings.Join(exec.calls[0].command, " ")
+	if !strings.Contains(cmd, "psql") || !strings.Contains(cmd, "CREATE ROLE keiailab_pooler_pgbouncer") {
+		t.Fatalf("first PodExecutor call did not invoke psql with CREATE ROLE: %s", cmd)
+	}
+
+	// 2. userlist.txt Secret 이 생성됐는지 + Pooler OwnerReference 가 붙었는지.
+	secretName := pooler.Name + "-builtin-auth"
+	var secret corev1.Secret
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: pooler.Namespace, Name: secretName}, &secret); err != nil {
+		t.Fatalf("built-in auth Secret not created: %v", err)
+	}
+	if !metav1.IsControlledBy(&secret, pooler) {
+		t.Fatalf("Secret %s OwnerReference does not point to Pooler", secretName)
+	}
+	userlist := string(secret.Data["userlist.txt"])
+	if !strings.Contains(userlist, `"keiailab_pooler_pgbouncer"`) || !strings.Contains(userlist, ` "md5`) {
+		t.Fatalf("Secret userlist.txt missing expected role/md5 hash: %q", userlist)
+	}
+
+	// 3. 두 번째 reconcile 은 SQL 재실행 없이 Secret 그대로 사용해야 한다 (idempotent).
+	exec.called = 0
+	exec.calls = nil
+	reconcilePoolerOnce(t, r, c, pooler)
+	if exec.called != 0 {
+		t.Fatalf("PodExecutor called %d times on idempotent reconcile, want 0", exec.called)
+	}
 }
 
 type fakePoolerPodExecutor struct {

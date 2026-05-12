@@ -141,7 +141,11 @@ spec:
                   authSecretRef:
                     description: |-
                       AuthSecretRef 는 userlist.txt 를 제공하는 Secret 이름이다.
-                      운영 기본은 사용자 관리 auth secret 이며, built-in auth reconciliation 은 후속 범위다.
+                      비어 있으면 operator 가 built-in auth path 를 활성화한다 — PostgresCluster
+                      의 ready primary Pod 에 `keiailab_pooler_pgbouncer` LOGIN role 을 random
+                      password 로 자동 생성하고, userlist.txt 를 담은 `<pooler-name>-builtin-auth`
+                      Secret 을 Pooler OwnerReference 와 함께 생성한다 (CNPG `cnpg_pooler_pgbouncer`
+                      패턴 호환). 사용자가 명시한 Secret 이 우선한다.
                     properties:
                       name:
                         default: ""
