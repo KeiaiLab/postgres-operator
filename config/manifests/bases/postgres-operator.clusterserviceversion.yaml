@@ -197,24 +197,61 @@ spec:
   customresourcedefinitions:
     owned:
     - description: BackupJob 은 PostgresCluster 의 pgBackRest 기반 backup/restore Job
-        추상이다.
+        추상이다. executionMode=sidecar 는 ready primary Pod 에 K8s exec 로 명령을 전달하고,
+        executionMode=job 은 별도 batch/v1 Job 으로 runner 를 실행한다.
       displayName: Backup Job
       kind: BackupJob
       name: backupjobs.postgres.keiailab.io
       version: v1alpha1
+    - description: ClusterImageCatalog 는 cluster 전체에서 공유할 PostgreSQL runtime image
+        catalog 다. PostgresCluster.spec.imageCatalogRef.kind=ClusterImageCatalog 로 참조한다.
+        CloudNativePG ClusterImageCatalog 와 호환 표면을 제공한다.
+      displayName: Cluster Image Catalog
+      kind: ClusterImageCatalog
+      name: clusterimagecatalogs.postgres.keiailab.io
+      version: v1alpha1
+    - description: ImageCatalog 는 namespace 단위 PostgreSQL runtime image catalog 다.
+        PostgresCluster.spec.imageCatalogRef.kind=ImageCatalog 로 같은 namespace 에서 major
+        version 을 선택한다. CloudNativePG ImageCatalog 호환 표면.
+      displayName: Image Catalog
+      kind: ImageCatalog
+      name: imagecatalogs.postgres.keiailab.io
+      version: v1alpha1
     - description: Pooler 는 PostgresCluster 대상 PgBouncer connection pool 계층을 선언한다.
+        spec.type=rw 는 primary 쓰기 endpoint, spec.type=ro 는 replica 읽기 endpoint 로 연결한다.
+        ConfigMap, Deployment, Service, exporter sidecar, PAUSE/RESUME, SIGHUP reload 를
+        포함한다.
       displayName: Pooler
       kind: Pooler
       name: poolers.postgres.keiailab.io
       version: v1alpha1
-    - description: PostgresCluster 는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적 표현이다 (ADR
-        0001).
+    - description: PostgresCluster 는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적
+        표현이다 (ADR 0001 / RFC 0001). primary + streaming standby + native sharding
+        로드맵, replica cluster, image catalog 참조, declarative monitoring 표면을
+        포함한다.
       displayName: Postgres Cluster
       kind: PostgresCluster
       name: postgresclusters.postgres.keiailab.io
       version: v1alpha1
-    - description: ScheduledBackup 은 cron schedule 에 따라 PostgresCluster 대상 BackupJob
-        을 생성한다.
+    - description: PostgresDatabase 는 PostgresCluster 안의 database/tablespace/schema/extension/FDW/foreign
+        server 와 그들의 privilege 를 선언적으로 관리한다. ready primary Pod 의 postgres
+        컨테이너에서 psql 로 SQL 을 적용하고 status.applied/conditions 를 기록한다.
+        databaseReclaimPolicy=delete 는 CR 삭제 시 DROP DATABASE 까지 책임진다.
+      displayName: Postgres Database
+      kind: PostgresDatabase
+      name: postgresdatabases.postgres.keiailab.io
+      version: v1alpha1
+    - description: PostgresUser 는 PostgresCluster 안의 PostgreSQL role 을 선언적으로
+        관리한다. role flags, membership, connectionLimit, passwordSecretRef, validUntil
+        을 ready primary Pod psql 로 적용하고 status.managedRolesStatus 로 집계한다.
+        CNPG managed.roles 호환 표면.
+      displayName: Postgres User
+      kind: PostgresUser
+      name: postgresusers.postgres.keiailab.io
+      version: v1alpha1
+    - description: ScheduledBackup 은 6-field cron schedule 에 따라 PostgresCluster 대상
+        atomic BackupJob 을 생성한다. concurrencyPolicy 와 backupOwnerReference 로 동시
+        실행 정책과 owner reference 동작을 제어한다.
       displayName: Scheduled Backup
       kind: ScheduledBackup
       name: scheduledbackups.postgres.keiailab.io
