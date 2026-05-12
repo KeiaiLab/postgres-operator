@@ -59,6 +59,7 @@ This project follows SemVer.
   Phase=Pending + Reason=BuiltinAuthWaitingForPrimary, idempotent ensure.
   The `PoolerReconciler.PodExecutor` wiring regression was also fixed
   (restores PAUSE/RESUME + SIGHUP-reload paths).
+- *(controller)* **Pooler AutoTLS — cert-manager integration** (T29) — when `spec.pgbouncer.autoTLS` is set, the operator emits a cert-manager `Certificate` CR (per role: server / client) via `unstructured` and lets cert-manager provision a Secret (`tls.crt` + `tls.key` + `ca.crt`); the PgBouncer Deployment mounts the auto-generated Secret transparently. Explicit `Server/ClientTLSSecret` still wins. New helpers (`poolerEffectiveServerTLSSecretName`, `poolerEffectiveClientTLSSecretName`, `poolerAutoTLS{Server,Client}Active`), new RBAC marker for `cert-manager.io/certificates`, 2 new unit tests (`TestPoolerAutoTLS_CreatesCertificate`, `TestPoolerAutoTLS_UserSuppliedSecretTakesPrecedence`), and a new sample `config/samples/postgres_v1alpha1_pooler_autotls.yaml`.
 - *(controller)* **Pooler built-in auth password rotation** (T27 ⑥) —
   setting `postgres.keiailab.io/rotate-pooler-password=true` triggers an
   `ALTER ROLE` with a new password, an in-place userlist.txt Secret
