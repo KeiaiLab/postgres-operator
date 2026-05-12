@@ -1,25 +1,27 @@
-# ADR-0009: Webhook validate — immediate-return → accumulate-errors 변환
+# ADR-0009: Webhook validate — immediate-return → accumulate-errors
 
 - Date: 2026-05-07
 - Status: Accepted
 - Authors: @eightynine01
-- Refs: ADR-0008 (operator-commons 채택), valkey iteration 31 (`14be0db`) 패턴
+- Refs: ADR-0008 (operator-commons adoption), valkey iteration 31 (`14be0db`) pattern
 
 ## Context
 
-`internal/webhook/v1alpha1/postgrescluster_webhook.go` 의 `validate(c)` 함수가
-*4 invalid case* 를 *순차 if chain* 으로 *첫 발견 시 즉시 NewInvalid 반환*:
+The `validate(c)` function in
+`internal/webhook/v1alpha1/postgrescluster_webhook.go` evaluates *four
+invalid cases* in a *sequential if-chain* and *returns `NewInvalid`
+immediately on the first hit*:
 
 ```go
 func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
     (admission.Warnings, error) {
     // 1. postgresVersion ∈ matrix
     if _, ok := version.IsSupported(pgVersion, w.FeatureGates); !ok {
-        return nil, apierrors.NewInvalid(...)  // ← 첫 발견 시 종료
+        return nil, apierrors.NewInvalid(...)  // ← stops at the first miss
     }
     // 2. autoSplit.enabled + triggers
     if as.Enabled && !hasAnyTrigger(...) {
-        return nil, apierrors.NewInvalid(...)  // ← 다음 invalid 미보고
+        return nil, apierrors.NewInvalid(...)  // ← next invalid is not reported
     }
     // 3. backup.schedule
     if b.Enabled && b.Schedule == "" {
@@ -32,11 +34,12 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
 }
 ```
 
-K8s ecosystem convention (valkey / mongodb / 대부분 operator):
-*모든 validation error 를 ErrorList 로 accumulate 후 일괄 NewInvalid 반환*.
-이는 사용자 (kubectl 사용자 / GitOps 운영자) 가 *모든 invalid 를 한 번에* 보게 함:
+The K8s ecosystem convention (valkey / mongodb / most operators) is to
+*accumulate every validation error into a `field.ErrorList` and return
+a single `NewInvalid`*. The user (kubectl users / GitOps operators)
+then sees *every invalid in one go*:
 
-```go
+```text
 $ kubectl apply -f cluster.yaml
 The PostgresCluster "x" is invalid:
 * spec.postgresVersion: Unsupported value "99": ...
@@ -44,34 +47,37 @@ The PostgresCluster "x" is invalid:
 * spec.backup.schedule: must be non-empty when backup.enabled=true
 ```
 
-vs 본 *immediate-return* 패턴:
-```go
+vs the *immediate-return* pattern:
+
+```text
 $ kubectl apply -f cluster.yaml
 The PostgresCluster "x" is invalid: spec.postgresVersion: ...
 
-# postgresVersion fix 후 재시도:
+# Fix postgresVersion and retry:
 $ kubectl apply -f cluster.yaml
 The PostgresCluster "x" is invalid: spec.autoSplit.triggers: ...
-# ← 사용자가 *3 cycle 의 apply* 로 모든 invalid 발견
+# ← the user needs *3 apply cycles* to discover every invalid
 ```
 
-본 패턴이 *intentional design* 인지 *unconscious choice* 인지 git history 검토:
-- `internal/webhook/v1alpha1/postgrescluster_webhook.go` 의 *validate 함수 commit
-  message* (Plan 의 F01a / RFC 0001 §4 도출) 에 *immediate-return* 의 명시 reasoning
-  부재.
-- ADR-0001 ~ ADR-0008 에서도 webhook error semantics 언급 없음.
-- 즉 *unconscious choice*. K8s convention 정합 fix 권장.
+Git history check for whether the existing pattern was an *intentional
+design* or an *unconscious choice*:
+
+- The `validate` function commit message (derived from Plan's F01a /
+  RFC 0001 §4) does not state any reasoning for immediate-return.
+- ADR-0001 through ADR-0008 do not mention webhook error semantics.
+- Therefore it is an *unconscious choice*. Aligning with the K8s
+  convention is the right fix.
 
 ## Decision
 
-`validate` 함수의 *순차 if chain + immediate return* → *errs ErrorList accumulate +
-일괄 NewInvalid* 변환:
+Convert the `validate` function from *sequential if-chain + immediate
+return* to *`errs` ErrorList accumulate + single `NewInvalid`*:
 
 ```go
 func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
     (admission.Warnings, error) {
     var errs field.ErrorList
-    // 1. postgresVersion (commons.ValidateWithPredicate 위임 — ADR-0008)
+    // 1. postgresVersion (delegated to commons.ValidateWithPredicate — ADR-0008)
     predicate := func(v string) bool {
         _, ok := version.IsSupported(v, w.FeatureGates)
         return ok
@@ -82,7 +88,7 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
     ); err != nil {
         errs = append(errs, err)
     }
-    // 2-4. autoSplit / backup / extensions (각자 errs append, immediate return 없음)
+    // 2-4. autoSplit / backup / extensions (each appends to `errs`, no immediate return)
     ...
     if len(errs) > 0 {
         return nil, apierrors.NewInvalid(gv, c.Name, errs)
@@ -91,77 +97,92 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
 }
 ```
 
-### Test 영향 매트릭스
+### Test impact matrix
 
-| 기존 test | accumulate 후 동작 |
+| Existing test | Behaviour after accumulate |
 |---|---|
-| `TestValidate_VersionRejected_NotInMatrix` (1 invalid) | 동등 — error message 가 ErrorList 로 단일 entry. `strings.Contains` 가 keyword 매칭. |
-| `TestValidate_AutoSplitEnabled_RequiresAtLeastOneTrigger` (1 invalid) | 동등 — keyword 매칭. |
-| `TestValidate_BackupEnabled_RequiresSchedule` (1 invalid) | 동등 — keyword 매칭. |
-| `TestValidate_Happy` (모두 valid) | 동등 — errs empty, nil 반환. |
+| `TestValidate_VersionRejected_NotInMatrix` (1 invalid) | Equivalent — error message becomes a single ErrorList entry. `strings.Contains` keyword match still hits. |
+| `TestValidate_AutoSplitEnabled_RequiresAtLeastOneTrigger` (1 invalid) | Equivalent — keyword match. |
+| `TestValidate_BackupEnabled_RequiresSchedule` (1 invalid) | Equivalent — keyword match. |
+| `TestValidate_Happy` (all valid) | Equivalent — `errs` empty, returns nil. |
 
-각 test 가 *단일 invalid case* 만 set — accumulate 결과 *errs len=1* 로 동일. 회귀
-가드 자연 PASS.
+Each test sets a *single invalid case*; after accumulation `len(errs)=1`
+is unchanged. The regression guard naturally passes.
 
-### commons.ValidateWithPredicate 위임 (ADR-0008 deepening)
+### `commons.ValidateWithPredicate` delegation (deepening ADR-0008)
 
-`version.IsSupported(v, gates)` 의 *2-arg 시그너처* 를 *closure* 로 wrap 후
-`commons.ValidateWithPredicate(path, value, predicate, allowed)` 호출. *FeatureGates
-는 closure scope 내 capture* — commons API 변경 불필요.
+The 2-arg signature of `version.IsSupported(v, gates)` is wrapped in a
+closure and then passed to `commons.ValidateWithPredicate(path, value,
+predicate, allowed)`. *FeatureGates is captured in the closure scope*
+— no commons-API change is required.
 
-postgres operator-commons 채택률 변화: 2/6 (security/labels) → **3/6 (+ webhook)**.
+postgres operator-commons adoption count: 2/6 (security/labels) →
+**3/6 (+ webhook)**.
 
 ## Consequences
 
 ### Positive
-- 사용자 / kubectl 출력에서 *모든 invalid 한 번에 발견* — apply 반복 cycle 감소.
-- 3 operator (mongodb / valkey / postgres) webhook 동일 *accumulate 패턴* —
-  cross-operator drift 차단.
-- commons.ValidateWithPredicate 의 3rd 사용처 — operator-commons API stability ↑.
+
+- Users and `kubectl` see *every invalid at once* — fewer apply
+  iterations.
+- The 3 operators (mongodb / valkey / postgres) all share the same
+  *accumulate pattern* — cross-operator drift is blocked.
+- This is the 3rd consumer of `commons.ValidateWithPredicate` —
+  raises operator-commons API stability.
 
 ### Negative
-- `validate` 함수 LoC 증가 (~10 줄 — errs 변수 + 마지막 NewInvalid block).
-- *복합 invalid 시나리오* test 추가 가능성 (다음 iteration 의 *separate concern*).
+
+- `validate` grows ~10 LoC (the `errs` variable + the final
+  `NewInvalid` block).
+- *Composite invalid scenarios* may need a new test (a *separate
+  concern* for a later iteration).
 
 ### Trade-offs
-- *K8s convention 정합* (본 ADR) vs *immediate-return 보존*: convention 정합이
-  *사용자 경험 ↑* + *cross-operator 패턴 통일*. 보존은 *기존 test 100% bit-equal
-  output* 만 이점 (현실적 가치 zero).
+
+- *K8s-convention alignment* (this ADR) vs *preserving immediate
+  return*: convention alignment gives *better UX* + *cross-operator
+  pattern unification*. The only benefit of preservation is "existing
+  tests keep their bit-equal output" — practical value is zero.
 
 ## Alternatives Considered
 
-1. **immediate-return 보존** — 거절: K8s ecosystem 의 deviation. 사용자 경험 ↓.
-2. **commons 미사용 + 자체 ErrorList** — 거절: ADR-0008 의 commons 채택 기조 위반.
-   commons.ValidateWithPredicate 가 *closure 로 FeatureGates 수용* — 단순.
-3. **commons API 확장 (FeatureGates 매개변수 추가)** — 거절: postgres-specific
-   매개변수가 commons API 비대화. closure 가 더 깨끗.
+1. **Keep immediate return** — Rejected: deviates from the K8s
+   ecosystem; degraded UX.
+2. **Don't use commons; build a local ErrorList** — Rejected: violates
+   the ADR-0008 commons-adoption stance. `commons.ValidateWithPredicate`
+   *accepts FeatureGates as a closure capture* — simpler.
+3. **Extend the commons API to take a FeatureGates parameter** —
+   Rejected: a postgres-specific parameter bloats the commons API. The
+   closure is cleaner.
 
 ## Implementation
 
 ```go
-// supportedPostgresList — version.matrix.go 의 string-only view 추출.
-// commons.ValidateWithPredicate 의 4th 인자 (allowed []string) 용.
+// supportedPostgresList — extract the string-only view from
+// version.matrix.go for use as the 4th argument of
+// commons.ValidateWithPredicate (allowed []string).
 func supportedPostgresList() []string {
-    return []string{"16", "17", "18"}  // matrix.go 의 PostgresMajor 만 추출
+    return []string{"16", "17", "18"}  // PostgresMajor entries from matrix.go only
 }
 ```
 
-또는 matrix.go 에 `func SupportedMajors() []string` 추가 — 본 ADR 후속.
+Alternatively, add `func SupportedMajors() []string` to `matrix.go` as
+a follow-up to this ADR.
 
 ## Verification
 
 ```bash
 go test ./internal/webhook/v1alpha1/ -count=1 -v
-# 9+ test sub 모두 PASS — 단일 invalid case 검증 자연 통과.
+# All 9+ subtests pass — the single-invalid cases keep passing naturally.
 
 go test ./... -count=1
-# 전 패키지 PASS — controller / version / webhook 영향 없음.
+# Full-package PASS — controller / version / webhook unaffected.
 ```
 
 ## Refs
 
-- valkey iteration 31 (`14be0db`) — webhook → commons.ValidateWithPredicate 위임 (예시 commit)
-- mongodb ADR-0013 (`3345f85`) — conditions LastTransitionTime 패턴 fix (deviation 인정 + upstream 위임)
-- HANDOFF iteration 32 — 3-way boundary 분석 (commons / upstream / 자체 보존)
-- ADR-0008 (operator-commons 채택)
-- k8s.io/apimachinery/pkg/util/validation/field (ErrorList 패턴)
+- valkey iteration 31 (`14be0db`) — webhook → `commons.ValidateWithPredicate` delegation (example commit).
+- mongodb ADR-0013 (`3345f85`) — conditions `LastTransitionTime` pattern fix (deviation acknowledged + upstream delegation).
+- HANDOFF iteration 32 — 3-way boundary analysis (commons / upstream / kept locally).
+- ADR-0008 (operator-commons adoption).
+- `k8s.io/apimachinery/pkg/util/validation/field` (ErrorList pattern).
