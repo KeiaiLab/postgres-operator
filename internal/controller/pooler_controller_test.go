@@ -1724,6 +1724,59 @@ func TestPoolerBuiltinAuth_RotatesPasswordOnAnnotation(t *testing.T) {
 	}
 }
 
+// TestPoolerReconcileTargetNotFoundIsPendingWithRequeue is a regression
+// guard for the PG18 kind smoke iter#4 race where the Pooler reconciled
+// 4 s *before* the PostgresCluster primary flipped to Ready and was
+// stuck in phase=Failed with no re-trigger. The reconciler now marks
+// Pending + returns RequeueAfter so subsequent passes can converge.
+func TestPoolerReconcileTargetNotFoundIsPendingWithRequeue(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	cluster := newPoolerCluster()
+	// primary endpoint exists but not yet ready — exactly the smoke race.
+	cluster.Status.Shards[0].Primary.Ready = false
+	pooler := newPooler()
+	pooler.Name = "demo-rw-targetnotfound"
+	authSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo-pooler-auth", Namespace: pooler.Namespace},
+		Data:       map[string][]byte{"userlist.txt": []byte(`"app" "test"`)},
+	}
+	defer DeletePoolerMetricsFor(pooler.Namespace, pooler.Name)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(cluster, pooler, authSecret).
+		WithStatusSubresource(&postgresv1alpha1.Pooler{}).
+		Build()
+
+	r := &PoolerReconciler{Client: c, Scheme: scheme}
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(pooler),
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if result.RequeueAfter <= 0 {
+		t.Fatalf("result.RequeueAfter = %v, want positive for Pending TargetNotFound", result.RequeueAfter)
+	}
+
+	var got postgresv1alpha1.Pooler
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(pooler), &got); err != nil {
+		t.Fatalf("get Pooler: %v", err)
+	}
+	if got.Status.Phase != postgresv1alpha1.PoolerPending {
+		t.Fatalf("phase = %q, want Pending (target not ready, expecting re-trigger)", got.Status.Phase)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, PoolerConditionReady)
+	if cond == nil || cond.Reason != PoolerReasonTargetNotFound {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+
+	// Make sure no Deployment / ConfigMap / Service / PDB was prematurely created.
+	var dep appsv1.Deployment
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: pooler.Namespace, Name: PoolerDeploymentName(pooler.Name)}, &dep); !apierrors.IsNotFound(err) {
+		t.Fatalf("Deployment get = %v, want NotFound while target not ready", err)
+	}
+}
+
 type fakePoolerPodExecutor struct {
 	called int
 	calls  []poolerPodExecCall
