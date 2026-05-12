@@ -159,6 +159,15 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: lint-k8s
+lint-k8s: ## kube-linter 로 dist/install.yaml + helm chart 렌더 산출물의 K8s 리소스 보안/best-practice 점검.
+	@command -v kube-linter >/dev/null 2>&1 || { echo "[error] kube-linter not installed: brew install kube-linter (또는 go install golang.stackrox.io/kube-linter/cmd/kube-linter@latest)"; exit 1; }
+	@echo "=== kube-linter lint dist/install.yaml ==="
+	kube-linter lint dist/install.yaml
+	@echo "=== kube-linter lint helm template (default values) ==="
+	helm template gate "$(HELM_CHART)" --include-crds | kube-linter lint -
+	@echo "✓ kube-linter PASS (dist + helm chart)"
+
 .PHONY: hooks-install
 hooks-install: ## lefthook 의 pre-commit / commit-msg / pre-push 훅을 git 에 설치 (CONTRIBUTING.md L1/L2).
 	@command -v lefthook >/dev/null 2>&1 || { echo "[error] lefthook not installed: brew install lefthook (또는 go install github.com/evilmartians/lefthook@latest)"; exit 1; }
