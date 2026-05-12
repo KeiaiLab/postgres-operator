@@ -557,6 +557,7 @@ spec:
   cluster:
     name: ${CR_NAME}
   name: ${PG_DB_NAME}
+  owner: postgres
   ensure: present
   databaseReclaimPolicy: delete
 DBSPEC
