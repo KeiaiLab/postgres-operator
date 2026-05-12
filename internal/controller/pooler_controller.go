@@ -39,7 +39,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
@@ -89,6 +91,12 @@ const (
 	poolerPausedAnnotation     = "postgres.keiailab.io/pgbouncer-paused"
 	poolerPausedValueTrue      = "true"
 	poolerPausedValueFalse     = "false"
+
+	// poolerTargetWaitRequeue is the cadence at which we re-check whether the
+	// upstream PostgresCluster has produced a ready backend target for this
+	// Pooler. The Watches() registration in SetupWithManager will fire much
+	// sooner on a real status flip; this constant is the conservative backup.
+	poolerTargetWaitRequeue = 10 * time.Second
 
 	pgBouncerIgnoreStartupParametersKey = "ignore_startup_parameters"
 	pgBouncerExtraFloatDigitsParameter  = "extra_float_digits"
@@ -188,9 +196,18 @@ func (r *PoolerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	targets, ok := poolerTargets(&pooler, &cluster)
 	if !ok {
-		r.markPoolerFailed(&pooler, PoolerReasonTargetNotFound,
-			"No ready backend target found for Pooler type "+string(defaultPoolerType(pooler.Spec.Type)))
-		return ctrl.Result{}, r.statusUpdate(ctx, &pooler)
+		// The cluster has no ready backend target yet — its primary may not be
+		// promoted, the replicas may still be starting, etc. We mark the
+		// Pooler as Pending (not Failed — it can still converge) and requeue
+		// so we re-evaluate when the cluster has had a chance to advance.
+		// Combined with the explicit Watches on PostgresCluster in
+		// SetupWithManager this also re-enqueues immediately on status flip.
+		r.markPoolerPending(&pooler, PoolerReasonTargetNotFound,
+			"Waiting for a ready backend target for Pooler type "+string(defaultPoolerType(pooler.Spec.Type)))
+		if err := r.statusUpdate(ctx, &pooler); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: poolerTargetWaitRequeue}, nil
 	}
 
 	previousConfigHash := pooler.Status.ConfigHash
@@ -1779,7 +1796,15 @@ func (r *PoolerReconciler) statusUpdate(ctx context.Context, pooler *postgresv1a
 	return nil
 }
 
-// SetupWithManager 는 Pooler reconciler 를 controller-runtime Manager 에 등록한다.
+// SetupWithManager registers the Pooler reconciler with the
+// controller-runtime Manager.
+//
+// We additionally Watch PostgresCluster — when a referenced cluster's
+// status flips (primary becomes Ready, replicas become Ready, etc.),
+// any Pooler that targets that cluster is re-enqueued. Without this
+// watch a Pooler whose first reconcile races the cluster's primary
+// promotion stays in phase=Pending|Failed forever (observed during
+// the PG18 kind smoke iter#4).
 func (r *PoolerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.PodExecutor == nil {
 		executor, err := NewKubernetesBackupSidecarExecutor(mgr.GetConfig())
@@ -1794,6 +1819,37 @@ func (r *PoolerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
 		Owns(&policyv1.PodDisruptionBudget{}).
+		Watches(
+			&postgresv1alpha1.PostgresCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueuePoolersForCluster),
+		).
 		Named("pooler").
 		Complete(r)
+}
+
+// enqueuePoolersForCluster returns Reconcile requests for every Pooler in
+// the same namespace whose spec.cluster.name matches the changed
+// PostgresCluster. Used by the Watches above.
+func (r *PoolerReconciler) enqueuePoolersForCluster(ctx context.Context, obj client.Object) []reconcile.Request {
+	cluster, ok := obj.(*postgresv1alpha1.PostgresCluster)
+	if !ok {
+		return nil
+	}
+	var list postgresv1alpha1.PoolerList
+	if err := r.List(ctx, &list, client.InNamespace(cluster.Namespace)); err != nil {
+		log.FromContext(ctx).Error(err, "enqueuePoolersForCluster list failed",
+			"cluster", cluster.Name)
+		return nil
+	}
+	out := make([]reconcile.Request, 0, len(list.Items))
+	for i := range list.Items {
+		p := &list.Items[i]
+		if p.Spec.Cluster.Name != cluster.Name {
+			continue
+		}
+		out = append(out, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(p),
+		})
+	}
+	return out
 }
