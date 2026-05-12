@@ -544,7 +544,9 @@ fi
 #    databaseReclaimPolicy=delete 로 CR 삭제 시 DROP DATABASE 자동 처리도 검증.
 if [[ "${SMOKE_DATABASE:-0}" == "1" ]]; then
     log "[9/15] PostgresDatabase declarative smoke (psql reconcile)"
-    DB_NAME="smoke_db_$(date +%s)"
+    DB_TS="$(date +%s)"
+    DB_NAME="smoke-db-${DB_TS}"        # K8s metadata.name 은 RFC 1123 subdomain.
+    PG_DB_NAME="smoke_db_${DB_TS}"      # PostgreSQL identifier 는 underscore 허용.
     cat <<DBSPEC | kubectl -n "$NS" apply -f -
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresDatabase
@@ -554,7 +556,7 @@ metadata:
 spec:
   cluster:
     name: ${CR_NAME}
-  name: ${DB_NAME}
+  name: ${PG_DB_NAME}
   ensure: present
   databaseReclaimPolicy: delete
 DBSPEC
@@ -576,7 +578,7 @@ DBSPEC
 
     db_exists=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
         psql -h /var/run/postgresql -U postgres -d postgres -At \
-        -c "SELECT count(*) FROM pg_database WHERE datname='${DB_NAME}'" 2>&1 || echo "")
+        -c "SELECT count(*) FROM pg_database WHERE datname='${PG_DB_NAME}'" 2>&1 || echo "")
     if [[ "$db_exists" != "1" ]]; then
         log "ERROR: PostgresDatabase reconciler did not CREATE DATABASE: pg_database count=${db_exists}"
         exit 1
@@ -589,7 +591,7 @@ DBSPEC
     while [[ $(date +%s) -lt $end ]]; do
         db_dropped=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
             psql -h /var/run/postgresql -U postgres -d postgres -At \
-            -c "SELECT count(*) FROM pg_database WHERE datname='${DB_NAME}'" 2>/dev/null || echo "")
+            -c "SELECT count(*) FROM pg_database WHERE datname='${PG_DB_NAME}'" 2>/dev/null || echo "")
         if [[ "$db_dropped" == "0" ]]; then
             break
         fi
@@ -608,7 +610,9 @@ fi
 #    PostgresUser CR 적용 → status.applied=true → pg_roles 조회 → CR 삭제 → role 제거 검증.
 if [[ "${SMOKE_USER:-0}" == "1" ]]; then
     log "[10/15] PostgresUser declarative smoke (psql reconcile)"
-    USER_NAME="smoke_user_$(date +%s)"
+    USER_TS="$(date +%s)"
+    USER_NAME="smoke-user-${USER_TS}"
+    PG_USER_NAME="smoke_user_${USER_TS}"
     cat <<USERSPEC | kubectl -n "$NS" apply -f -
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresUser
@@ -618,7 +622,7 @@ metadata:
 spec:
   cluster:
     name: ${CR_NAME}
-  name: ${USER_NAME}
+  name: ${PG_USER_NAME}
   ensure: present
   login: true
   createdb: false
@@ -647,7 +651,7 @@ USERSPEC
 
     role_exists=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
         psql -h /var/run/postgresql -U postgres -d postgres -At \
-        -c "SELECT count(*) FROM pg_roles WHERE rolname='${USER_NAME}' AND rolcanlogin=true AND rolconnlimit=10" 2>&1 || echo "")
+        -c "SELECT count(*) FROM pg_roles WHERE rolname='${PG_USER_NAME}' AND rolcanlogin=true AND rolconnlimit=10" 2>&1 || echo "")
     if [[ "$role_exists" != "1" ]]; then
         log "ERROR: PostgresUser reconciler did not CREATE ROLE: pg_roles count=${role_exists}"
         exit 1
@@ -660,7 +664,7 @@ USERSPEC
     while [[ $(date +%s) -lt $end ]]; do
         role_dropped=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
             psql -h /var/run/postgresql -U postgres -d postgres -At \
-            -c "SELECT count(*) FROM pg_roles WHERE rolname='${USER_NAME}'" 2>/dev/null || echo "")
+            -c "SELECT count(*) FROM pg_roles WHERE rolname='${PG_USER_NAME}'" 2>/dev/null || echo "")
         if [[ "$role_dropped" == "0" ]]; then
             break
         fi

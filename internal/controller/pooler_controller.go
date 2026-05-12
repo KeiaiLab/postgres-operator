@@ -178,7 +178,14 @@ func (r *PoolerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	previousConfigHash := pooler.Status.ConfigHash
 	config := renderPgBouncerConfig(&pooler, targets)
 	hbaConfig := renderPgBouncerHBA(&pooler)
-	configHash := poolerConfigHash(config, hbaConfig)
+	// auth Secret 의 userlist.txt 도 hash 에 포함 — built-in auth password
+	// rotation (T27 ⑥) 시 ConfigHash 가 변경되어 PgBouncer SIGHUP/auto-reload
+	// 회로가 자동 trigger 되도록 한다.
+	authUserlist, err := r.readPoolerAuthUserlist(ctx, &pooler)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	configHash := poolerConfigHash(config, hbaConfig, authUserlist)
 	if err := r.reconcilePoolerConfigMap(ctx, &pooler, config, hbaConfig, configHash); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1469,8 +1476,23 @@ func sha256Hex(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func poolerConfigHash(config string, hbaConfig string) string {
-	return sha256Hex(config + "\x00" + hbaConfig)
+func poolerConfigHash(config, hbaConfig, authUserlist string) string {
+	return sha256Hex(config + "\x00" + hbaConfig + "\x00" + authUserlist)
+}
+
+// readPoolerAuthUserlist 는 ConfigHash 계산에 포함할 userlist.txt 본문을 읽는다.
+// validatePoolerAuthSecret 이 이미 Secret 존재성 + non-empty userlist 를 보장하므로
+// 본 함수는 단순 lookup. transient error 만 propagate.
+func (r *PoolerReconciler) readPoolerAuthUserlist(ctx context.Context, pooler *postgresv1alpha1.Pooler) (string, error) {
+	var secret corev1.Secret
+	key := client.ObjectKey{Namespace: pooler.Namespace, Name: poolerAuthSecretName(pooler)}
+	if err := r.Get(ctx, key, &secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(secret.Data["userlist.txt"]), nil
 }
 
 func (r *PoolerReconciler) markPoolerFailed(pooler *postgresv1alpha1.Pooler, reason, message string) {
