@@ -5,6 +5,10 @@ IMG ?= $(IMAGE_REPOSITORY):$(IMAGE_TAG)
 
 HELM_CHART ?= charts/postgres-operator
 HELM_REPO_URL ?= https://keiailab.github.io/postgres-operator
+ARTIFACTHUB_REPOSITORY_NAME ?= keiailab-postgres-operator
+ARTIFACTHUB_PACKAGE_NAME ?= postgres-operator
+ARTIFACTHUB_ORG ?= keiailab
+ARTIFACTHUB_API_URL ?= https://artifacthub.io/api/v1
 RELEASE_TMP ?= /tmp/postgres-operator-release
 GHPAGES_TMP ?= /tmp/postgres-operator-gh-pages
 
@@ -167,20 +171,66 @@ audit: ## govulncheck + trivy + gosec — RFC 0002 L3 security 게이트 (3-repo
 	@command -v $(GOBIN)/gosec >/dev/null 2>&1 || go install github.com/securego/gosec/v2/cmd/gosec@latest
 	$(GOBIN)/gosec -quiet -severity high ./internal/... || true
 
+.PHONY: test-scripts
+test-scripts: ## shell 스크립트 문법과 smoke helper 동작을 검증.
+	bash -n hack/smoke.sh
+	bash hack/smoke_shell_test.sh
+	bash -n hack/artifacthub_smoke.sh
+	bash -n hack/artifacthub_register.sh
+	bash hack/artifacthub_smoke_test.sh
+	bash hack/artifacthub_register_test.sh
+
 .PHONY: validate
-validate: manifests generate kustomize build-installer ## CRD, Kustomize, Helm, install bundle을 검증.
+validate: manifests generate kustomize build-installer test-scripts ## CRD, Kustomize, Helm, install bundle을 검증.
 	"$(KUSTOMIZE)" build config/crd >/tmp/postgres-operator-crd.yaml
 	"$(KUSTOMIZE)" build config/default >/tmp/postgres-operator-default.yaml
 	helm lint --strict "$(HELM_CHART)"
 	helm template --include-crds gate "$(HELM_CHART)" >/tmp/postgres-operator-helm.yaml
-	@test "$$(grep -c '^kind: CustomResourceDefinition' /tmp/postgres-operator-helm.yaml)" -ge 2
-	@test "$$(grep -c '^kind: CustomResourceDefinition' dist/install.yaml)" -ge 2
+	helm template monitor "$(HELM_CHART)" \
+		--set metrics.serviceMonitor.enabled=true \
+		--set metrics.prometheusRule.enabled=true \
+		--set metrics.grafanaDashboards.enabled=true \
+		>/tmp/postgres-operator-helm-monitoring.yaml
+	@test "$$(grep -c '^kind: CustomResourceDefinition' /tmp/postgres-operator-helm.yaml)" -ge 8
+	@test "$$(grep -c '^kind: CustomResourceDefinition' dist/install.yaml)" -ge 8
+	@grep -q 'imagecatalogs.postgres.keiailab.io' /tmp/postgres-operator-crd.yaml
+	@grep -q 'imagecatalogs.postgres.keiailab.io' /tmp/postgres-operator-helm.yaml
+	@grep -q 'imagecatalogs.postgres.keiailab.io' dist/install.yaml
+	@grep -q 'clusterimagecatalogs.postgres.keiailab.io' /tmp/postgres-operator-crd.yaml
+	@grep -q 'clusterimagecatalogs.postgres.keiailab.io' /tmp/postgres-operator-helm.yaml
+	@grep -q 'clusterimagecatalogs.postgres.keiailab.io' dist/install.yaml
+	@grep -q 'poolers.postgres.keiailab.io' /tmp/postgres-operator-crd.yaml
+	@grep -q 'poolers.postgres.keiailab.io' /tmp/postgres-operator-helm.yaml
+	@grep -q 'poolers.postgres.keiailab.io' dist/install.yaml
+	@grep -q 'postgresdatabases.postgres.keiailab.io' /tmp/postgres-operator-crd.yaml
+	@grep -q 'postgresdatabases.postgres.keiailab.io' /tmp/postgres-operator-helm.yaml
+	@grep -q 'postgresdatabases.postgres.keiailab.io' dist/install.yaml
+	@grep -q 'postgresusers.postgres.keiailab.io' /tmp/postgres-operator-crd.yaml
+	@grep -q 'postgresusers.postgres.keiailab.io' /tmp/postgres-operator-helm.yaml
+	@grep -q 'postgresusers.postgres.keiailab.io' dist/install.yaml
+	@grep -q '^kind: ServiceMonitor' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q '^kind: PrometheusRule' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres_operator_backupjob_phase' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres_operator_pooler_phase' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresPoolerExporterCollectionFailed' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresPoolerClientWaiting' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresPoolerClientMaxWaitHigh' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'cnpg_pgbouncer_last_collection_error' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'cnpg_pgbouncer_pools_cl_waiting' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'cnpg_pgbouncer_pools_maxwait' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres_operator_postgrescluster_replication_lag_bytes' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres-operator-cluster-overview.json' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres-operator-pooler.json' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres-operator-cluster-overview' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'postgres-operator-pooler' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'kubelet_volume_stats_available_bytes' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'cnpg_pgbouncer_pools_sv_active' /tmp/postgres-operator-helm-monitoring.yaml
 	@if "$(KUBECTL)" version --request-timeout=5s >/dev/null 2>&1; then \
 		"$(KUBECTL)" create --dry-run=client --validate=false -f dist/install.yaml >/dev/null; \
 	else \
 		echo "kubectl API server 미연결: dist/install.yaml client dry-run 생략"; \
 	fi
-	@rm -f /tmp/postgres-operator-crd.yaml /tmp/postgres-operator-default.yaml /tmp/postgres-operator-helm.yaml
+	@rm -f /tmp/postgres-operator-crd.yaml /tmp/postgres-operator-default.yaml /tmp/postgres-operator-helm.yaml /tmp/postgres-operator-helm-monitoring.yaml
 
 .PHONY: gate
 gate: lint test audit validate ## 로컬 릴리스 품질 게이트 실행.
@@ -330,6 +380,23 @@ helm-publish: ## Helm chart package와 index를 gh-pages에 게시. HELM_SIGN=1 
 		git push origin gh-pages
 	@rm -rf "$(RELEASE_TMP)" "$(GHPAGES_TMP)"
 	@echo "Helm chart 게시 완료"
+
+.PHONY: artifacthub-smoke
+artifacthub-smoke: ## Artifact Hub 등록/검색 상태를 실제 API로 확인.
+	@ARTIFACTHUB_API_URL="$(ARTIFACTHUB_API_URL)" \
+		ARTIFACTHUB_ORG="$(ARTIFACTHUB_ORG)" \
+		ARTIFACTHUB_PACKAGE_NAME="$(ARTIFACTHUB_PACKAGE_NAME)" \
+		ARTIFACTHUB_REPOSITORY_NAME="$(ARTIFACTHUB_REPOSITORY_NAME)" \
+		HELM_REPO_URL="$(HELM_REPO_URL)" \
+		bash hack/artifacthub_smoke.sh
+
+.PHONY: artifacthub-register
+artifacthub-register: ## Artifact Hub org repository를 API로 등록. ARTIFACTHUB_API_KEY_ID/SECRET 필요.
+	@ARTIFACTHUB_API_URL="$(ARTIFACTHUB_API_URL)" \
+		ARTIFACTHUB_ORG="$(ARTIFACTHUB_ORG)" \
+		ARTIFACTHUB_REPOSITORY_NAME="$(ARTIFACTHUB_REPOSITORY_NAME)" \
+		HELM_REPO_URL="$(HELM_REPO_URL)" \
+		bash hack/artifacthub_register.sh
 
 ##@ Build
 

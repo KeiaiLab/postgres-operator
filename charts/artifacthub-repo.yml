@@ -1,6 +1,9 @@
 # Artifact Hub repository metadata
 # https://artifacthub.io/docs/topics/repositories/
 
+# 이 값은 Artifact Hub control panel 에서 repository 를 추가한 뒤 표시되는
+# repository ID 와 일치해야 Verified publisher 처리가 가능하다.
+# repository 를 재생성하면 이 값을 새 ID 로 교체해야 한다.
 repositoryID: e7f6b661-08c3-44bf-a2e6-d87eae0e8c69
 
 owners:

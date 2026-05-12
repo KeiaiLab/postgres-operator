@@ -6,7 +6,7 @@ authors:
   - name: "Keiailab"
     website: "https://github.com/keiailab"
 repository-code: "https://github.com/keiailab/postgres-operator"
-url: "https://artifacthub.io/packages/helm/postgresql-operator/postgresql-operator"
+url: "https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator"
 abstract: >-
   Kubernetes operator for PostgreSQL — manages PostgresCluster CRD with
   shard-aware topology (primary + standby streaming replication), automated
