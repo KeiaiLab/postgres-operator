@@ -368,8 +368,24 @@ func handleStoppedLeading(
 		return
 	}
 
-	// 자기 PVC를 fence 처리하여 좀비 부활 시 split-brain 방지.
-	// background ctx 사용 — election ctx는 이미 종료 중일 수 있음.
+	// Skip PVC fencing if standby.signal is still in dataDir — this pod has
+	// never actually been promoted to primary, so there is no risk of stale
+	// primary data even on a zombie revival. (HA bootstrap race: a pod that
+	// just acquired the lease but failed waitSupReady would otherwise fence
+	// its own PVC on shutdown and crashloop on every subsequent boot —
+	// observed in PG18 HA kind smoke iter#1.) The check is dataDir-only so it
+	// works without postgres being live.
+	if supervise.IsStandby(dataDir) {
+		logger.Warn(
+			"Leadership stop observed while still in standby (standby.signal present) "+
+				"— skipping fence, no primary data at risk",
+			"identity", podName, "lease", leaseName, "dataDir", dataDir,
+		)
+		return
+	}
+
+	// Fence own PVC to prevent split-brain on zombie revival.
+	// Use a background ctx — the election ctx may already be cancelling.
 	markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer markCancel()
 	if err := fencer.MarkFenced(markCtx); err != nil {
