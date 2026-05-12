@@ -273,8 +273,9 @@ func main() {
 	}
 
 	if err := (&controller.PoolerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		PodExecutor: podExecutor,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pooler")
 		os.Exit(1)
