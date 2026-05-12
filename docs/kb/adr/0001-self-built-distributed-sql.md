@@ -1,4 +1,4 @@
-# ADR-0001: PostgreSQL 위 자체 분산 SQL 레이어 구축
+# ADR-0001: Build a self-built distributed-SQL layer on PostgreSQL
 
 - Date: 2026-05-02
 - Status: Accepted
@@ -7,80 +7,159 @@
 
 ## Context
 
-본 프로젝트는 Kubernetes 위에서 PostgreSQL 을 운영하는 operator 로 0.2.0-alpha 까지 진화했고, ADR-0010 (2026-05-01) 시점에는 *Citus extension 의 AGPL 격리 + vanilla PG18 default* 이라는 *이중 backend* 모델로 가는 중이었다. 그러나 2026-05-02 에 *유사 시스템 (Citus / YugabyteDB / CockroachDB / Vitess / CloudNativePG) 의 설계 결정을 비교 분석* 한 결과, 다음 조건을 동시에 충족하는 시스템이 시장에 존재하지 않음이 확인됐다:
+The project evolved through 0.2.0-alpha as a Kubernetes operator that
+runs PostgreSQL. At ADR-0010 (2026-05-01) it was on its way to a *dual
+backend* model: *Citus extension under AGPL isolation + vanilla PG18 as
+default*. On 2026-05-02, after a comparative analysis of similar
+systems (Citus / YugabyteDB / CockroachDB / Vitess / CloudNativePG), we
+confirmed that no product on the market simultaneously satisfies all of
+the following:
 
-1. **PostgreSQL wire/SQL 100% 호환** — application 코드 변경 없이 분산 채택 가능.
-2. **라이선스 청정성** (Apache-2.0 / BSD / MIT / PG License 만) — 상용 SaaS 노출 시 의무 없음.
-3. **K8s 네이티브 통합** — CRD + reconciler + KEDA 기반 자동 샤딩.
-4. **자동 샤딩** (write-side scale-out) — 수동 split 만 지원하는 Citus 한계 보완.
+1. **100% PostgreSQL wire / SQL compatibility** — distribution can be
+   adopted without changing application code.
+2. **License-clean** (Apache-2.0 / BSD / MIT / PG License only) — no
+   obligations when exposed as commercial SaaS.
+3. **K8s-native integration** — CRDs + reconcilers + KEDA-driven auto
+   sharding.
+4. **Auto sharding** (write-side scale-out) — closes the Citus gap of
+   manual-split-only.
 
-사용자 (eightynine01@gmail.com) 가 2026-05-02 본 결정 시점에 4 가지 선택지 (A: Citus packaging, B: 실용적 통합 — pgcat + Citus rebalancer 위임 + KEDA 자동 split + CNPG HA 임베드, C: 풀 자체 분산 SQL — 모든 의존 제거, custom) 중 **C** 와 **모든 외부 backend 의존 제거** 와 **single chart + flags** 를 명시 선택했다. 2026-05-07 에는 이 원칙을 더 좁혀, 외부 시스템 설계는 차용할 수 있으나 그 시스템을 그대로 내장해서 사용하는 방식이 아니라 **새로운 서비스로 개발**해야 한다고 재확인했다. 이는 6+년 timeline 을 인지한 야심찬 결정이며, *long-term 차별화는 invention 이 아니라 invention + 라이선스 청정 + K8s 네이티브의 동시 달성에서 나온다* 는 product 정체성 재정의이다.
+At decision time (2026-05-02), the user (eightynine01@gmail.com) chose
+**C** out of four options — A: Citus packaging; B: a pragmatic
+integration (pgcat + Citus rebalancer delegate + KEDA auto-split + CNPG
+HA embed); C: a full self-built distributed-SQL — and additionally
+specified **remove every external backend dependency** and **single
+chart + flags**. On 2026-05-07 we narrowed the principle further: we
+may reference external system designs, but we cannot embed those
+systems; we must **build as a new service**. This is an ambitious
+6+-year decision; *long-term differentiation comes not from invention
+alone but from invention + license-clean + K8s-native achieved
+simultaneously* — a redefinition of the product identity.
 
 ## Decision
 
-PostgreSQL 위에 *자체 분산 SQL 레이어*를 구축한다. Citus / CloudNativePG / Patroni / CockroachDB 패턴 코드를 의존성 그래프에서 영구히 제외한다. PGO-class, Citus-class 같은 표현은 품질 기준과 문제 영역을 설명하는 비교 용어이며, 외부 제품의 controller, CRD, extension, runtime 을 내장한다는 뜻이 아니다.
+We will build a *self-built distributed-SQL layer* on top of
+PostgreSQL. We permanently exclude code from Citus / CloudNativePG /
+Patroni / CockroachDB from our dependency graph. Phrases such as
+"PGO-class" / "Citus-class" describe quality bars and problem domains
+in comparison; they do not mean embedding those products' controllers,
+CRDs, extensions, or runtimes.
 
-핵심 매개변수:
+Key parameters:
 
-- **Operator core 라이선스**: Apache-2.0 (변경 없음).
-- **외부 OSS 의존 정책**: ADR-0003 (license policy) 참조. AGPL/BUSL/CSL/SSPL 영구 금지. BSD/Apache/MIT/PG License + v1+ stability commitment 만 허용.
-- **자체 구현 컴포넌트** (`docs/architecture/` 상세):
-  - `pg-router` — PG wire protocol parser, vindex 평가, scatter-gather, 분산 txn coordinator.
-  - `vindex` 모듈 — hash / range / consistent-hash / lookup.
-  - `ShardRange` CRD — keyspace + key range + shard placement source of truth.
-  - `ShardSplitJob` CRD + resharder controller — 7-step online resharding workflow.
-  - `Rebalancer` controller — shard 배치 균형 자체 구현.
-  - 분산 트랜잭션 coordinator — 2PC (PG `PREPARE TRANSACTION` 활용) + saga.
-  - HA — instance manager 기반 (RFC 0003 P2-T1 frozen interface 활용, Patroni 미사용).
-- **재활용 자산**: pgBackRest (BSD-2), pg_query_go (PG License), controller-runtime (Apache-2.0), KEDA (Apache-2.0). 모두 ADR-0003 정책 충족.
-- **Backend 의존 제거 범위**: Citus extension, Citus 메타데이터 (`pg_dist_*`), CloudNativePG `Cluster` CR, Patroni DCS, CockroachDB range KV layer. 코드 0줄 + 문서/논문/운영 idiom 차용만 허용.
-- **Clean-room 신규 구현**: 외부 시스템의 공개 설계를 읽고 문제 분해를 참고할 수는 있지만, 구현은 본 repo 의 타입, controller, instance manager, router 로 새로 작성한다.
-- **Helm 패키징** (ADR-0002): 단일 chart + 컴포넌트 flag (router / resharder / rebalancer / keda / backup / monitoring).
-- **CRD 라이프사이클** (ADR-0004): operator manager 가 소유 (server-side apply), Helm `crds/` 폐기.
-- **버전 채널** (ADR-0005): alpha / beta / stable. CRD apiVersion v1alpha1 → v1beta1 → v1.
-- **Phase 로드맵** (`docs/roadmap.md`): P0 (재설계 정리, 0.3.0) → P1 (single-shard production-ready, 0.4.0) → P2 (multi-shard 수동, 0.5.0) → P3 (vindex 확장 + read autoscale, 0.6.0) → P4 (online split, 0.7.0) → P5 (자동 split + rebalance, 0.8.0) → P6 (분산 txn, 0.9.0) → P7 (안정화 + ArtifactHub verified, 1.0.0). 1인 50% 가동 ~64개월 (5.3년) 추정.
-- **Production 보장**: 각 phase 끝에 *deploy 가능한 안정 버전*. P1 부터 single-shard production 사용 가능.
+- **Operator core license**: Apache-2.0 (unchanged).
+- **External OSS dependency policy**: see ADR-0003 (license policy).
+  AGPL / BUSL / CSL / SSPL are permanently forbidden. Only BSD / Apache
+  / MIT / PG License with v1+ stability commitment are allowed.
+- **In-house components** (details in `docs/architecture/`):
+  - `pg-router` — PostgreSQL wire-protocol parser, vindex evaluation,
+    scatter-gather, distributed-transaction coordinator.
+  - `vindex` module — hash / range / consistent-hash / lookup.
+  - `ShardRange` CRD — source of truth for keyspace + key range + shard
+    placement.
+  - `ShardSplitJob` CRD + resharder controller — 7-step online
+    resharding workflow.
+  - `Rebalancer` controller — homegrown shard-placement rebalancer.
+  - Distributed-transaction coordinator — 2PC (using PG `PREPARE
+    TRANSACTION`) + saga.
+  - HA — based on the instance manager (uses the RFC 0003 P2-T1 frozen
+    interface; no Patroni).
+- **Reusable assets**: pgBackRest (BSD-2), pg_query_go (PG License),
+  controller-runtime (Apache-2.0), KEDA (Apache-2.0). All meet ADR-0003.
+- **Removed backend dependencies**: Citus extension, Citus metadata
+  (`pg_dist_*`), CloudNativePG `Cluster` CR, Patroni DCS, CockroachDB
+  range-KV layer. Zero lines of code; only documents / papers /
+  operational idioms may be referenced.
+- **Clean-room re-implementation**: we may read external systems'
+  public designs and reuse their problem decomposition, but
+  implementation is rewritten as new types, controllers, instance
+  managers, and routers in this repo.
+- **Helm packaging** (ADR-0002): one chart + component flags (router /
+  resharder / rebalancer / keda / backup / monitoring).
+- **CRD lifecycle** (ADR-0004): owned by the operator manager
+  (server-side apply); the Helm `crds/` directory is retired.
+- **Version channels** (ADR-0005): alpha / beta / stable. CRD
+  apiVersion v1alpha1 → v1beta1 → v1.
+- **Phase roadmap** (`docs/roadmap.md`): P0 (redesign reset, 0.3.0) →
+  P1 (single-shard production-ready, 0.4.0) → P2 (multi-shard manual,
+  0.5.0) → P3 (vindex extension + read autoscale, 0.6.0) → P4 (online
+  split, 0.7.0) → P5 (auto split + rebalance, 0.8.0) → P6 (distributed
+  transactions, 0.9.0) → P7 (stabilization + Artifact Hub verified,
+  1.0.0). Estimate: ~64 months (5.3 years) at one engineer at 50%
+  capacity.
+- **Production guarantee**: each phase ends with a *deployable stable
+  version*. From P1 onward single-shard production use is supported.
 
 ## Consequences
 
-**긍정**:
-- *라이선스 사고 영구 0 건* — AGPL 전염, BUSL 상용 금지, SSPL FUD 모두 회피. SaaS 노출 자유.
-- *PostgreSQL 100% 호환* — fork (YugabyteDB) 또는 wire-only (Cockroach 40%) 의 한계 극복. 모든 PG 18+ extension / 타입 / 함수 사용 가능.
-- *K8s 네이티브 metadata 통합* — ShardRange CRD = source of truth, etcd 가 분산 메타데이터 저장소. 별도 KV 레이어 (Cockroach Range, Citus `pg_dist_node`) 불필요.
-- *명확한 차별화* — "K8s-native + license-clean + auto-sharding for vanilla PG" 는 시장에 없음.
-- *학습 가치* — Citus 8년 / Vitess 10년 자산을 "직접 구현" 하면서 분산 SQL 내재화.
+**Positives**:
 
-**부정 / 비용**:
-- *6+년 timeline* — 1인 50% 가동 추정 64개월. 현실적으로 6년 이상 가능성. 중도 포기 위험은 phase 별 production-deployable 보장으로 완화 (P1 single-shard 부터 사용 가능).
-- *재발명 비용* — Citus 의 검증된 rebalancer / shard placement / DDL propagation 을 직접 구현. 초기 버그 밀도 높음.
-- *단위 테스트 + chaos test 부담 증가* — 분산 시스템 정합성 검증 (jepsen-style) 자체 구축 필요.
-- *PG wire protocol drift 추적* — PG 19/20 출시 시 router 호환성 작업 부담.
-- *기존 코드 폐기* — `internal/citus/`, `internal/plugin/extension/citus/` 삭제. 약 ~3K LoC 손실 (테스트 포함).
-- *ADR-0001 (legacy) "PGO-class + Citus 1급" 메시징 무효화* — README + roadmap + tutorials 전면 재작성.
+- *Zero license incidents, permanently* — AGPL contagion, BUSL
+  commercial restrictions, and SSPL FUD are all avoided. SaaS exposure
+  is free.
+- *100% PostgreSQL compatibility* — overcomes the limits of forks
+  (YugabyteDB) and wire-only solutions (Cockroach at ~40%). Every
+  PG 18+ extension / type / function remains available.
+- *K8s-native metadata integration* — the `ShardRange` CRD is the
+  source of truth and etcd becomes the distributed-metadata store. A
+  separate KV layer (Cockroach Range, Citus `pg_dist_node`) is not
+  needed.
+- *Clear differentiation* — "K8s-native + license-clean + auto sharding
+  for vanilla PG" is not currently on the market.
+- *Learning value* — internalizing the distributed-SQL knowledge of
+  Citus (8 years) and Vitess (10 years) by re-implementing it directly.
 
-**트레이드오프**:
-- *invention vs integration* — 본 결정은 invention 측이다. 1인 maintainer burnout 이 발생하더라도 외부 backend 를 그대로 내장하는 복귀 경로는 현행 정책이 아니다. 범위를 줄일 수는 있지만, 축소 방향은 single-shard operator 품질 강화나 자체 router 범위 축소이지 Citus/CNPG/PGO wrapper 전환이 아니다.
-- *시장 진입 시기* — Citus packaging (옵션 A, 12 개월) 으로 빠르게 reach 했으면 v1.0 을 2027 에 출시 가능했음. 본 결정으로 v1.0 이 2031~2032 로 밀림. 그 사이 *경쟁 솔루션이 같은 격차를 메울 위험* 존재.
+**Negatives / costs**:
+
+- *6+-year timeline* — ~64 months at one engineer at 50% capacity;
+  realistically 6+ years is possible. Mid-way abandonment risk is
+  mitigated by each phase shipping a production-deployable artifact
+  (P1 single-shard usable from the start).
+- *Re-invention cost* — implementing Citus's proven rebalancer / shard
+  placement / DDL propagation ourselves. Initial bug density will be
+  high.
+- *Unit tests + chaos tests* — distributed-system correctness
+  validation (Jepsen-style) must be built in house.
+- *PG wire-protocol drift* — router compatibility work whenever PG 19 /
+  20 ships.
+- *Legacy code removal* — drop `internal/citus/` and
+  `internal/plugin/extension/citus/`. About ~3 K LoC lost (tests
+  included).
+- *Invalidates the legacy "PGO-class + first-class Citus" messaging* —
+  README, roadmap, and tutorials must be fully rewritten.
+
+**Trade-offs**:
+
+- *Invention vs integration* — this decision sides with invention. Even
+  if a single-maintainer burns out, the policy is not to revert to
+  embedding an external backend. We may shrink scope, but the
+  shrink direction is "harden the single-shard operator quality" or
+  "narrow the router scope", not "switch to a Citus / CNPG / PGO
+  wrapper".
+- *Time to market* — option A (Citus packaging, 12 months) could have
+  shipped v1.0 in 2027. Under this decision v1.0 slides to
+  2031–2032, raising the risk that a *competing solution closes the
+  same gap in the interim*.
 
 ## Alternatives Considered
 
-| 대안 | 거절 사유 |
+| Option | Why rejected |
 |---|---|
-| **A. K8s-native Citus + CNPG packaging** (12개월, ADR-0010 방향 유지) | AGPL 의존 + Citus 자동 split 부재 + 차별화가 *integration* 한정. 사용자 명시 거부 (2026-05-02). |
-| **B. pgcat + Citus rebalancer 위임 + KEDA 자동 split + CNPG HA** (24개월, devil's advocate 추천) | pgcat 는 PG-호환이지만 query parser 한정 + scatter-gather 미지원. CNPG API drift 장기 위험. 사용자 명시 거부. |
-| **D. CloudNativePG fork + sharding patch** | upstream 흐름 단절 → self-defeat. CNPG 1.5만 commit/yr 의 자산 손실. |
-| **E. CockroachDB 임베드** | BUSL/CSL 상용 금지 + PG SQL feature parity 40%. ADR-0003 라이선스 정책 위반. |
-| **F. YugabyteDB fork** | YSQL 은 PG11 fork — 일부 extension 미지원, 다른 product 가 됨. |
-| **G. Apache ShardingSphere-Proxy** | JVM 운영 부담 + DDL/extension 일부 제한 + K8s operator 부재. |
+| **A. K8s-native Citus + CNPG packaging** (12 months, keeps the ADR-0010 direction) | AGPL dependency + Citus has no auto-split + differentiation is limited to *integration*. The user explicitly rejected this (2026-05-02). |
+| **B. pgcat + Citus rebalancer delegate + KEDA auto-split + CNPG HA** (24 months, devil's-advocate recommendation) | pgcat is PG-compatible but only at the query-parser level + no scatter-gather. CNPG API drift is a long-term risk. The user explicitly rejected this. |
+| **D. CloudNativePG fork + sharding patch** | Forking severs the upstream stream → self-defeating. CNPG's ~1.5 K commits / year of investment would be lost. |
+| **E. Embed CockroachDB** | BUSL / CSL forbid commercial use; PG SQL feature parity is ~40%. Violates the ADR-0003 license policy. |
+| **F. YugabyteDB fork** | YSQL is a PG11 fork — some extensions are unsupported and the result is a different product. |
+| **G. Apache ShardingSphere-Proxy** | JVM operational burden + DDL / extension partial restrictions + no K8s operator. |
 
 ## References
 
-- 사용자 결정 기록: `/Users/phil/.claude/plans/eager-wobbling-torvalds.md` §1, §3
-- 비교 분석: `/Users/phil/.claude/plans/eager-wobbling-torvalds-agent-a335628aa15778167.md`
-- ADR-0002: 단일 chart + flags Helm 정책 (본 결정의 패키징 측면)
-- ADR-0003: 라이선스 정책 — AGPL/BUSL/CSL/SSPL 영구 금지 (본 결정의 의존성 측면)
-- ADR-0004: CRD 라이프사이클을 operator manager 가 소유
-- ADR-0005: alpha → beta → stable 채널 + CRD apiVersion 진화
-- RFC-0001~0005: 본 결정의 5 핵심 컴포넌트 RFC (CRD v2 / ShardRange / ShardSplitJob / pg-router / 분산 트랜잭션)
-- 폐기된 결정: `_archive/v0.x/0010-license-and-sharding-strategy.md` (Citus AGPL 격리 + vanilla PG default 모델)
-- standards 참조: `~/Documents/ai-dev/standards/principles.md` §1 (Think Before Coding), §2 (Simplicity First — *충돌* — 본 결정은 simplicity 보다 *long-term 라이선스 청정성 + 차별화* 우선), `standards/adr.md` (ADR 작성 규약)
+- User decision log: `/Users/phil/.claude/plans/eager-wobbling-torvalds.md` §1, §3.
+- Comparison analysis: `/Users/phil/.claude/plans/eager-wobbling-torvalds-agent-a335628aa15778167.md`.
+- ADR-0002: single-chart + flags Helm policy (packaging aspect of this decision).
+- ADR-0003: license policy — permanently forbidden AGPL / BUSL / CSL / SSPL (dependency aspect of this decision).
+- ADR-0004: the CRD lifecycle is owned by the operator manager.
+- ADR-0005: alpha → beta → stable channels + CRD apiVersion evolution.
+- RFC-0001 through RFC-0005: the 5 core component RFCs (CRD v2 / `ShardRange` / `ShardSplitJob` / `pg-router` / distributed transactions).
+- Retired decision: `_archive/v0.x/0010-license-and-sharding-strategy.md` (Citus AGPL isolation + vanilla-PG-default model).
+- Org-wide references: `~/Documents/ai-dev/standards/principles.md` §1 (Think Before Coding), §2 (Simplicity First — *conflict* — this decision puts *long-term license-clean + differentiation* ahead of simplicity); `standards/adr.md` (ADR authoring rules).

@@ -1,55 +1,70 @@
 # Architecture Decision Records — INDEX
 
-본 디렉터리는 postgres-operator 의 비역행 결정(architecture decisions)을 Nygard
-5섹션 형식으로 보존한다. 결정의 *이유*가 코드보다 오래 살아남도록 한다.
+This directory preserves the non-trivial decisions of `postgres-operator`
+in Nygard 5-section form so that the *reason* behind each decision
+outlives the code.
 
-경로 표준: `<repo>/docs/kb/adr/` (글로벌 `standards/adr.md §1`).
+Standard path: `<repo>/docs/kb/adr/` (per the org-wide
+`standards/adr.md §1`).
 
-## 활성 ADR
+## Active ADRs
 
-| 번호 | 제목 | 상태 | 날짜 |
-|------|------|------|------|
-| [ADR-0001](0001-self-built-distributed-sql.md) | PostgreSQL 위 자체 분산 SQL 레이어 구축 | Accepted | 2026-04-30 |
-| [ADR-0002](0002-single-chart-with-flags.md) | Helm 단일 chart + 컴포넌트 flag 정책 | Accepted | 2026-04-30 |
-| [ADR-0003](0003-license-policy-no-agpl-busl.md) | 외부 의존 라이선스 정책 (AGPL/BUSL/CSL/SSPL 영구 금지) | Accepted | 2026-04-30 |
-| [ADR-0004](0004-crd-managed-by-operator.md) | CRD 라이프사이클은 operator manager 가 소유 | Accepted | 2026-04-30 |
-| [ADR-0005](0005-versioning-and-channels.md) | 릴리스 채널 (alpha/beta/stable) 과 CRD apiVersion 진화 | Accepted | 2026-04-30 |
-| [ADR-0006](0006-gitops-deploy-overlay.md) | GitOps deploy 오버레이 도입 (3-repo 정합) | Accepted | 2026-05-06 |
-| [ADR-0007](0007-pre-commit-instead-of-lefthook.md) | Hook 도구로 pre-commit 채택 (글로벌 lefthook 표준 분기) | Accepted | 2026-05-06 |
-| [ADR-0008](0008-operator-commons-adoption.md) | operator-commons 채택 + Container SecurityContext invariant 강화 | Accepted | 2026-05-07 |
-| [ADR-0009](0009-webhook-accumulate-errors.md) | Webhook validate — immediate-return → accumulate-errors 변환 (commons.ValidateWithPredicate 위임) | Accepted | 2026-05-07 |
-| [ADR-0010](0010-rfc-0017-tooling-unification-adoption.md) | RFC-0017 operator tooling unification 채택 (lefthook + EventRecorder 도입 + HEALTHCHECK) | Proposed | 2026-05-09 |
-| [ADR-0011](0011-rfc-0018-pkg-status-partial-adoption.md) | RFC-0018 부분 채택 — pkg/status (Ready type only) + pkg/finalizer 비대칭 보존 (PR-A7 first cut) | Accepted | 2026-05-09 |
-| [ADR-0012](0012-pkg-version-matrix-commons-delegation.md) | pkg/version Matrix[Combo] commons 위임 (Plan §2 D12, PR-B3 — go.mod commons v0.7.0 bump) | Accepted | 2026-05-09 |
-| [ADR-0013](0013-operatorhub-bundle-scaffold.md) | OperatorHub.io bundle scaffold cross-cut — operator-sdk 1.42 + kustomize, 2 CRD owned, Makefile bundle/bundle-build (PR-B9, valkey ADR-0037 패턴 이식) | Accepted | 2026-05-10 |
+| Number | Title | Status | Date |
+|--------|-------|--------|------|
+| [ADR-0001](0001-self-built-distributed-sql.md) | Build a self-built distributed-SQL layer on PostgreSQL | Accepted | 2026-04-30 |
+| [ADR-0002](0002-single-chart-with-flags.md) | Helm single chart + component flags policy | Accepted | 2026-04-30 |
+| [ADR-0003](0003-license-policy-no-agpl-busl.md) | External-dependency license policy (AGPL / BUSL / CSL / SSPL forbidden) | Accepted | 2026-04-30 |
+| [ADR-0004](0004-crd-managed-by-operator.md) | The CRD lifecycle is owned by the operator manager | Accepted | 2026-04-30 |
+| [ADR-0005](0005-versioning-and-channels.md) | Release channels (alpha / beta / stable) + CRD apiVersion evolution | Accepted | 2026-04-30 |
+| [ADR-0006](0006-gitops-deploy-overlay.md) | Introduce the GitOps deploy overlay (3-repo alignment) | Accepted | 2026-05-06 |
+| [ADR-0007](0007-pre-commit-instead-of-lefthook.md) | Hook tooling — pre-commit instead of lefthook (diverging from the org-wide lefthook standard) | Accepted | 2026-05-06 |
+| [ADR-0008](0008-operator-commons-adoption.md) | Adopt operator-commons + harden the container `SecurityContext` invariant | Accepted | 2026-05-07 |
+| [ADR-0009](0009-webhook-accumulate-errors.md) | Webhook validate — immediate-return → accumulate-errors (delegate to `commons.ValidateWithPredicate`) | Accepted | 2026-05-07 |
+| [ADR-0010](0010-rfc-0017-tooling-unification-adoption.md) | Adopt RFC-0017 operator tooling unification (introduce lefthook + EventRecorder + HEALTHCHECK) | Proposed | 2026-05-09 |
+| [ADR-0011](0011-rfc-0018-pkg-status-partial-adoption.md) | Partial RFC-0018 adoption — `pkg/status` (`Ready` type only) + asymmetric `pkg/finalizer` preserved (PR-A7 first cut) | Accepted | 2026-05-09 |
+| [ADR-0012](0012-pkg-version-matrix-commons-delegation.md) | Delegate `pkg/version Matrix[Combo]` to commons (Plan §2 D12, PR-B3 — `go.mod` commons v0.7.0 bump) | Accepted | 2026-05-09 |
+| [ADR-0013](0013-operatorhub-bundle-scaffold.md) | OperatorHub.io bundle scaffold cross-cut — operator-sdk 1.42 + kustomize, 2 owned CRDs, Makefile `bundle` / `bundle-build` (PR-B9, valkey ADR-0037 port) | Accepted | 2026-05-10 |
 
-## Archived (v0.x — 재설계 이전 결정 기록)
+## Archived (v0.x — decisions from before the redesign)
 
-v0.x 사이클에서 *PGO-class 풀스택 + Citus 1급 + Plugin SDK* 를 목표로 했던 ADR 묶음. 2026-04-30 의 keystone 재설계 (ADR-0001 신규) 이후 *역사적 참고용으로만* 보존한다. 새 코드 / 새 결정은 본 archive 의 결론을 *의무적으로 따르지 않는다*. 현행 원칙은 "외부 설계 참고는 가능, 외부 시스템 내장/랩핑은 금지, 신규 서비스로 직접 구현"이다. 단, 일부 archived ADR (0008 cascade delete, 0009 no-github-actions-rfc-0002) 는 *현행 운영 정책과 여전히 부합* — 본 INDEX 의 비고 컬럼 참조.
+The v0.x cycle aimed at a "PGO-class full-stack + first-class Citus +
+Plugin SDK" outcome. After the 2026-04-30 keystone redesign (new
+ADR-0001), the v0.x ADRs are preserved *for historical reference only*.
+New code / new decisions are *not* required to follow the conclusions of
+this archive. The current principle is "external designs may be
+referenced, embedding / wrapping external systems is forbidden, and we
+implement as new services." That said, some archived ADRs (e.g. v0.x
+ADR-0008 cascade delete, v0.x ADR-0009 no-github-actions-rfc-0002)
+remain *consistent with current operational policy* — see the Notes
+column.
 
-| 번호 | 제목 | 비고 |
-|------|------|------|
-| [v0.x ADR-0001](_archive/v0.x/0001-stateless-query-router-on-citus.md) | 미션 재정의: PGO-class 풀스택 + Citus 1급 + Plugin SDK | Superseded by 활성 ADR-0001 |
-| [v0.x ADR-0002](_archive/v0.x/0002-no-patroni-instance-manager.md) | Patroni 미사용, Instance Manager + K8s API as DCS | 활성 — Instance Manager 패턴 유지 |
-| [v0.x ADR-0003](_archive/v0.x/0003-queryrouter-stateless-design.md) | QueryRouter 계층의 Stateless 설계 | 활성 — `pg-router` 도 동일 원칙 |
-| [v0.x ADR-0004](_archive/v0.x/0004-build-not-fork-or-layer.md) | Build from Scratch (PGO Fork·Soft Layer 모두 거부) | 활성 — 본 repo 의 keystone 정책 |
-| [v0.x ADR-0005](_archive/v0.x/0005-plugin-sdk-interface-model.md) | Plugin SDK 인터페이스 모델 (in-process + gRPC) | Superseded — Plugin SDK 폐기 (활성 ADR-0001) |
-| [v0.x ADR-0006](_archive/v0.x/0006-security-defaults-rationale.md) | 데이터플레인 PodSecurityContext 기본값 | 활성 — Pod security defaults 유지 |
-| [v0.x ADR-0007](_archive/v0.x/0007-helm-chart-promoted-to-p1.md) | Helm chart 을 P14 에서 P1 트랙으로 분리 | Superseded by 활성 ADR-0002 (단일 chart + flag) |
-| [v0.x ADR-0008](_archive/v0.x/0008-finalizer-avoidance-policy.md) | Finalizer 회피 정책 (Cascade Delete via OwnerReference) | 활성 — cascade delete 패턴 운영 |
-| [v0.x ADR-0009](_archive/v0.x/0009-no-github-actions-rfc-0002.md) | GitHub Actions 폐기 + 로컬 4 계층 게이트 | 활성 — RFC 0002 글로벌 정책의 본 repo 적용 기록 |
-| [v0.x ADR-0010](_archive/v0.x/0010-license-and-sharding-strategy.md) | License + Sharding Strategy (Citus AGPL Isolation, vanilla PG default) | Superseded by 활성 ADR-0001 (Citus 의존 0줄) |
+| Number | Title | Notes |
+|--------|-------|-------|
+| [v0.x ADR-0001](_archive/v0.x/0001-stateless-query-router-on-citus.md) | Mission restated: PGO-class full-stack + first-class Citus + Plugin SDK | Superseded by active ADR-0001 |
+| [v0.x ADR-0002](_archive/v0.x/0002-no-patroni-instance-manager.md) | No Patroni; instance manager + K8s API as DCS | Active — instance-manager pattern retained |
+| [v0.x ADR-0003](_archive/v0.x/0003-queryrouter-stateless-design.md) | Stateless QueryRouter design | Active — `pg-router` follows the same principle |
+| [v0.x ADR-0004](_archive/v0.x/0004-build-not-fork-or-layer.md) | Build from scratch (both PGO fork and soft-layer rejected) | Active — keystone policy of this repo |
+| [v0.x ADR-0005](_archive/v0.x/0005-plugin-sdk-interface-model.md) | Plugin SDK interface model (in-process + gRPC) | Superseded — Plugin SDK retired (active ADR-0001) |
+| [v0.x ADR-0006](_archive/v0.x/0006-security-defaults-rationale.md) | Dataplane PodSecurityContext defaults | Active — Pod security defaults retained |
+| [v0.x ADR-0007](_archive/v0.x/0007-helm-chart-promoted-to-p1.md) | Move the Helm chart from P14 to the P1 track | Superseded by active ADR-0002 (single chart + flags) |
+| [v0.x ADR-0008](_archive/v0.x/0008-finalizer-avoidance-policy.md) | Finalizer-avoidance policy (cascade delete via OwnerReference) | Active — cascade-delete pattern in operation |
+| [v0.x ADR-0009](_archive/v0.x/0009-no-github-actions-rfc-0002.md) | Retire GitHub Actions + adopt the local 4-layer gate | Active — this repo's instance of the org-wide RFC 0002 policy |
+| [v0.x ADR-0010](_archive/v0.x/0010-license-and-sharding-strategy.md) | License + sharding strategy (Citus AGPL isolation, vanilla PG default) | Superseded by active ADR-0001 (0 lines of Citus dependency) |
 
-## 작성 가이드
+## Authoring guide
 
-- 형식: Nygard 5섹션 (Context / Decision / Consequences / Alternatives Considered / Status).
-- 위치: `docs/kb/adr/NNNN-<영어 kebab-case slug>.md` (글로벌 표준).
-- 번호 부여: 4자리 0-padded, 한 번 부여한 번호는 *재사용 금지*.
-- 본 INDEX.md 는 신규 ADR 추가 시 *수동 갱신 의무* — `standards/enforcement.md §2.1`.
-- v0.x archive 는 history 보존 영역 — 새 결정은 *활성 영역* 에만 추가한다.
+- Format: Nygard 5 sections (Context / Decision / Consequences /
+  Alternatives Considered / Status).
+- Location: `docs/kb/adr/NNNN-<english kebab-case slug>.md` (org-wide
+  standard).
+- Numbering: 4-digit zero-padded; numbers are never reused.
+- This `INDEX.md` must be updated by hand whenever a new ADR is added —
+  see `standards/enforcement.md §2.1`.
+- The v0.x archive is a history-preservation area; new decisions live in
+  the active section only.
 
-## 글로벌 참조
+## Org-wide references
 
-- 글로벌 ADR 표준: `~/Documents/ai-dev/standards/adr.md`
-- ADR 커버리지 게이트: `scripts/check-adr-coverage.sh` (글로벌)
-- 강제 표준: `~/Documents/ai-dev/standards/enforcement.md §2.1`
+- Org-wide ADR standard: `~/Documents/ai-dev/standards/adr.md`.
+- ADR-coverage gate: `scripts/check-adr-coverage.sh` (org-wide).
+- Enforcement standard: `~/Documents/ai-dev/standards/enforcement.md §2.1`.
