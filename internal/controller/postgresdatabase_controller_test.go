@@ -162,26 +162,40 @@ func TestPostgresDatabaseReconcileDeletePolicyAddsFinalizerBeforeApply(t *testin
 		SQLExecutor: executor,
 	}
 
+	// 새 패턴: 한 번의 reconcile 안에서 finalizer 부착 → SQL apply → status update 가
+	// 모두 끝나야 한다. 핵심 invariant 는 finalizer 가 SQL apply *이전에* persisted
+	// 되었다는 점이다 — fake client 가 SQL Exec 시점에 finalizer 를 이미 보고 있어야 한다.
+	executor.assertFn = func(target BackupSidecarTarget) {
+		var snapshot postgresv1alpha1.PostgresDatabase
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: db.Namespace, Name: db.Name}, &snapshot); err != nil {
+			t.Fatalf("snapshot during exec: %v", err)
+		}
+		if !slices.Contains(snapshot.Finalizers, postgresDatabaseFinalizer) {
+			t.Fatalf("SQL Exec happened before finalizer was persisted; finalizers=%v", snapshot.Finalizers)
+		}
+	}
 	result, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Namespace: db.Namespace, Name: db.Name},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile error: %v", err)
 	}
-	if result.IsZero() {
-		t.Fatalf("result = zero, want requeue after finalizer update")
+	if !result.IsZero() {
+		t.Fatalf("result = %+v, want zero (finalizer-add + apply in one pass)", result)
 	}
-	if len(executor.calls) != 0 {
-		t.Fatalf("executor calls = %d, want 0 before finalizer is persisted", len(executor.calls))
+	if len(executor.calls) != 1 {
+		t.Fatalf("executor calls = %d, want 1 in single pass", len(executor.calls))
 	}
 	var got postgresv1alpha1.PostgresDatabase
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: db.Namespace, Name: db.Name}, &got); err != nil {
 		t.Fatalf("Get back: %v", err)
 	}
-	if slices.Contains(got.Finalizers, postgresDatabaseFinalizer) {
-		return
+	if !slices.Contains(got.Finalizers, postgresDatabaseFinalizer) {
+		t.Fatalf("finalizers = %v, want postgres database finalizer", got.Finalizers)
 	}
-	t.Fatalf("finalizers = %v, want postgres database finalizer", got.Finalizers)
+	if !got.Status.Applied {
+		t.Fatalf("status.applied = false, want true after single-pass reconcile")
+	}
 }
 
 func TestPostgresDatabaseReconcileManagesFDWAndForeignServer(t *testing.T) {
@@ -382,7 +396,8 @@ func TestPostgresDatabaseReconcileDropsFDWAndForeignServerWhenAbsent(t *testing.
 }
 
 type fakeDatabaseSQLExecutor struct {
-	calls []databaseSQLExecCall
+	calls    []databaseSQLExecCall
+	assertFn func(target BackupSidecarTarget)
 }
 
 type databaseSQLExecCall struct {
@@ -391,6 +406,9 @@ type databaseSQLExecCall struct {
 }
 
 func (f *fakeDatabaseSQLExecutor) Exec(_ context.Context, target BackupSidecarTarget, command []string) ([]byte, error) {
+	if f.assertFn != nil {
+		f.assertFn(target)
+	}
 	f.calls = append(f.calls, databaseSQLExecCall{
 		target:  target,
 		command: append([]string{}, command...),

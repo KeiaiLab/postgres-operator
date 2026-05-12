@@ -81,9 +81,19 @@ func (r *PostgresDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, r.statusUpdate(ctx, &db)
 	}
 
+	// reclaimPolicy=delete 인 경우 finalizer 를 *즉시* 부착하고 같은 reconcile 안에서
+	// SQL 반영까지 마친다. 이전 구현은 finalizer 추가 후 Requeue:true 로 돌려보냈는데,
+	// 이때 두 번째 reconcile 이 watch propagation 지연으로 늦거나 conflict-swallow 와
+	// 만나서 status 가 영영 비는 케이스가 PG18 kind smoke 에서 관측되었다 (iter#3).
+	// AddFinalizer + Update 가 성공하면 in-memory db 의 ResourceVersion 이 갱신되므로
+	// 이후 r.Status().Update 도 충돌 없이 같은 호출에서 수행할 수 있다.
 	if defaultedDatabaseReclaimPolicy(db.Spec.DatabaseReclaimPolicy) == postgresv1alpha1.DatabaseReclaimDelete &&
 		controllerutil.AddFinalizer(&db, postgresDatabaseFinalizer) {
-		return ctrl.Result{Requeue: true}, r.Update(ctx, &db)
+		if err := r.Update(ctx, &db); err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("PostgresDatabase finalizer added (continuing reconcile in same pass)",
+			"reclaimPolicy", "delete")
 	}
 
 	var cluster postgresv1alpha1.PostgresCluster
@@ -92,6 +102,7 @@ func (r *PostgresDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if apierrors.IsNotFound(err) {
 			message := "Referenced PostgresCluster " + db.Spec.Cluster.Name + " not found in namespace " + db.Namespace
 			markPostgresDatabaseStatus(&db, false, PostgresDatabaseReasonClusterNotFound, message)
+			logger.Info("PostgresDatabase target cluster not found", "cluster", db.Spec.Cluster.Name)
 			return ctrl.Result{}, r.statusUpdate(ctx, &db)
 		}
 		return ctrl.Result{}, err
@@ -101,6 +112,9 @@ func (r *PostgresDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if !ok {
 		message := "ready primary Pod for PostgresCluster " + cluster.Name + " not found"
 		markPostgresDatabaseStatus(&db, false, PostgresDatabaseReasonPrimaryNotReady, message)
+		logger.Info("PostgresDatabase primary not ready — requeue",
+			"cluster", cluster.Name,
+			"shardCount", len(cluster.Status.Shards))
 		if err := r.statusUpdate(ctx, &db); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -123,6 +137,7 @@ func (r *PostgresDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	markPostgresDatabaseStatus(&db, true, PostgresDatabaseReasonReconciled,
 		"PostgresDatabase "+db.Spec.Name+" reconciled")
+	logger.Info("PostgresDatabase reconciled", "spec.name", db.Spec.Name, "owner", db.Spec.Owner)
 	return ctrl.Result{}, r.statusUpdate(ctx, &db)
 }
 
@@ -243,13 +258,33 @@ func markPostgresDatabaseStatus(db *postgresv1alpha1.PostgresDatabase, applied b
 	})
 }
 
+// statusUpdate persists the in-memory status on the API. On a transient
+// conflict (HTTP 409) we re-fetch the resource, copy our desired status
+// snapshot back onto it, and retry once — silently dropping the
+// conflict caused PostgresDatabase to remain `status: {}` indefinitely
+// when finalizer-add + status-update collided on the same generation
+// (PG18 kind smoke iter#3 observation).
 func (r *PostgresDatabaseReconciler) statusUpdate(ctx context.Context, db *postgresv1alpha1.PostgresDatabase) error {
-	if err := r.Status().Update(ctx, db); err != nil {
-		if apierrors.IsConflict(err) {
-			return nil
-		}
+	desired := db.Status.DeepCopy()
+	err := r.Status().Update(ctx, db)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
 		return err
 	}
+	var fresh postgresv1alpha1.PostgresDatabase
+	if getErr := r.Get(ctx, client.ObjectKeyFromObject(db), &fresh); getErr != nil {
+		return getErr
+	}
+	fresh.Status = *desired
+	if retryErr := r.Status().Update(ctx, &fresh); retryErr != nil {
+		if apierrors.IsConflict(retryErr) {
+			return nil // give up after one retry; the next reconcile will refresh.
+		}
+		return retryErr
+	}
+	db.ResourceVersion = fresh.ResourceVersion
 	return nil
 }
 

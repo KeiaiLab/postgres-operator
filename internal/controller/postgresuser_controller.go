@@ -201,13 +201,32 @@ func markPostgresUserStatus(user *postgresv1alpha1.PostgresUser, applied bool, r
 	})
 }
 
+// statusUpdate persists the in-memory status on the API. On a transient
+// conflict (HTTP 409) we re-fetch the resource, replay the desired
+// status snapshot, and retry once. Silently swallowing the conflict
+// was the root cause of PostgresDatabase / PostgresUser status never
+// converging on a busy reconcile (PG18 kind smoke iter#3).
 func (r *PostgresUserReconciler) statusUpdate(ctx context.Context, user *postgresv1alpha1.PostgresUser) error {
-	if err := r.Status().Update(ctx, user); err != nil {
-		if apierrors.IsConflict(err) {
-			return nil
-		}
+	desired := user.Status.DeepCopy()
+	err := r.Status().Update(ctx, user)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
 		return err
 	}
+	var fresh postgresv1alpha1.PostgresUser
+	if getErr := r.Get(ctx, client.ObjectKeyFromObject(user), &fresh); getErr != nil {
+		return getErr
+	}
+	fresh.Status = *desired
+	if retryErr := r.Status().Update(ctx, &fresh); retryErr != nil {
+		if apierrors.IsConflict(retryErr) {
+			return nil
+		}
+		return retryErr
+	}
+	user.ResourceVersion = fresh.ResourceVersion
 	return nil
 }
 
