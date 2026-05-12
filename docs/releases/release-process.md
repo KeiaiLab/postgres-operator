@@ -16,7 +16,11 @@
 - `make gate`가 통과한다.
 - `Chart.yaml`의 `version`과 `appVersion`이 `VERSION`에서 `v`를 제거한 값과 일치한다.
 - `CHANGELOG.md`에 동일 버전 항목이 있다.
-- `dist/install.yaml`과 Helm `--include-crds` 렌더 결과에 CRD 2개가 포함된다.
+- `dist/install.yaml`과 Helm `--include-crds` 렌더 결과에 CRD **8개**(`postgresclusters`, `backupjobs`, `scheduledbackups`, `poolers`, `postgresdatabases`, `postgresusers`, `imagecatalogs`, `clusterimagecatalogs`)가 포함된다.
+- `bundle/manifests/postgres.keiailab.io_*.yaml` 카운트 ≥ 8 + `operator-sdk bundle validate --select-optional suite=operatorframework` 통과.
+- `kube-linter lint dist/install.yaml` + helm template 모두 0 lint errors.
+- Chart appVersion ↔ kustomize newTag ↔ dist image tag drift 0.
+- `.github/workflows/` 비어 있음 (ADR-0009 영구 금지 enforce).
 - 릴리스 전 worktree가 clean 상태다.
 
 ## Step → verify
@@ -37,7 +41,12 @@
    - 실행: `make release VERSION=v0.1.1-alpha`
    - verify: GHCR image push, Git tag push, GitHub Release 생성, `gh-pages` Helm index 갱신이 모두 성공한다.
 
-5. Artifact Hub 등록/검색 검증
+5. OLM bundle 재생성 + community-operators PR (선택, alpha tag 이후)
+   - 실행: `make bundle VERSION=0.3.0-alpha.N` + `make bundle-build VERSION=0.3.0-alpha.N`
+   - verify: `operator-sdk bundle validate ./bundle --select-optional suite=operatorframework` 통과, `docker push ghcr.io/keiailab/postgres-operator-bundle:0.3.0-alpha.N` 성공.
+   - 절차 상세: [docs/operator-guide/community-operators-onboarding.md](../operator-guide/community-operators-onboarding.md).
+
+6. Artifact Hub 등록/검색 검증
    - 전제: Artifact Hub control panel 에 Helm repository 를 `keiailab-postgres-operator` 이름으로 추가한다.
    - repository URL: `https://keiailab.github.io/postgres-operator`
    - package URL: `https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator`
