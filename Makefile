@@ -159,6 +159,21 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: hooks-install
+hooks-install: ## lefthook 의 pre-commit / commit-msg / pre-push 훅을 git 에 설치 (CONTRIBUTING.md L1/L2).
+	@command -v lefthook >/dev/null 2>&1 || { echo "[error] lefthook not installed: brew install lefthook (또는 go install github.com/evilmartians/lefthook@latest)"; exit 1; }
+	lefthook install
+	@echo "✓ lefthook hooks installed — commit-msg DCO/Conventional Commits + pre-commit lint + pre-push test/audit 활성화"
+
+.PHONY: hooks-check
+hooks-check: ## 현재 repo 에 lefthook hook 이 설치되어 있는지 확인 (CI/onboarding 보조).
+	@if [ ! -f .git/hooks/commit-msg ] || ! grep -q lefthook .git/hooks/commit-msg 2>/dev/null; then \
+		echo "[warn] lefthook hooks 미설치 — 'make hooks-install' 실행 권장"; \
+		echo "       DCO Signed-off-by trailer 자동 검사가 비활성화 상태입니다."; \
+		exit 0; \
+	fi
+	@echo "✓ lefthook hooks 설치됨 (.git/hooks/{commit-msg,pre-commit,pre-push})"
+
 .PHONY: audit
 audit: ## govulncheck + trivy + gosec — RFC 0002 L3 security 게이트 (3-repo 정합).
 	@echo "=== govulncheck (call-graph CVE) ==="
