@@ -12,11 +12,17 @@
 - *(olm)* CSV `customresourcedefinitions.owned[]` 에 ImageCatalog/ClusterImageCatalog/PostgresDatabase/PostgresUser description + displayName 추가 — operatorframework suite warning 4 건 0 화.
 - *(oss)* `SUPPORT.md` 신설 (GitHub Discussions / Issues / PR 경로, 보안 신고 분기, 응답 기대치). CHANGELOG 0.3.0-alpha.17/.18 정합.
 - *(docs)* README — 0.3.0-alpha.18 8 CRD 표면 표 + 빠른 시작 6 단계 워크플로 갱신.
-- *(docs)* TASKS T26 (cross-cut OSS/OLM 정합 완료) + T27 (신규 CRD live smoke 자동화 설계) + T28 (community-operators 등록 절차) 등록.
+- *(docs)* TASKS T26 (cross-cut OSS/OLM 정합 완료) + T27 (신규 CRD live smoke 자동화 진행 80%, ①~④ 모두 완결) + T28 (community-operators 등록 절차) 등록.
+- *(smoke)* hack/smoke.sh 에 신규 CRD 4 종 시나리오 추가 — `SMOKE_DATABASE=1` (PostgresDatabase → status.applied + pg_database + reclaim=delete DROP), `SMOKE_USER=1` (PostgresUser → status.applied + pg_roles + DROP ROLE), `SMOKE_SCHEDULEDBACKUP=1` (cron immediate → BackupJob 생성 검증), `SMOKE_IMAGECATALOG=1` (ImageCatalog/ClusterImageCatalog schema + lookup). step number N/15 정합.
+- *(api)* 8 owned CRD 에 `kubebuilder:resource:categories` marker 추가 — `kubectl get postgres`/`database`/`backup`/`pooler`/`image`/`role`/`all` 카테고리 단축 명령 + OperatorHub UI 그룹핑 지원.
+- *(ci)* `make lint-k8s` target + `make validate` 통합 — kube-linter 로 dist/install.yaml + helm template 산출물의 K8s 리소스 보안/best-practice 정적 분석. liveness-port/readiness-port/non-root/readOnlyRoot/resource-limit 30+ check.
+- *(docs)* ROADMAP 현재 상태 스냅샷 — alpha.18 + OLM bundle + CNPG 호환 표면 + 로컬 4 계층 게이트 4 행 반영.
+- *(docs)* cross-validation-cnpg 매트릭스 — OLM bundle / Helm chart / Local supply chain gates / Security vulnerability scan / DCO sign-off enforcement 5 행 추가.
 
 ### Fixed
 
 - *(security)* `github.com/moby/spdystream` v0.5.0 → v0.5.1 (CVE-2026-35469 HIGH, Kubelet/CRI-O/kube-apiserver DoS via SPDY streaming). trivy fs `--severity HIGH,CRITICAL --exit-code 1` 게이트 회복.
+- *(ci,kustomize)* manager Deployment 가 8081 health port 를 containerPorts 에 누락한 drift 해소 — config/manager/manager.yaml `ports: []` → `ports: [{name: health, containerPort: 8081, protocol: TCP}]`. helm chart 와 dist/install.yaml 의 manager Deployment 가 동일 표면이 되도록 정렬 (kube-linter liveness-port/readiness-port check).
 
 ## [0.3.0-alpha.18] - 2026-05-12
 
