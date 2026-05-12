@@ -1,6 +1,6 @@
 # postgres-operator
 
-> **Apache-2.0 PostgreSQL Kubernetes Operator** — vanilla PG18+, license-clean, PGO-class 운영 품질을 목표로 하되 외부 operator/backend 를 fork, embed, wrapper 로 사용하지 않는 독립 신규 구현.
+> **Apache-2.0 PostgreSQL Kubernetes Operator** — vanilla PG18+, license-clean, targets PGO-class operational quality without forking, embedding, or wrapping any external operator/backend.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org/)
@@ -14,32 +14,32 @@
 
 ---
 
-## 정체성
+## Identity
 
-본 operator 는 PostgreSQL 위에 *자체 분산 SQL 레이어*를 구축하는 신규 서비스다. PGO, Citus, Vitess, CloudNativePG, Patroni, CockroachDB 같은 외부 시스템의 공개 설계와 운영 idiom 은 참고할 수 있지만, 그 시스템을 그대로 내장하거나 런타임 의존성으로 감싸서 제공하지 않는다. 코드, CRD, reconciler, instance manager, router 는 본 repo 에서 Apache-2.0 호환 방식으로 직접 구현한다.
+This operator builds a *self-built distributed SQL layer* on top of PostgreSQL. We reference the public designs and operational idioms of PGO, Citus, Vitess, CloudNativePG, Patroni, and CockroachDB, but do not embed or wrap any of those systems as a runtime dependency. The code, CRDs, reconciler, instance manager, and router are all implemented directly in this repository under Apache-2.0–compatible terms.
 
-차별화 가치:
+Differentiators:
 
-- **PostgreSQL 18+ 100% 호환** — application 코드 변경 없이 분산 채택. 모든 PG extension / 타입 / 함수 사용 가능.
-- **라이선스 청정** — Apache-2.0 operator + (BSD/Apache/MIT/PG License) 의존만. SaaS 노출에 의무 없음.
-- **K8s-native auto-sharding 로드맵** — `ShardRange` CRD = source of truth, KEDA 기반 자동 split, 7-step online resharding (cutover SLA p99 < 500ms 목표).
-- **단일 endpoint 로드맵** — application 은 `pg-router` Deployment 에 PG wire protocol 로 연결, 샤딩 인지 없이 동작.
+- **100% PostgreSQL 18+ compatible** — adopt distribution without changing application code. All PG extensions / types / functions remain available.
+- **License-clean** — Apache-2.0 operator plus only BSD/Apache/MIT/PG-License dependencies. No copyleft obligations on SaaS exposure.
+- **K8s-native auto-sharding roadmap** — `ShardRange` CRD as source of truth, KEDA-driven auto-split, 7-step online resharding (cutover SLA target p99 < 500 ms).
+- **Single-endpoint roadmap** — applications connect to the `pg-router` Deployment over the PostgreSQL wire protocol, with no sharding awareness required.
 
-PGO-class 는 *품질 기준* 이지 PGO fork 또는 PGO 내장을 의미하지 않는다. Citus-class 분산 기능도 Citus extension 을 포함한다는 뜻이 아니라, Citus 가 검증한 문제 영역을 PostgreSQL-compatible 신규 서비스로 재구현한다는 뜻이다. Plugin SDK 는 v0.x archive 의 폐기된 메시지이며, 현행 방향은 필요한 확장점을 좁게 설계한 내부 모듈과 명시적 CRD 로 관리한다.
+PGO-class is a *quality bar* — not a PGO fork or PGO embedding. Citus-class distribution likewise does not mean shipping the Citus extension; it means re-implementing the problem space Citus has validated as a PostgreSQL-compatible new service. The Plugin SDK message from the v0.x archive has been retired; the current direction is narrowly scoped internal modules and explicit CRDs.
 
-ADR 0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 가 본 결정의 keystone 이다.
+ADR 0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) is the keystone of this decision.
 
-## 아키텍처 (요약)
+## Architecture (summary)
 
 ```
 Application (libpq / JDBC / asyncpg)
     │  PostgreSQL wire protocol v3
 pg-router  (stateless, HPA-scaled)
-    │  - vindex 평가 (hash / range / consistent-hash / lookup)
+    │  - vindex evaluation (hash / range / consistent-hash / lookup)
     │  - single-shard fast path / multi-shard scatter-gather
-    │  - 분산 트랜잭션 coordinator (2PC + saga)
+    │  - distributed transaction coordinator (2PC + saga)
     ├──────┬──────┬──────┬──────
-  Shard A  Shard B  Shard C  Shard D     (per-shard: 1 primary + N replica)
+  Shard A  Shard B  Shard C  Shard D     (per shard: 1 primary + N replicas)
     │ instance manager (election + fencing + supervise postgres)
     │
 operator manager
@@ -51,54 +51,54 @@ operator manager
   KEDA + Prometheus  (auto-split trigger: size + p99 + cpu)
 ```
 
-상세: `docs/architecture/overview.md` (P0 신설 예정).
+Details: `docs/architecture/overview.md` (to be added in P0).
 
-## Phase 로드맵
+## Phase roadmap
 
-| Phase | 버전 | 핵심 산출물 | 추정 기간 |
+| Phase | Version | Key deliverable | Estimated duration |
 |---|---|---|---|
-| **P0** | 0.3.0 | 재설계 정리 (ADR/RFC 0001~0005, README, 코드 폐기) | 2개월 |
-| **P1** | 0.4.0 | Single-shard production-ready (HA/backup/PITR) | 6개월 |
-| **P2** | 0.5.0 | pg-router + ShardRange CRD (multi-shard 수동 운영) | 10개월 |
-| **P3** | 0.6.0 | vindex 확장 + scatter-gather + read replica autoscale | 8개월 |
-| **P4** | 0.7.0 | ShardSplitJob 7-step (online split 수동 트리거) | 12개월 |
-| **P5** | 0.8.0 | KEDA 자동 split + rebalancer (자동 샤딩 도달) | 8개월 |
-| **P6** | 0.9.0 | 분산 트랜잭션 (2PC + saga) + cross-shard JOIN | 12개월 |
-| **P7** | **1.0.0** | 안정화 + chaos / benchmark + ArtifactHub verified | 6개월 |
+| **P0** | 0.3.0 | Redesign reset (ADR/RFC 0001–0005, README, code removal) | 2 months |
+| **P1** | 0.4.0 | Single-shard production-ready (HA / backup / PITR) | 6 months |
+| **P2** | 0.5.0 | pg-router + `ShardRange` CRD (manual multi-shard ops) | 10 months |
+| **P3** | 0.6.0 | vindex extension + scatter-gather + read replica autoscale | 8 months |
+| **P4** | 0.7.0 | `ShardSplitJob` 7-step (manual online split trigger) | 12 months |
+| **P5** | 0.8.0 | KEDA auto-split + rebalancer (auto-sharding reached) | 8 months |
+| **P6** | 0.9.0 | Distributed transactions (2PC + saga) + cross-shard JOIN | 12 months |
+| **P7** | **1.0.0** | Stabilization + chaos / benchmark + Artifact Hub verified | 6 months |
 
-**합계 ~64개월 (5.3년)** — 1인 50% 가동 추정. 각 phase 끝에 *production-deployable* 보장.
+**Total ≈ 64 months (5.3 years)** assuming one engineer at 50% capacity. Each phase ends with a *production-deployable* artifact.
 
-## 라이선스 정책 (ADR 0003)
+## License policy (ADR 0003)
 
-외부 OSS 의존은 다음 *모두* 충족 시만 허용:
+External OSS dependencies are permitted only when *all* of the following hold:
 - License: BSD-2/3 / Apache-2.0 / MIT / PostgreSQL License / ISC / MPL-2.0
-- API: v1+ stability commitment (12개월 deprecation 정책)
+- API: v1+ stability commitment (12-month deprecation policy)
 
-**영구 금지**: AGPLv3 / BUSL / CSL / SSPL.
+**Permanently forbidden**: AGPLv3 / BUSL / CSL / SSPL.
 
-자동 검증: `scripts/check-license-policy.sh` (lefthook L2 pre-push hook 으로 강제, P0 후속 작업).
+Automated enforcement: `scripts/check-license-policy.sh` (P0 follow-up; will be wired as a lefthook L2 pre-push hook).
 
-## 빠른 시작
+## Quickstart
 
 ```bash
-# 1. operator + 8 CRD 설치 (helm chart 또는 OperatorHub bundle)
+# 1. Install the operator + 8 CRDs (helm chart or OperatorHub bundle)
 helm install pgo charts/postgres-operator
 
-# 2. quickstart PostgresCluster
+# 2. Apply the quickstart PostgresCluster
 kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
 
-# 3. Ready 까지 polling
+# 3. Wait for Ready
 kubectl wait postgrescluster/quickstart --for=condition=Ready --timeout=5m
 
-# 4. (선택) declarative database/user 적용
+# 4. (Optional) Apply declarative database/user resources
 kubectl apply -f config/samples/postgres_v1alpha1_postgresdatabase.yaml
 kubectl apply -f config/samples/postgres_v1alpha1_postgresuser.yaml
 
-# 5. (선택) PgBouncer Pooler + cron 백업
+# 5. (Optional) Apply a PgBouncer Pooler and a cron backup
 kubectl apply -f config/samples/postgres_v1alpha1_pooler.yaml
 kubectl apply -f config/samples/postgres_v1alpha1_scheduledbackup.yaml
 
-# 6. monitoring 활성화 (prometheus-operator 가 있을 때)
+# 6. Enable monitoring (requires prometheus-operator)
 helm upgrade pgo charts/postgres-operator \
   --reuse-values \
   --set metrics.serviceMonitor.enabled=true \
@@ -106,55 +106,55 @@ helm upgrade pgo charts/postgres-operator \
   --set metrics.grafanaDashboards.enabled=true
 ```
 
-운영 가이드는 [`docs/operator-guide/deployment.md`](docs/operator-guide/deployment.md) 와 [`docs/operator-guide/pooler-monitoring.md`](docs/operator-guide/pooler-monitoring.md) 참조.
+See [`docs/operator-guide/deployment.md`](docs/operator-guide/deployment.md) and [`docs/operator-guide/pooler-monitoring.md`](docs/operator-guide/pooler-monitoring.md) for the operations playbook.
 
-**현재 (0.3.0-alpha.18, 2026-05-12)**: argos 실제 Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy` 이고 `PostgresCluster/argos-postgres` 는 `Ready=True` 로 확인됐다. helm chart 와 OperatorHub bundle 은 **8 개 owned CRD** 를 제공한다:
+**Current state (0.3.0-alpha.18, 2026-05-12)**: on the argos Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/argos-postgres` reports `Ready=True`. The helm chart and OperatorHub bundle ship **8 owned CRDs**:
 
-| CRD | 역할 | 상태 |
+| CRD | Role | Status |
 |---|---|---|
-| `PostgresCluster` | shard-aware topology (primary + standby + native sharding 로드맵) | ✅ deployable |
-| `BackupJob` | atomic backup/restore Job (pgBackRest plugin) | ⚠️ controller partial |
-| `ScheduledBackup` | 6-field cron → BackupJob 자동 생성 | ⚠️ controller partial |
-| `Pooler` | PgBouncer connection pool 계층 (CNPG 호환 표면) | ⚠️ controller partial |
-| `PostgresDatabase` | declarative database/schema/extension/FDW (ready primary psql) | ⚠️ controller partial |
-| `PostgresUser` | declarative role + password + membership (ready primary psql) | ⚠️ controller partial |
-| `ImageCatalog` | namespace 단위 PG runtime image catalog (CNPG 호환) | ⚠️ rollout path |
-| `ClusterImageCatalog` | cluster-wide 공유 PG runtime image catalog | ⚠️ rollout path |
+| `PostgresCluster` | Shard-aware topology (primary + standby + native-sharding roadmap) | ✅ deployable |
+| `BackupJob` | Atomic backup/restore Job (pgBackRest plugin) | ⚠️ controller partial |
+| `ScheduledBackup` | Cron-driven BackupJob generation (6-field schedule) | ⚠️ controller partial |
+| `Pooler` | PgBouncer connection pool layer (CNPG-compatible surface) | ⚠️ controller partial |
+| `PostgresDatabase` | Declarative database/schema/extension/FDW (ready-primary psql) | ⚠️ controller partial |
+| `PostgresUser` | Declarative role + password + membership (ready-primary psql) | ⚠️ controller partial |
+| `ImageCatalog` | Namespace-scoped PostgreSQL runtime image catalog (CNPG-compatible) | ⚠️ rollout path |
+| `ClusterImageCatalog` | Cluster-wide shared PostgreSQL runtime image catalog | ⚠️ rollout path |
 
-GA 거리: 0.4.0 production-ready (HA replica, backup/restore drill, PITR, chaos-mesh failover) 와 P2 multi-shard 는 후속 phase. CNPG 와의 표면 차이는 [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md) feature matrix 참조.
+GA distance: 0.4.0 production-ready (HA replicas, backup/restore drill, PITR, chaos-mesh failover) and P2 multi-shard remain in subsequent phases. See [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md) for the feature matrix against CloudNativePG.
 
-## 개발 (Contributing)
+## Contributing
 
 ```bash
-make lint test validate    # 4-layer 게이트 L3 (로컬)
-make sync-crds              # config/crd/bases ↔ chart 동기화 검증
-make test-e2e PILLAR=p1     # Kind cluster 기반 e2e
+make lint test validate    # Local 4-layer L3 gate
+make sync-crds              # Verify config/crd/bases ↔ chart synchronization
+make test-e2e PILLAR=p1     # Kind-cluster e2e
 ```
 
-GitHub Actions 영구 금지 (RFC 0002 archive). 모든 게이트는 로컬 (pre-commit / pre-push / Makefile / PR 리뷰).
+GitHub Actions is permanently forbidden (RFC 0002 archive); all gates run locally (pre-commit / pre-push / Makefile / PR review).
 
-자세한 기여 가이드: `CONTRIBUTING.md`, 운영 규약: `GOVERNANCE.md`, 행동 강령: `CODE_OF_CONDUCT.md`.
+See `CONTRIBUTING.md` for the contributor guide, `GOVERNANCE.md` for the governance model, and `CODE_OF_CONDUCT.md` for the code of conduct.
 
-## 문서
+## Documentation
 
-- `docs/architecture/` — 분산 시스템 설계 (overview / routing-layer / sharding-model / consistency / ha-and-fencing) — *P0 신설 예정*
-- `docs/kb/adr/` — Architecture Decision Records (현재 0001~0005, archive 는 `_archive/v0.x/`)
-- `docs/rfcs/` — RFC drafts (현재 0001~0005)
-- `docs/api-reference/` — CRD reference (자동 생성 예정)
-- `docs/runbooks/` — 운영 절차 (split / failover / backup, P4+ 작성)
-- `docs/tutorials/` — 단계별 사용 가이드 (P1+ 작성)
+- `docs/architecture/` — Distributed-system design (overview / routing-layer / sharding-model / consistency / ha-and-fencing) — *to be added in P0*
+- `docs/kb/adr/` — Architecture Decision Records (current: 0001–0005; archive in `_archive/v0.x/`)
+- `docs/rfcs/` — RFC drafts (current: 0001–0005)
+- `docs/api-reference/` — CRD reference (auto-generated, planned)
+- `docs/runbooks/` — Operations procedures (split / failover / backup, planned for P4+)
+- `docs/tutorials/` — Step-by-step user guides (planned for P1+)
 
-## 커뮤니티
+## Community
 
-- **Discussions**: [GitHub Discussions](https://github.com/keiailab/postgres-operator/discussions) — 사용 질문, 기능 아이디어, 운영 사례 공유
-- **Issues**: [GitHub Issues](https://github.com/keiailab/postgres-operator/issues) — 버그 / 기능 요청 (재현 가능한 사례 우선)
-- **보안 보고**: [SECURITY.md](SECURITY.md) — 취약점은 *비공개* 채널 (GitHub Security Advisory) 사용
-- **거버넌스**: [GOVERNANCE.md](GOVERNANCE.md) — 의사결정 절차 (lazy consensus / 2/3 supermajority)
+- **Discussions**: [GitHub Discussions](https://github.com/keiailab/postgres-operator/discussions) — usage questions, feature ideas, operational war stories.
+- **Issues**: [GitHub Issues](https://github.com/keiailab/postgres-operator/issues) — bugs and feature requests (please file reproducible cases).
+- **Security reports**: [SECURITY.md](SECURITY.md) — vulnerabilities are reported via a *private* channel (GitHub Security Advisory).
+- **Governance**: [GOVERNANCE.md](GOVERNANCE.md) — decision process (lazy consensus / 2/3 supermajority).
 
-## 라이선스
+## License
 
-Apache-2.0. `LICENSE` 파일 참조.
+Apache-2.0. See the `LICENSE` file.
 
-## 메인테이너
+## Maintainer
 
 [@phil](https://github.com/phil) — `eightynine01@gmail.com`
