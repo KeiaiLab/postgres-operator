@@ -168,6 +168,11 @@ CNPG 는 manager 가 직접 PG bootstrap (initdb + pg_basebackup + standby/prima
 | In-place major upgrade | ✅ | ❌ | 미정 |
 | Webhook validation | ✅ | ✅ CEL XValidation | both production-grade |
 | Native fencing (PVC label) | ❌ (CR finalizer) | ✅ RFC 0003 | both 다른 모델 |
+| OLM bundle (operatorhub.io) | ✅ community-operators 채널 등록 (Artifact Hub OLM) | ⚠️ bundle 0.3.0-alpha.18 준비 완료, PR 대기 | `bundle/manifests/` 에 8 owned CRD + alm-examples + CSV description 정합 (T26), `operator-sdk bundle validate --select-optional suite=operatorframework` 통과. T28 에서 k8s-operatorhub/community-operators PR 진행 예정. |
+| Helm chart (Artifact Hub helm) | ✅ artifacthub.io/packages/helm/cloudnative-pg | ⚠️ artifacthub.io/packages/helm/keiailab-postgres-operator 등록, alternativeName 정합 (Chart annotation) | T26 에서 ArtifactHub URL/alternativeName 정합 완료. live Artifact Hub `Verified Publisher` 처리 잔여 (repositoryID 부합성). |
+| Local supply chain gates | ✅ pre-commit/test/lint | ✅ ADR-0009 4 계층 게이트 (L1 pre-commit, L2 pre-push test/audit/govulncheck, L3 Makefile validate/audit/gate, L4 PR 본문 evidence) | both GitHub Actions 미사용 정책 (RFC-0002 §2). |
+| Security: vulnerability scan | ✅ trivy + govulncheck (CI) | ✅ make audit (govulncheck + trivy fs HIGH/CRITICAL + gosec) | T26: `moby/spdystream` v0.5.0→v0.5.1 (CVE-2026-35469) fix 후 trivy fs 0 vulnerabilities. |
+| DCO sign-off enforcement | ✅ GitHub bot | ✅ lefthook commit-msg + DCO_STRICT=1 | T26: `make hooks-install` wrapper + CONTRIBUTING 정합. force-push 없이 retroactive 정정 불가 — 다음 cycle 부터 모든 commit DCO compliant. |
 
 ## 적합 use case
 
