@@ -1,50 +1,53 @@
 # Deployment Guide — keiailab/postgres-operator (alpha)
 
-> 0.3.0-alpha 시점의 K8s 배포 가이드. RFC 0001 v2 schema 기준.
-> production 사용은 alpha 단계 한계 (e2e 미검증, secret rotation 부재) 인지 후 진행.
+> Kubernetes deployment guide for 0.3.0-alpha. RFC 0001 v2 schema.
+> Acknowledge the alpha-stage limits (e2e not fully verified, no secret
+> rotation yet) before adopting in production.
 
-## 사전 요구
+## Prerequisites
 
-- K8s 1.28+ (CEL XValidation 의존)
-- StorageClass — PVC 동적 프로비저닝 가능해야 함
-- Container registry 접근 — `ghcr.io/keiailab/*` (또는 사용자 자체 mirror)
+- Kubernetes 1.28+ (depends on CEL XValidation).
+- A StorageClass with dynamic PVC provisioning.
+- Access to a container registry — `ghcr.io/keiailab/*` (or your own
+  mirror).
 
-## 1. 이미지
+## 1. Images
 
-### 운영자 (manager) 이미지
+### Operator (manager) image
 
 ```
 ghcr.io/keiailab/postgres-operator:<version>
 ```
 
-빌드:
+Build:
 
 ```fish
 make docker-build IMG=ghcr.io/keiailab/postgres-operator:dev
 make docker-push IMG=ghcr.io/keiailab/postgres-operator:dev
 ```
 
-### PG runtime 이미지 (instance manager + postgres)
+### PG runtime image (instance manager + postgres)
 
 ```
 ghcr.io/keiailab/pg:18  (PG_MAJOR=18)
-ghcr.io/keiailab/pg:17  (옵션)
+ghcr.io/keiailab/pg:17  (optional)
 ```
 
-빌드:
+Build:
 
 ```fish
 make docker-build-pg PG_MAJOR=18 PG_IMG=ghcr.io/keiailab/pg:18
 make docker-push-pg PG_IMG=ghcr.io/keiailab/pg:18
 ```
 
-본 이미지는 `Dockerfile.pg` 정의 — 2-stage build (golang:1.25-bookworm 으로
-`cmd/instance` 빌드 + postgres:18-bookworm base + pgBackRest + UID/GID 70 user).
-ENTRYPOINT 는 `/usr/local/bin/instance` (instance manager 가 PID 1 으로 동작,
-postgres child 를 fork). `BackupJob.spec.executionMode=job` runner 는 command 를
-override 해서 같은 이미지의 `pgbackrest` 바이너리를 직접 실행할 수 있다.
+This image is defined by `Dockerfile.pg` — a 2-stage build (golang:1.25-bookworm
+to build `cmd/instance`, plus postgres:18-bookworm base + pgBackRest + a
+UID/GID 70 user). The `ENTRYPOINT` is `/usr/local/bin/instance` (the
+instance manager runs as PID 1 and forks postgres as a child). A
+`BackupJob.spec.executionMode=job` runner can override the command and
+invoke the `pgbackrest` binary in the same image directly.
 
-## 2. CRD + operator 설치
+## 2. Installing the CRDs + operator
 
 ### Helm
 
@@ -55,14 +58,14 @@ helm install postgres-operator charts/postgres-operator \
     --set image.tag=dev
 ```
 
-### kustomize (개발/테스트)
+### kustomize (dev / test)
 
 ```fish
 make build-installer
 kubectl apply -f dist/install.yaml
 ```
 
-## 3. PostgresCluster 인스턴스 배포
+## 3. Deploying a PostgresCluster instance
 
 ### Quickstart (single shard, dev)
 
@@ -70,59 +73,66 @@ kubectl apply -f dist/install.yaml
 kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
 ```
 
-기대 결과:
+Expected outcome:
 
-- ConfigMap (postgresql.conf + pg_hba.conf), Headless Service, StatefulSet 1 개
-- ServiceAccount + Role + RoleBinding (instance Pod 가 leases + PVC fence patch 권한)
-- Pod 부팅 흐름:
-  1. initdb init container — fresh PVC 면 PGDATA 초기화
-  2. instance manager 가 PID 1 으로 시작
-  3. postgres child fork
-  4. K8s lease 기반 election 수렴 → primary 선출 → `pg_promote()`
-  5. `/readyz` 200 → Pod Ready
+- ConfigMap (postgresql.conf + pg_hba.conf), Headless Service, and one
+  StatefulSet.
+- ServiceAccount + Role + RoleBinding (the instance Pod gets
+  `leases` + `PVC fence patch` permissions).
+- Pod boot flow:
+  1. `initdb` init container — initializes PGDATA on a fresh PVC.
+  2. Instance manager starts as PID 1.
+  3. Forks the postgres child.
+  4. K8s lease-based election converges → primary elected →
+     `pg_promote()`.
+  5. `/readyz` returns 200 → Pod Ready.
 
 ```fish
-# 상태 확인
+# Status
 kubectl get postgrescluster quickstart -o yaml | yq '.status'
 kubectl get sts,svc,pod -l app.kubernetes.io/instance=quickstart
 ```
 
-### 접속
+### Connecting
 
-Pod 안 Unix socket 으로 (peer auth, dev):
+Inside the Pod via the Unix socket (peer auth, dev only):
 
 ```fish
 kubectl exec quickstart-shard-0-0 -c postgres -- \
     psql -h /var/run/postgresql -U postgres -c 'SELECT version()'
 ```
 
-Pod 외부 (cluster 내부 다른 Pod 에서, scram-sha-256):
+From another Pod in the cluster (scram-sha-256):
 
 ```
 psql "host=quickstart-shard-0-headless.default.svc.cluster.local user=postgres dbname=postgres"
 ```
 
-(password 는 alpha 단계에서 secret 으로 별도 주입 — 후속).
+(In alpha, passwords are injected via a separate Secret — to be wired up
+later.)
 
-## 4. Production 토폴로지 (예시)
+## 4. Production topology (example)
 
-`config/samples/postgres_v1alpha1_postgrescluster_prod.yaml` — multi-shard +
-router, replicas=2 (3-way HA), monitoring 활성, custom storageClass.
+`config/samples/postgres_v1alpha1_postgrescluster_prod.yaml` — multi-shard
++ router, replicas=2 (3-way HA), monitoring enabled, custom
+StorageClass.
 
-production 적용 전 확인:
+Before applying in production verify:
 
-- StorageClass 가 fast SSD-backed (alpha 권장 1GB+/min IOPS)
-- replicas≥1 (HA — RFC 0001 §3 권장)
-- RPO=0 요구 시 `spec.postgresql.synchronous` 설정. `number` 는 `shards.replicas`
-  이하만 허용된다.
-- monitoring.serviceMonitor + Prometheus operator 사전 설치
-- backup.enabled — F04 후속 PR 후에만 의미
+- The StorageClass is fast SSD-backed (alpha recommendation: 1 GB+ /
+  min IOPS).
+- replicas ≥ 1 (HA — recommended by RFC 0001 §3).
+- For RPO=0, set `spec.postgresql.synchronous`. `number` must be
+  ≤ `shards.replicas`.
+- monitoring.serviceMonitor + the Prometheus operator are pre-installed.
+- backup.enabled — only meaningful after the F04 follow-up PR.
 
-### 동기 복제 예시
+### Synchronous-replication example
 
-CloudNativePG 와 같은 구조화 표면을 사용한다. 사용자는 PostgreSQL GUC
-`synchronous_standby_names` 를 직접 쓰지 않고, operator 가 shard Pod 이름과
-`primary_conninfo application_name` 을 맞춰 생성한다.
+We use the same structured surface as CloudNativePG. The user does not
+write the PostgreSQL GUC `synchronous_standby_names` directly; the
+operator generates it from the shard Pod names and the
+`primary_conninfo application_name`.
 
 ```yaml
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -143,21 +153,25 @@ spec:
       dataDurability: required
 ```
 
-- `method=any` 는 PostgreSQL `ANY N (...)` quorum 방식이다.
-- `method=first` 는 `FIRST N (...)` priority 방식이다.
-- `dataDurability=required` 는 요청한 standby 수가 부족하면 commit 을 대기시킨다.
-- `dataDurability=preferred` 는 현재 Ready replica 수에 맞춰 quorum 을 낮추고,
-  Ready replica 가 0 이면 동기 복제를 일시 비활성화해 write availability 를 유지한다.
-- 설정 변경은 ConfigMap hash 를 StatefulSet Pod template annotation 에 반영해
-  shard Pod rolling reconcile 로 적용한다.
+- `method=any` uses PostgreSQL's `ANY N (...)` quorum form.
+- `method=first` uses `FIRST N (...)` priority form.
+- `dataDurability=required` blocks commits whenever the requested number
+  of standbys is unavailable.
+- `dataDurability=preferred` lowers the quorum to the current ready
+  replica count, and when no replicas are Ready temporarily disables
+  synchronous replication to preserve write availability.
+- Configuration changes are propagated to the StatefulSet Pod template
+  annotation as a ConfigMap hash, which triggers a shard Pod rolling
+  reconcile.
 
-### ImageCatalog 기반 runtime image 선택
+### ImageCatalog-driven runtime image selection
 
-CloudNativePG 와 같은 `spec.imageCatalogRef` 필드 형태를 지원한다. `ImageCatalog` 는
-namespace 범위, `ClusterImageCatalog` 는 cluster 범위 catalog 이며, catalog entry 가
-바뀌면 해당 `PostgresCluster` 의 StatefulSet Pod template image 와
-`postgres.keiailab.io/postgres-image-catalog-sha256` annotation 이 함께 바뀌어
-Kubernetes rollout 으로 이어진다.
+We support the same `spec.imageCatalogRef` shape as CloudNativePG.
+`ImageCatalog` is namespace-scoped, `ClusterImageCatalog` is
+cluster-scoped. When a catalog entry changes, the referencing
+`PostgresCluster`'s StatefulSet Pod-template image and its
+`postgres.keiailab.io/postgres-image-catalog-sha256` annotation change
+together, which triggers a Kubernetes rollout.
 
 ```yaml
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -188,22 +202,25 @@ spec:
     storage: {size: 10Gi}
 ```
 
-호환성/안전 규칙:
+Compatibility / safety rules:
 
-- `apiGroup` 은 빈 값, `postgres.keiailab.io`, `postgresql.cnpg.io` 를 허용한다.
-- `imageCatalogRef.major` 는 `postgresVersion` 을 대체하는 image/bin-dir 선택의
-  단일 진실원이다. 둘을 같이 쓰면 값이 같아야 한다.
-- catalog 나 major entry 를 찾지 못하면 fallback image 로 진행하지 않고
-  `status.phase=Degraded`, `Ready=False`, `Reason=ImageCatalogRejected` 로 실패한다.
+- `apiGroup` accepts empty, `postgres.keiailab.io`, or `postgresql.cnpg.io`.
+- `imageCatalogRef.major` is the single source of truth for image / bin
+  directory selection, in place of `postgresVersion`. If both are
+  present they must match.
+- If the catalog or the major entry cannot be located, the operator does
+  **not** fall back to a default image. Instead it fails with
+  `status.phase=Degraded`, `Ready=False`, `Reason=ImageCatalogRejected`.
 
 ### Standalone replica cluster
 
-CloudNativePG 의 standalone replica cluster 기본 흐름과 같은 `externalClusters` +
-`bootstrap.pg_basebackup.source` + `replica.enabled/source` 표면을 지원한다. 이 모드에서는
-ordinal 0 Pod 도 `initdb` 를 수행하지 않고 외부 source 에서 `pg_basebackup` 을 실행한 뒤
-`standby.signal` 과 `primary_conninfo` 를 기록한다. instance manager 는
-`POSTGRES_REPLICA_CLUSTER=standalone` 환경 변수로 영구 follower election 을 사용하므로
-local promotion 을 수행하지 않는다.
+We support the same `externalClusters` + `bootstrap.pg_basebackup.source` +
+`replica.enabled/source` surface that drives CloudNativePG's standalone
+replica-cluster baseline. In this mode the ordinal-0 Pod does **not**
+run `initdb`; it runs `pg_basebackup` from the external source and
+writes `standby.signal` and `primary_conninfo`. The instance manager
+runs with `POSTGRES_REPLICA_CLUSTER=standalone`, using a persistent-
+follower election so local promotion never occurs.
 
 ```yaml
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -246,57 +263,62 @@ spec:
     storage: {size: 10Gi}
 ```
 
-Fail-closed 규칙:
+Fail-closed rules:
 
-- `replica.enabled=true` 이면 `replica.source` 와 `bootstrap.pg_basebackup.source` 가
-  모두 필요하며 값이 같아야 한다.
-- source 이름은 `externalClusters[].name` 에 존재해야 한다.
-- `connectionParameters.host` 가 없으면 Pod 를 만들지 않고
-  `status.phase=Degraded`, `Ready=False`, `Reason=ReplicaClusterRejected` 로 실패한다.
-- `password`, `sslKey`, `sslCert`, `sslRootCert` 를 지정하면 `name` 과 `key` 를 모두
-  채워야 한다. 누락 시 동일하게 `ReplicaClusterRejected` 로 실패한다.
+- If `replica.enabled=true`, both `replica.source` and
+  `bootstrap.pg_basebackup.source` are required and must be equal.
+- The source name must exist in `externalClusters[].name`.
+- If `connectionParameters.host` is missing the Pod is not created;
+  instead `status.phase=Degraded`, `Ready=False`,
+  `Reason=ReplicaClusterRejected`.
+- If `password`, `sslKey`, `sslCert`, or `sslRootCert` is set, both
+  `name` and `key` must be supplied. Any omission fails closed as
+  `ReplicaClusterRejected`.
 
-현재 범위:
+Current scope:
 
-- streaming `pg_basebackup` + continuous recovery path 와 local promotion 차단은
-  envtest/unit test 로 검증했다.
-- password Secret 은 `PRIMARY_PASSWORD` Secret env 로 주입한 뒤 `/tmp/primary.pgpass` 로
-  변환하고, TLS client key/cert/root cert 는 projected Secret 을 init container 에
-  mount 한 뒤 `/tmp/primary-client.*` 파일로 복사해 `primary_conninfo` 의
-  `passfile`, `sslkey`, `sslcert`, `sslrootcert` 에 연결한다.
-- WAL archive/object-store hybrid, distributed topology demotion/promotion token,
-  live cross-cluster drill 은 후속이다.
+- The streaming `pg_basebackup` + continuous-recovery path and the
+  local-promotion lockout are verified by envtest / unit tests.
+- The password Secret is injected via the `PRIMARY_PASSWORD` Secret env,
+  converted into `/tmp/primary.pgpass`. The TLS client key / cert / root
+  cert come from a projected Secret mounted in an init container and
+  copied to `/tmp/primary-client.*`, then wired into
+  `primary_conninfo`'s `passfile` / `sslkey` / `sslcert` /
+  `sslrootcert`.
+- WAL-archive / object-store hybrid, distributed-topology demotion /
+  promotion token, and live cross-cluster drill are follow-up.
 
-### 선언형 하이버네이션
+### Declarative hibernation
 
-CloudNativePG 와 같은 annotation 을 지원한다. 하이버네이션은 shard StatefulSet 과
-PVC template 소유권은 유지하면서 database Pod 수를 0 으로 낮춘다. PVC 는 삭제하지
-않으므로 나중에 같은 클러스터를 재수화할 수 있다.
+We support the same annotation that CloudNativePG uses. Hibernation
+preserves the shard StatefulSet's and PVC template's ownership while
+scaling the database Pod count to zero. PVCs are not deleted, so the
+cluster can be rehydrated later.
 
 ```fish
 kubectl annotate postgrescluster quickstart --overwrite cnpg.io/hibernation=on
 kubectl get postgrescluster quickstart -o \
   'jsonpath={.status.conditions[?(@.type=="cnpg.io/hibernation")]}'
 
-# 재수화
+# Rehydrate
 kubectl annotate postgrescluster quickstart --overwrite cnpg.io/hibernation=off
-# 또는 annotation 제거
+# or remove the annotation
 kubectl annotate postgrescluster quickstart cnpg.io/hibernation-
 ```
 
-하이버네이션 중 기대 상태:
+Expected state during hibernation:
 
-- shard StatefulSet `spec.replicas=0`
-- `status.phase=Hibernated`
-- `status.conditions[type=cnpg.io/hibernation].status=True`
-- `Ready=False`, `Progressing=False`
-- native router 가 켜져 있으면 router Deployment 도 `replicas=0`
+- shard StatefulSet `spec.replicas=0`.
+- `status.phase=Hibernated`.
+- `status.conditions[type=cnpg.io/hibernation].status=True`.
+- `Ready=False`, `Progressing=False`.
+- If a native router is on, its Deployment is also `replicas=0`.
 
-## 5. 스모크 검증 (kind)
+## 5. Smoke verification (kind)
 
 ```fish
-./hack/smoke.sh           # cleanup 후 종료
-./hack/smoke.sh --keep    # cluster 유지 (디버깅)
+./hack/smoke.sh           # tears down on exit
+./hack/smoke.sh --keep    # keep the cluster (debugging)
 PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17 ./hack/smoke.sh
 PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18 ./hack/smoke.sh
 PG_MAJOR=17 POSTGRES_VERSION=17 CR_NAME=quickstart17ha SHARD_REPLICAS=1 ./hack/smoke.sh
@@ -306,83 +328,102 @@ SMOKE_HIBERNATION=1 CR_NAME=quickstarthibernate ./hack/smoke.sh
 PG_MAJOR=18 POSTGRES_VERSION=18 CR_NAME=quickstart18fo SHARD_REPLICAS=1 SMOKE_FAILOVER=1 ./hack/smoke.sh
 ```
 
-본 스크립트는:
+The script:
 
-1. kind cluster `postgres-operator-smoke` 생성
-2. operator + PG 이미지 로컬 빌드 + kind load (`SMOKE_POOLER=1` 은 PgBouncer image 도 load)
-3. dist/install.yaml server-side apply
-4. quickstart sample apply
-5. StatefulSet ReadyReplicas≥1 대기 (5분 timeout)
-6. `psql -c 'SELECT 1'` round-trip 검증
-7. `SMOKE_HIBERNATION=1` 이면 `cnpg.io/hibernation=on/off` annotation, StatefulSet `replicas=0`, PVC 보존, 재수화 후 marker row `SELECT` 를 검증
-8. `SMOKE_POOLER=1` 이면 Pooler CR + PgBouncer auth Secret 생성 후 Pooler Service 경유 `psql SELECT 1`, `spec.paused=true` 신규 client 차단, `spec.paused=false` 재접속, `pgbouncer.parameters` 패치 후 configHash 변경 + Pod 교체 없는 `SIGHUP` in-place reload + 재접속을 검증
-9. `SHARD_REPLICAS>=1` 이면 `pg_stat_replication` 에서 streaming standby 관측
-10. `SMOKE_FAILOVER=1` 이면 primary Pod 삭제 후 standby promote RTO 측정
+1. Creates the kind cluster `postgres-operator-smoke`.
+2. Builds the operator + PG images locally and loads them into kind
+   (`SMOKE_POOLER=1` also loads the PgBouncer image).
+3. Applies `dist/install.yaml` server-side.
+4. Applies the quickstart sample.
+5. Waits up to 5 minutes for `StatefulSet.ReadyReplicas ≥ 1`.
+6. Verifies a `psql -c 'SELECT 1'` round-trip.
+7. With `SMOKE_HIBERNATION=1`: exercises `cnpg.io/hibernation=on/off`,
+   StatefulSet `replicas=0`, PVC preservation, and a marker-row `SELECT`
+   on rehydration.
+8. With `SMOKE_POOLER=1`: creates the Pooler CR + the PgBouncer auth
+   Secret, runs `psql SELECT 1` through the Pooler Service, blocks new
+   clients when `spec.paused=true`, reconnects after `spec.paused=false`,
+   patches `pgbouncer.parameters` and confirms a configHash change with
+   an in-place `SIGHUP` reload (no Pod replacement) and a successful
+   re-connection.
+9. With `SHARD_REPLICAS≥1`: observes the streaming standby in
+   `pg_stat_replication`.
+10. With `SMOKE_FAILOVER=1`: deletes the primary Pod and measures the
+    standby-promotion RTO.
 
-## 6. Pooler 모니터링
+## 6. Pooler monitoring
 
-Pooler PgBouncer exporter sidecar 를 활성화하면 Pooler Pod/Service 에 안정적인
-selector 라벨이 붙는다. Prometheus Operator 환경에서는 자동 생성 대신
-`PodMonitor` 를 직접 관리한다.
+Enabling the PgBouncer exporter sidecar adds stable selector labels to
+the Pooler Pods / Service. In a Prometheus Operator environment, manage
+the `PodMonitor` directly (no auto-generation).
 
 ```fish
 kubectl apply -f config/samples/postgres_v1alpha1_pooler_podmonitor.yaml
 ```
 
-상세 예시는 `docs/operator-guide/pooler-monitoring.md` 를 참조한다.
+See `docs/operator-guide/pooler-monitoring.md` for the full example.
 
-`PG_MAJOR` 는 빌드할 runtime image 의 base major 를, `POSTGRES_VERSION` 은
-`PostgresCluster.spec.postgresVersion` 을 지정한다. 0.3.0-alpha 기준 smoke
-matrix 는 PG17 + PG18 이다. `SHARD_REPLICAS` 는 `spec.shards.replicas` 에
-그대로 반영된다.
+`PG_MAJOR` selects the base major of the runtime image to build;
+`POSTGRES_VERSION` is wired into `PostgresCluster.spec.postgresVersion`.
+The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
+1:1 to `spec.shards.replicas`.
 
-## 7. alpha 단계 한계 (production 도입 전 인지 사항)
+## 7. Alpha-stage caveats (read before adopting in production)
 
-- **secret 미통합** — postgres user password 가 alpha 에서는 trust/peer auth 의존.
-  scram-sha-256 host auth 는 ConfigMap 으로만 활성. K8s Secret + dynamic
-  password rotation 은 후속 cycle (F04 backup 과 같이).
-- **HA 검증 범위 제한** — 2026-05-07 PG18 `SHARD_REPLICAS=1 SMOKE_FAILOVER=1`
-  smoke 에서 primary Pod 삭제 → standby promote RTO 21s(<30s), CR status primary 수렴,
-  restarted old primary standby 재진입을 확인했다. 다만 chaos-mesh kill/network
-  partition, multi-node 장애, pgBackRest 결합까지 검증한 production HA 는 F05 후속이다.
-- **standby 재구성 범위 제한** — restarted old primary 의 marker 생성은
-  existing PGDATA + current primary endpoint 비교 기준으로 일반화됐고, instance
-  manager 는 same `PRIMARY_ENDPOINT` 로 `pg_rewind` 후 standby.signal /
-  primary_conninfo 를 구성한다. first-boot standby 와 rejoin standby 의
-  `primary_conninfo` 는 Pod 이름을 `application_name` 으로 설정하므로
-  synchronous replication 의 standby name 과 일치한다. `pg_rewind` 실패 시
-  fresh `pg_basebackup` fallback 을 시도하고, fallback 실패 시 원본 dataDir 을 복구한다. 실패 원인은
-  `PostgresCluster.status.shards[].replicas[].reason/message` 로 표면화된다.
-  live divergent WAL rewind drill 과 외부 fencing/STONITH 계열 검증은 F03/F05 후속이다.
-- **동기 복제 live 검증 미완료** — `postgresql.synchronous` CRD/schema,
-  required/preferred config 렌더링, ConfigMap hash rolling reconcile, standby
-  `application_name` wiring 은 단위 테스트로 봉인했다. 실제 commit latency/RPO=0
-  kind drill 은 F05 후속이다.
-- **하이버네이션 live 실측 잔여** — `cnpg.io/hibernation=on/off` annotation,
-  StatefulSet scale-to-zero/restore, PVC template 보존, condition/phase 표면은
-  envtest 로 검증했고, `SMOKE_HIBERNATION=1` kind drill 경로도 추가했다. 실제 PVC data
-  보존 후 재수화 `SELECT` round-trip 실측은 F05 후속이다.
-- **단일 shard 만 GA** — shardingMode=native + multi-shard + router 는 P2 진입 후
-  의미. 본 alpha 는 shardingMode=none (single shard) 만 보장.
+- **Secret integration is incomplete** — in alpha, the postgres user
+  password relies on trust / peer auth. scram-sha-256 host auth is
+  enabled only by ConfigMap. Kubernetes Secret + dynamic password
+  rotation is a follow-up cycle (alongside F04 backup).
+- **HA verification is bounded** — on 2026-05-07 the PG18
+  `SHARD_REPLICAS=1 SMOKE_FAILOVER=1` smoke confirmed that primary-Pod
+  deletion → standby promotion takes RTO 21 s (< 30 s), the CR status
+  primary converges, and the restarted old primary rejoins as standby.
+  chaos-mesh kill / network partition, multi-node failure, and full
+  pgBackRest-integrated production HA are F05 follow-up.
+- **Standby reconstruction is bounded** — the restarted old primary's
+  marker is created when the existing PGDATA and current-primary-endpoint
+  comparison indicates so, and the instance manager runs `pg_rewind`
+  with the same `PRIMARY_ENDPOINT` and writes `standby.signal` /
+  `primary_conninfo`. The first-boot and rejoin standbys use the Pod
+  name as `application_name`, so synchronous replication's standby
+  names align. On `pg_rewind` failure we fall back to a fresh
+  `pg_basebackup`; if that also fails the original data dir is restored.
+  The failure cause is surfaced in
+  `PostgresCluster.status.shards[].replicas[].reason/message`. Live
+  divergent-WAL rewind drill and external fencing / STONITH-class
+  verification are F03 / F05 follow-up.
+- **Synchronous replication has no live verification yet** — the
+  `postgresql.synchronous` CRD / schema, the required / preferred config
+  rendering, the ConfigMap-hash rolling reconcile, and the standby
+  `application_name` wiring are all unit-test-pinned. A real commit
+  latency / RPO=0 kind drill is F05 follow-up.
+- **Hibernation lacks live measurement** — `cnpg.io/hibernation=on/off`,
+  StatefulSet scale-to-zero / restore, PVC-template preservation, and
+  the condition / phase surface are envtest-verified, and a
+  `SMOKE_HIBERNATION=1` kind drill path was added. Actual PVC
+  data-preservation rehydration `SELECT` round-trips are F05 follow-up.
+- **Only single-shard is GA** — `shardingMode=native` + multi-shard +
+  router become meaningful after P2. This alpha guarantees only
+  `shardingMode=none` (single shard).
 
-## 8. 트러블슈팅
+## 8. Troubleshooting
 
-| 증상 | 원인 / 조치 |
+| Symptom | Cause / remedy |
 |---|---|
-| Pod 가 ImagePullBackOff | `ghcr.io/keiailab/pg:18` 가 cluster registry 에서 미발견. `make docker-build-pg` + `kind load docker-image` 또는 사설 mirror push. |
-| PgBouncer image kind load 가 OCI index digest 오류로 실패 | `hack/smoke.sh` 는 `kind load docker-image` 실패 시 단일 플랫폼 `ctr images import` 로 fallback 한다. `ghcr.io/cloudnative-pg/pgbouncer:1.24.1` 의 attestation manifest 때문에 Docker Desktop arm64 에서 재현됨. |
-| CRD apply 가 `metadata.annotations: Too long` 으로 실패 | `dist/install.yaml` 은 CRD 크기 때문에 client-side apply 대신 `kubectl apply --server-side -f dist/install.yaml` 을 사용한다. |
-| PgBouncer Pod 가 `/tmp/.s.PGSQL.5432` read-only filesystem 으로 CrashLoop | operator 가 `unix_socket_dir = ` 를 렌더링해 Unix socket 을 비활성화한다. ConfigMap 에 해당 행이 없으면 최신 operator image 로 재빌드한다. |
-| 단일 멤버 quickstart 가 PVC `postgres.keiailab.io/fenced=true` 후 CrashLoop | 구 alpha image 의 단일 멤버 election stop 처리 버그다. 최신 PG runtime image 는 `POSTGRES_MEMBER_COUNT=1` 에서 leadership stop 시 PVC fence/fast demote 를 건너뛰도록 수정됐다. |
-| Pod CrashLoopBackOff (initdb) | PVC ownership 문제. SecurityContext FSGroup=70 이 적용되지 않은 StorageClass — PVC 동적 프로비저닝 시 fsGroup 전파 가능 검사. |
-| /readyz 503 "starting election" | 정상 부트스트랩 phase. 30~60s 안 해소되지 않으면 leases RBAC 부재. `kubectl get role,rolebinding -l app.kubernetes.io/instance=<cluster>`. |
-| /readyz 503 "postgres not ready" | postgres child 가 LocalDSN 으로 응답 안함. instance Pod 안 `kubectl exec ... -c postgres -- ls /var/run/postgresql` — Unix socket 부재 시 postgresql.conf 의 unix_socket_directories 확인. |
-| Reconcile 무한 requeue | controller log 확인. webhook CEL XValidation 거부 가능 — `kubectl get postgrescluster <name> -o yaml` events. |
+| Pod stuck in ImagePullBackOff | `ghcr.io/keiailab/pg:18` not present in the cluster registry. Run `make docker-build-pg` + `kind load docker-image`, or push to a private mirror. |
+| PgBouncer image kind-load fails with an OCI-index digest error | `hack/smoke.sh` falls back to a single-platform `ctr images import` when `kind load docker-image` fails. The `ghcr.io/cloudnative-pg/pgbouncer:1.24.1` attestation manifest causes this on Docker Desktop arm64. |
+| CRD apply fails with `metadata.annotations: Too long` | `dist/install.yaml` exceeds the client-side apply size limit. Use `kubectl apply --server-side -f dist/install.yaml` instead. |
+| PgBouncer Pod CrashLoops on a read-only-rootfs with `/tmp/.s.PGSQL.5432` | The operator should render `unix_socket_dir = ` to disable the Unix socket. If the ConfigMap lacks that line, rebuild with the latest operator image. |
+| A single-member quickstart CrashLoops after PVC label `postgres.keiailab.io/fenced=true` | Legacy alpha-image bug in single-member election-stop handling. The latest PG runtime image skips the PVC fence / fast demote when `POSTGRES_MEMBER_COUNT=1` and leadership stops. |
+| Pod CrashLoopBackOff during initdb | PVC ownership issue. The StorageClass may not propagate `fsGroup`. Confirm that the SecurityContext `FSGroup=70` is applied. |
+| `/readyz` 503 with "starting election" | Normal bootstrap phase. If it persists for 30–60 s, leases RBAC is missing. Inspect `kubectl get role,rolebinding -l app.kubernetes.io/instance=<cluster>`. |
+| `/readyz` 503 with "postgres not ready" | The postgres child does not answer on the local DSN. Inside the Pod run `kubectl exec ... -c postgres -- ls /var/run/postgresql` — if the Unix socket is missing, double-check `unix_socket_directories` in `postgresql.conf`. |
+| Reconcile loops endlessly | Check the controller log. The webhook CEL XValidation may be rejecting the CR — `kubectl get postgrescluster <name> -o yaml`'s events. |
 
-## 8. 참조
+## 9. References
 
-- ADR 0002 — instance manager PID 1 모델
-- ADR 0006 — dataplane SecurityContext
-- RFC 0001 — PostgresCluster CRD v2 schema
-- RFC 0003 — election + fencing 인터페이스
-- HANDOFF.md — 진행 중 작업 + 다음 cycle 진입점
+- ADR 0002 — instance-manager PID 1 model.
+- ADR 0006 — dataplane SecurityContext.
+- RFC 0001 — PostgresCluster CRD v2 schema.
+- RFC 0003 — election + fencing interface.
+- HANDOFF.md — work-in-progress and the next-cycle entry point.
