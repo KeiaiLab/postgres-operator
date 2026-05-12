@@ -1,47 +1,79 @@
 # Pooler Monitoring Guide
 
-> CNPG 1.29 기준: Pooler PgBouncer exporter 는 각 Pooler Pod 의 `metrics` port
-> 9127 에서 노출되며, `cnpg_pgbouncer_` prefix metric 을 제공한다.
-> Prometheus Operator 환경에서는 PodMonitor 를 사용자가 직접 관리하는 패턴이 권장된다.
+> Per CloudNativePG 1.29: the Pooler PgBouncer exporter is exposed on
+> each Pooler Pod's `metrics` port 9127 and emits `cnpg_pgbouncer_`
+> prefixed metrics. In a Prometheus Operator environment the
+> recommended pattern is for the user to manage the PodMonitor directly.
 
-## 사용자 시나리오
+## User scenario
 
-사용자는 `Pooler.spec.pgbouncer.exporter` 를 설정해 PgBouncer exporter sidecar 를
-활성화하고, Prometheus Operator 의 `PodMonitor` 로 해당 Pooler Pod 를 scrape 한다.
+The user enables the PgBouncer exporter sidecar by setting
+`Pooler.spec.pgbouncer.exporter` and scrapes the Pooler Pods with a
+Prometheus Operator `PodMonitor`.
 
-기대 결과:
+Expected outcome:
 
-- Pooler Pod template 과 Service 에 다음 라벨이 붙는다.
+- The Pooler Pod template and Service receive these labels:
   - `postgres.keiailab.io/cluster`
   - `postgres.keiailab.io/pooler`
   - `postgres.keiailab.io/pooler-type`
-- exporter sidecar 는 `metrics` container port 를 노출한다.
-- Pooler Service 는 `metrics` Service port 를 노출한다.
-- operator manager `/metrics` 는 `postgres_operator_pooler_phase` 를 노출한다.
-- exporter 는 CNPG 호환 metric prefix 인 `cnpg_pgbouncer_` 를 사용해야 하며,
-  알림 규칙은 `cnpg_pgbouncer_last_collection_error`,
-  `cnpg_pgbouncer_pools_cl_waiting`, `cnpg_pgbouncer_pools_maxwait` 를 기준으로 한다.
-- Helm PrometheusRule 은 Pooler 실패와 별도로 PgBouncer exporter collection 실패,
-  client 대기 발생, client 최대 대기시간 초과를 감지한다.
-- Helm Grafana dashboard ConfigMap 은 Pooler dashboard 에 exporter collection error,
-  waiting clients, max wait, active client/server connection, client slot 패널을 렌더한다.
-- PgBouncer 컨테이너는 `pgbouncer` TCP port 로 readiness/liveness/startup probe 를 수행한다.
-- exporter sidecar 는 `metrics` port 의 `/metrics` 로 readiness/liveness probe 를 수행한다.
-- `pgbouncer.parameters` 는 CNPG 1.29 Pooler 문서의 PgBouncer option 표면에 맞춘 allowlist 로 검증된다.
-- operator-owned key 인 `listen_addr`, `listen_port`, `auth_file`, `pool_mode` 는 CR 에서 직접 override 할 수 없다.
-- `ignore_startup_parameters` 는 사용자가 값을 지정해도 `extra_float_digits,options` 를 항상 포함한다.
-- `pg_hba` 를 지정하면 `pg_hba.conf` ConfigMap key 와 mount 를 생성하고, PgBouncer `auth_type=hba`, `auth_hba_file=/etc/pgbouncer/config/pg_hba.conf` 를 operator 가 소유한다.
-- `instances > 1` 인 Pooler 는 zone/hostname topology spread 와 `minAvailable=instances-1` PDB 를 자동 생성한다.
-- Pooler Deployment rolling update 는 `maxUnavailable=0`, `maxSurge=1`, `minReadySeconds=5` 로 수렴한다.
-- `deploymentStrategy` 를 지정하면 PgBouncer Deployment 교체 전략을 명시적으로 override 할 수 있다.
-- `serviceAccountName` 을 지정하면 cloud IAM 등 외부 인증에 맞춘 기존 ServiceAccount 로 Pooler Pod 를 실행할 수 있다.
-- `serverTLSSecret`, `serverCASecret`, `clientTLSSecret`, `clientCASecret` 을 지정하면 PgBouncer TLS 파일 설정과 Secret volume mount 를 operator 가 생성하고, Secret 부재/필수 키 누락은 `InvalidSpec` 으로 fail-closed 한다.
-- `type: ro` Pooler 는 ready replica 전체를 PgBouncer host list 로 렌더하고 복수 host 일 때 `server_round_robin=1`, `server_login_retry=2` 를 기본 적용한다.
-- Pooler status 는 `instances`, `readyReplicas`, `backendTargets`, `configHash` 를 기록해 현재 라우팅 대상과 배포된 PgBouncer config 를 audit 할 수 있다.
-- `spec.paused: true` 는 준비된 PgBouncer Pod 에 `SIGUSR1` 을 보내 신규 client 처리를 PAUSE 하고, `false` 로 되돌리면 `SIGUSR2` 로 RESUME 한다. 적용 여부는 `status.paused` 와 각 Pod 의 `postgres.keiailab.io/pgbouncer-paused` annotation 으로 확인한다.
-- `spec.pgbouncer.parameters` 변경은 ConfigMap projection 의 `config.sha256` 가 새 hash 로 보이는 ready Pod 에 `SIGHUP` 을 보내 in-place reload 로 반영한다. Deployment generation 과 Pod 이름은 유지되고, 각 Pod annotation `postgres.keiailab.io/pgbouncer-config-sha256` 로 적용 hash 를 audit 한다.
+- The exporter sidecar exposes the `metrics` container port.
+- The Pooler Service exposes the `metrics` Service port.
+- The operator-manager `/metrics` exposes `postgres_operator_pooler_phase`.
+- The exporter uses the CNPG-compatible metric prefix `cnpg_pgbouncer_`;
+  alert rules key off `cnpg_pgbouncer_last_collection_error`,
+  `cnpg_pgbouncer_pools_cl_waiting`, and `cnpg_pgbouncer_pools_maxwait`.
+- The Helm PrometheusRule detects Pooler failure as well as PgBouncer
+  exporter collection failure, client waiting, and excess client max-wait
+  time.
+- The Helm Grafana dashboard ConfigMap renders the Pooler dashboard with
+  exporter-collection-error, waiting-clients, max-wait, active
+  client/server connection, and client-slot panels.
+- The PgBouncer container runs readiness / liveness / startup probes on
+  the `pgbouncer` TCP port.
+- The exporter sidecar runs readiness / liveness probes on the
+  `metrics` port's `/metrics` path.
+- `pgbouncer.parameters` is validated against an allowlist aligned with
+  the CNPG 1.29 Pooler PgBouncer option surface.
+- Operator-owned keys (`listen_addr`, `listen_port`, `auth_file`,
+  `pool_mode`) cannot be overridden directly in the CR.
+- `ignore_startup_parameters` always includes `extra_float_digits,options`
+  in addition to whatever the user specifies.
+- When `pg_hba` is set the operator generates a `pg_hba.conf` ConfigMap
+  key + mount and owns PgBouncer's `auth_type=hba` /
+  `auth_hba_file=/etc/pgbouncer/config/pg_hba.conf`.
+- A Pooler with `instances > 1` automatically receives zone / hostname
+  topology spread and a `minAvailable=instances-1` PDB.
+- The Pooler Deployment rolling-update defaults converge to
+  `maxUnavailable=0`, `maxSurge=1`, `minReadySeconds=5`.
+- Setting `deploymentStrategy` explicitly overrides the PgBouncer
+  Deployment replacement strategy.
+- Setting `serviceAccountName` runs the Pooler Pods under an existing
+  ServiceAccount, which is useful for cloud IAM or other external
+  authenticators.
+- Setting `serverTLSSecret`, `serverCASecret`, `clientTLSSecret`, or
+  `clientCASecret` causes the operator to render the PgBouncer TLS file
+  configuration and Secret volume mount; missing Secrets or missing
+  required keys fail closed as `InvalidSpec`.
+- A `type: ro` Pooler renders all ready replicas into PgBouncer's host
+  list, and when there are multiple hosts defaults to
+  `server_round_robin=1` and `server_login_retry=2`.
+- Pooler status records `instances`, `readyReplicas`, `backendTargets`,
+  and `configHash`, allowing auditing of the current routing target and
+  the deployed PgBouncer config.
+- `spec.paused: true` sends `SIGUSR1` to every ready PgBouncer Pod,
+  PAUSEing new client traffic; setting it back to `false` sends
+  `SIGUSR2` to RESUME. Application can be confirmed via
+  `status.paused` and the
+  `postgres.keiailab.io/pgbouncer-paused` annotation on each Pod.
+- Changing `spec.pgbouncer.parameters` is applied in-place: once the
+  ConfigMap projection's `config.sha256` reaches the new hash on each
+  ready Pod, the operator sends `SIGHUP`. The Deployment generation and
+  Pod names stay put; the per-Pod annotation
+  `postgres.keiailab.io/pgbouncer-config-sha256` records the applied
+  hash.
 
-## Pooler 예시
+## Pooler example
 
 ```yaml
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -85,7 +117,7 @@ spec:
       - hostnossl all all 0.0.0.0/0 reject
 ```
 
-## PodMonitor 예시
+## PodMonitor example
 
 `config/samples/postgres_v1alpha1_pooler_podmonitor.yaml`:
 
@@ -111,7 +143,7 @@ spec:
       scrapeTimeout: 10s
 ```
 
-## 검증
+## Verification
 
 ```fish
 kubectl get pod -l postgres.keiailab.io/pooler=quickstart-rw \
@@ -197,7 +229,7 @@ helm template monitor charts/postgres-operator \
     | rg 'postgres-operator-pooler.json|cnpg_pgbouncer_pools_sv_active|cnpg_pgbouncer_lists_used_clients'
 ```
 
-2026-05-12 kind 실측:
+2026-05-12 kind run:
 
 ```fish
 CLUSTER_NAME=postgres-operator-smoke-pooler-0512 \
@@ -206,25 +238,39 @@ CLUSTER_NAME=postgres-operator-smoke-pooler-0512 \
     ./hack/smoke.sh --keep
 ```
 
-확인 결과:
+Observed:
 
-- quickstart Postgres `psql SELECT 1 = 1`
-- Pooler Deployment `2/2` ready
-- Pooler status `phase: Ready`, `readyReplicas: 2`, `backendTargets` 반영
-- Pooler Service 경유 `SELECT 1 = 1`
-- `spec.paused=true` 패치 후 신규 Pooler client 가 5s timeout 으로 차단됨
-- PgBouncer 로그에서 `got SIGUSR1, pausing all activity` 와 `got SIGUSR2, continuing from PAUSE` 확인
-- `spec.paused=false` 패치 후 Pooler Service 경유 `SELECT 1 = 1` 재확인
-- `spec.pgbouncer.parameters.default_pool_size=12`, `max_client_conn=120` 패치 후 `status.configHash` 변경, Pod 이름/Deployment generation 유지, Pod hash annotation 반영, PgBouncer `SIGHUP` reload 로그, ConfigMap 반영, Pooler Service 경유 `SELECT 1 = 1` 재확인
-- PgBouncer config `unix_socket_dir = ` 로 Unix socket 비활성화
-- Helm PrometheusRule 렌더링에서 `PostgresPoolerExporterCollectionFailed`,
-  `PostgresPoolerClientWaiting`, `PostgresPoolerClientMaxWaitHigh` 와
-  `cnpg_pgbouncer_last_collection_error`, `cnpg_pgbouncer_pools_cl_waiting`,
-  `cnpg_pgbouncer_pools_maxwait` 확인
-- Helm Grafana dashboard 렌더링에서 `postgres-operator-pooler.json`,
-  `cnpg_pgbouncer_pools_sv_active`, `cnpg_pgbouncer_lists_used_clients` 확인
+- `psql SELECT 1 = 1` against the quickstart Postgres.
+- Pooler Deployment `2/2` ready.
+- Pooler status `phase: Ready`, `readyReplicas: 2`, `backendTargets` reflected.
+- `SELECT 1 = 1` through the Pooler Service.
+- After patching `spec.paused=true`, new Pooler clients block until the
+  5-second timeout.
+- PgBouncer logs show `got SIGUSR1, pausing all activity` and
+  `got SIGUSR2, continuing from PAUSE`.
+- After patching `spec.paused=false`, `SELECT 1 = 1` works through the
+  Pooler Service again.
+- Patching `spec.pgbouncer.parameters.default_pool_size=12` /
+  `max_client_conn=120` changes `status.configHash` while leaving Pod
+  names and Deployment generation untouched; the Pod hash annotation is
+  updated, PgBouncer logs show the `SIGHUP` reload, the ConfigMap
+  reflects the new value, and `SELECT 1 = 1` works through the Pooler
+  Service.
+- PgBouncer config `unix_socket_dir = ` disables the Unix socket.
+- Helm PrometheusRule render contains
+  `PostgresPoolerExporterCollectionFailed`,
+  `PostgresPoolerClientWaiting`,
+  `PostgresPoolerClientMaxWaitHigh`, plus
+  `cnpg_pgbouncer_last_collection_error`,
+  `cnpg_pgbouncer_pools_cl_waiting`,
+  `cnpg_pgbouncer_pools_maxwait`.
+- Helm Grafana dashboard render contains
+  `postgres-operator-pooler.json`,
+  `cnpg_pgbouncer_pools_sv_active`,
+  `cnpg_pgbouncer_lists_used_clients`.
 
-남은 범위:
+Remaining:
 
-- Prometheus Operator live scrape 와 Grafana dashboard import 검증.
-- built-in auth user/TLS 자동 생성 reconciliation.
+- Live Prometheus Operator scrape and Grafana dashboard import.
+- Built-in auth user / TLS auto-issuance reconciliation (T27 ⑤ done,
+  T27 ⑥ done; TLS auto-issuance is T29).
