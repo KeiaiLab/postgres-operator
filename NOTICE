@@ -3,15 +3,23 @@ Copyright 2026 keiailab
 
 This product includes software developed at keiailab (https://github.com/keiailab).
 
-This product is built on top of and integrates with the following open-source projects:
+This product depends on the following open-source projects (Apache-2.0 / MIT /
+BSD / ISC / PostgreSQL License only — see ADR 0003 라이선스 정책):
 
-- Citus (https://github.com/citusdata/citus) — distributed PostgreSQL extension, AGPL-3.0
 - PostgreSQL (https://www.postgresql.org/) — PostgreSQL License
-- Kubernetes (https://github.com/kubernetes/kubernetes) — Apache-2.0
+- Kubernetes API / client-go (https://github.com/kubernetes/kubernetes) — Apache-2.0
 - controller-runtime / kubebuilder (https://github.com/kubernetes-sigs) — Apache-2.0
 - pgBackRest (https://pgbackrest.org/) — MIT
 - PgBouncer (https://www.pgbouncer.org/) — ISC
+- Prometheus client_golang (https://github.com/prometheus/client_golang) — Apache-2.0
+- Ginkgo / Gomega (https://github.com/onsi) — MIT
+- robfig/cron (https://github.com/robfig/cron) — MIT
+- moby/spdystream (https://github.com/moby/spdystream) — Apache-2.0
 
-The MongoDB sharded cluster topology (mongos / config server replica set / shard
-replica set) is referenced as an architectural model only. No MongoDB code or
-proprietary specifications are incorporated.
+For the full transitive dependency list with version pins and SPDX identifiers
+see `go.mod`, `go.sum`, and the SBOM published by `make sbom` for each release.
+
+CloudNativePG (cloudnative-pg/cloudnative-pg) and other PostgreSQL operators
+(PGO, Patroni, etc.) are referenced as design and operational idiom sources
+only. No code from those projects is incorporated — see README.md "정체성"
+section and ADR 0001 (self-built distributed SQL).
