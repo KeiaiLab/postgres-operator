@@ -1,0 +1,14 @@
+# basic suite — CR 가 cluster 에 적용 가능한지 + spec 검증 (OperatorHub 표준).
+- op: add
+  path: /stages/0/tests/-
+  value:
+    entrypoint:
+    - scorecard-test
+    - basic-check-spec
+    image: quay.io/operator-framework/scorecard-test:v1.42.2
+    labels:
+      suite: basic
+      test: basic-check-spec-test
+    storage:
+      spec:
+        mountPath: {}

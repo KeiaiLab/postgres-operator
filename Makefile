@@ -381,9 +381,22 @@ bundle: ## OperatorHub.io bundle 생성 — operator-sdk + kustomize. VERSION �
 		--channels alpha \
 		--default-channel alpha \
 		--package postgres-operator
+	@echo "=== scorecard config copy: config/scorecard → bundle/tests/scorecard ==="
+	mkdir -p bundle/tests/scorecard
+	kustomize build config/scorecard > bundle/tests/scorecard/config.yaml
 	@echo "=== operator-sdk bundle validate ==="
 	operator-sdk bundle validate ./bundle
 	@echo "✓ bundle: ./bundle/ ($(VERSION), channel alpha)"
+
+.PHONY: scorecard
+scorecard: ## operator-sdk scorecard 로 OLM bundle 의 basic/olm test suite 실행 (kind cluster + 활성 kubeconfig 필요).
+	@command -v operator-sdk >/dev/null 2>&1 || { echo "[error] operator-sdk not installed: brew install operator-sdk"; exit 1; }
+	@command -v kubectl >/dev/null 2>&1 || { echo "[error] kubectl not installed"; exit 1; }
+	@if ! kubectl version --request-timeout=5s >/dev/null 2>&1; then \
+		echo "[error] kubectl API server 연결 불가 — scorecard 는 활성 kind/staging cluster 가 필요합니다 (hack/smoke.sh 가 kind cluster 를 띄운 뒤 실행)"; \
+		exit 1; \
+	fi
+	operator-sdk scorecard ./bundle --wait-time 120s
 
 .PHONY: bundle-build
 bundle-build: bundle ## bundle image 빌드 — registry push 는 community-operators PR 시점에 별.

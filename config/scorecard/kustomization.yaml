@@ -1,0 +1,19 @@
+# operator-sdk scorecard config — kustomize 가 base + patches 를 합쳐 stages 안의
+# tests 배열에 6 개 test (basic-check-spec + olm-bundle-validation + olm-crds-have-validation
+# + olm-crds-have-resources + olm-spec-descriptors + olm-status-descriptors) 를 주입한다.
+# `make bundle` 가 본 디렉토리를 입력으로 bundle/tests/scorecard/config.yaml 을 생성한다.
+resources:
+- bases/config.yaml
+patches:
+- path: patches/basic.config.yaml
+  target:
+    group: scorecard.operatorframework.io
+    version: v1alpha3
+    kind: Configuration
+    name: config
+- path: patches/olm.config.yaml
+  target:
+    group: scorecard.operatorframework.io
+    version: v1alpha3
+    kind: Configuration
+    name: config
