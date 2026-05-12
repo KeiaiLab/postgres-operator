@@ -28,9 +28,10 @@
 #   6. psql round-trip 검증 (`kubectl exec ... -- psql -c 'SELECT 1'`)
 #   7. SMOKE_HIBERNATION=1 이면 cnpg.io/hibernation=on/off + PVC data 보존 검증
 #   8. SMOKE_POOLER=1 이면 Pooler Service 경유 psql round-trip 검증
-#   9. replicas>=1 이면 streaming standby 를 pg_stat_replication 으로 확인
-#   10. SMOKE_FAILOVER=1 이면 primary Pod 삭제 후 standby promote RTO 측정
-#   11. cleanup (--keep 미지정 시 cluster 삭제)
+#   9. SMOKE_DATABASE=1 이면 PostgresDatabase CR → status.applied + pg_database 검증
+#   10. replicas>=1 이면 streaming standby 를 pg_stat_replication 으로 확인
+#   11. SMOKE_FAILOVER=1 이면 primary Pod 삭제 후 standby promote RTO 측정
+#   12. cleanup (--keep 미지정 시 cluster 삭제)
 
 set -euo pipefail
 
@@ -535,13 +536,78 @@ EOF
     fi
     log "  PASS: Pooler config hash changed, in-place reload completed, Pods unchanged, SELECT 1 = 1"
 else
-    log "[8/10] skip Pooler Service psql smoke — SMOKE_POOLER=${SMOKE_POOLER:-unset} (set SMOKE_POOLER=1 to enable)"
+    log "[8/12] skip Pooler Service psql smoke — SMOKE_POOLER=${SMOKE_POOLER:-unset} (set SMOKE_POOLER=1 to enable)"
 fi
 
-# 9. WAL lag 측정 (F02 100% 게이트, ADR-0056 Phase A1)
+# 9. PostgresDatabase declarative smoke (T22 / T27 — psql reconcile 검증)
+#    PostgresDatabase CR 적용 → status.applied=true → pg_database 존재 확인.
+#    databaseReclaimPolicy=delete 로 CR 삭제 시 DROP DATABASE 자동 처리도 검증.
+if [[ "${SMOKE_DATABASE:-0}" == "1" ]]; then
+    log "[9/12] PostgresDatabase declarative smoke (psql reconcile)"
+    DB_NAME="smoke_db_$(date +%s)"
+    cat <<DBSPEC | kubectl -n "$NS" apply -f -
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresDatabase
+metadata:
+  name: ${DB_NAME}
+  namespace: ${NS}
+spec:
+  cluster:
+    name: ${CR_NAME}
+  name: ${DB_NAME}
+  ensure: present
+  databaseReclaimPolicy: delete
+DBSPEC
+
+    db_applied=""
+    end=$(( $(date +%s) + 120 ))
+    while [[ $(date +%s) -lt $end ]]; do
+        db_applied=$(kubectl -n "$NS" get postgresdatabase "$DB_NAME" -o jsonpath='{.status.applied}' 2>/dev/null || echo "")
+        if [[ "$db_applied" == "true" ]]; then
+            break
+        fi
+        sleep 3
+    done
+    if [[ "$db_applied" != "true" ]]; then
+        log "ERROR: PostgresDatabase status.applied != true (got=${db_applied})"
+        kubectl -n "$NS" get postgresdatabase "$DB_NAME" -o yaml | tail -40 || true
+        exit 1
+    fi
+
+    db_exists=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
+        psql -h /var/run/postgresql -U postgres -d postgres -At \
+        -c "SELECT count(*) FROM pg_database WHERE datname='${DB_NAME}'" 2>&1 || echo "")
+    if [[ "$db_exists" != "1" ]]; then
+        log "ERROR: PostgresDatabase reconciler did not CREATE DATABASE: pg_database count=${db_exists}"
+        exit 1
+    fi
+    log "  PASS: PostgresDatabase CR applied → status.applied=true, pg_database 존재 검증"
+
+    kubectl -n "$NS" delete postgresdatabase "$DB_NAME" --wait=true --timeout=60s >/dev/null
+    db_dropped=""
+    end=$(( $(date +%s) + 60 ))
+    while [[ $(date +%s) -lt $end ]]; do
+        db_dropped=$(kubectl -n "$NS" exec "$POD" -c postgres -- \
+            psql -h /var/run/postgresql -U postgres -d postgres -At \
+            -c "SELECT count(*) FROM pg_database WHERE datname='${DB_NAME}'" 2>/dev/null || echo "")
+        if [[ "$db_dropped" == "0" ]]; then
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$db_dropped" != "0" ]]; then
+        log "ERROR: PostgresDatabase reclaim=delete did not DROP DATABASE: pg_database count=${db_dropped}"
+        exit 1
+    fi
+    log "  PASS: PostgresDatabase reclaim=delete finalizer DROP DATABASE 검증"
+else
+    log "[9/12] skip PostgresDatabase smoke — SMOKE_DATABASE=${SMOKE_DATABASE:-unset} (set SMOKE_DATABASE=1 to enable)"
+fi
+
+# 10. WAL lag 측정 (F02 100% 게이트, ADR-0056 Phase A1)
 #    standby 가 *진짜로 replay* 하는지 + 부하 대비 lag 측정.
 #    REPLICAS=1 일 때 standby 부재 → 측정 skip.
-log "[9/10] WAL replication lag measurement"
+log "[10/12] WAL replication lag measurement"
 REPLICAS=$(kubectl -n "$NS" get sts "$STS_NAME" -o jsonpath='{.spec.replicas}')
 if [[ "${REPLICAS:-1}" -ge 2 ]]; then
     # primary 에서 pgbench init + 부하 (10 client × 100 txn)
@@ -584,7 +650,7 @@ fi
 #    primary kill → standby 가 새 primary 로 promote 되는 시간. RTO 목표 < 30s.
 #    SMOKE_FAILOVER=1 환경변수 설정 시에만 실행 (default skip — 데이터 plane 변경 영향).
 if [[ "${REPLICAS:-1}" -ge 2 ]] && [[ "${SMOKE_FAILOVER:-0}" == "1" ]]; then
-    log "[10/10] Failover RTO measurement (SMOKE_FAILOVER=1)"
+    log "[11/12] Failover RTO measurement (SMOKE_FAILOVER=1)"
     KILL_TS=$(date +%s)
     kubectl -n "$NS" delete pod "$POD" --wait=false || true
     log "  primary killed at $(format_utc_ts "$KILL_TS") — waiting for new primary"
@@ -638,5 +704,5 @@ if [[ "${REPLICAS:-1}" -ge 2 ]] && [[ "${SMOKE_FAILOVER:-0}" == "1" ]]; then
     fi
     log "  PASS: CR status reflects ${STS_NAME}-1 and restarted old primary is standby"
 else
-    log "[10/10] skip failover RTO — SMOKE_FAILOVER=${SMOKE_FAILOVER:-unset} (set SMOKE_FAILOVER=1 to enable)"
+    log "[11/12] skip failover RTO — SMOKE_FAILOVER=${SMOKE_FAILOVER:-unset} (set SMOKE_FAILOVER=1 to enable)"
 fi
