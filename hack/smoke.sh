@@ -13,6 +13,12 @@
 #   SMOKE_HIBERNATION=1 ./hack/smoke.sh
 #   SMOKE_POOLER=1 ./hack/smoke.sh
 #
+# 향후 시나리오 (TASKS T27, 미구현):
+#   SMOKE_DATABASE=1        # PostgresDatabase CR → status.applied=true 검증
+#   SMOKE_USER=1            # PostgresUser CR → status.applied=true 검증
+#   SMOKE_SCHEDULEDBACKUP=1 # ScheduledBackup CR → 생성된 BackupJob phase 검증
+#   SMOKE_IMAGECATALOG=1    # ImageCatalog 갱신 → StatefulSet image 변경 + rollout annotation 검증
+#
 # 흐름:
 #   1. kind cluster 생성 (이미 있으면 재사용)
 #   2. operator + PG image 로컬 빌드 후 kind 에 load
