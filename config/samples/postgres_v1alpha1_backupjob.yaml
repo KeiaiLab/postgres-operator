@@ -1,0 +1,30 @@
+# BackupJob 샘플 — quickstart cluster 의 pgBackRest full backup 1 회 실행.
+#
+# 적용 (quickstart PostgresCluster Ready + pgBackRest repo 구성 후):
+#   kubectl apply -f config/samples/postgres_v1alpha1_backupjob.yaml
+#
+# executionMode=job 은 별도 batch/v1 Job 으로 pgBackRest 명령을 실행한다.
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: BackupJob
+metadata:
+  name: quickstart-full-backup
+  namespace: default
+spec:
+  cluster:
+    name: quickstart
+  tool: pgbackrest
+  repo: repo1
+  type: full
+  executionMode: job
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pgbackrest
+              image: ghcr.io/keiailab/pg:18
+              command: ["/bin/sh", "-c"]
+              args:
+                - 'pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"'

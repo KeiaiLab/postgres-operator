@@ -1,0 +1,24 @@
+# Pooler 샘플 — PgBouncer 1.24 connection pool (rw endpoint).
+#
+# 적용 (quickstart PostgresCluster Ready 후):
+#   kubectl apply -f config/samples/postgres_v1alpha1_pooler.yaml
+#
+# 적용 후 같은 namespace 에서 quickstart-rw-pooler.<ns>:5432 로 접속한다.
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: Pooler
+metadata:
+  name: quickstart-rw-pooler
+  namespace: default
+spec:
+  cluster:
+    name: quickstart
+  instances: 2
+  type: rw
+  pgbouncer:
+    image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+    poolMode: session
+    authSecretRef:
+      name: quickstart-pooler-auth
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "20"

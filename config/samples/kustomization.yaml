@@ -1,14 +1,17 @@
-# config/samples kustomization은 e2e 테스트가 단일 entrypoint로 샘플 CR을 적용할 때
-# 사용한다. dev 샘플만 디폴트로 활성, production 샘플은 주석 처리(StorageClass 의존
-# 때문에 클러스터별 활성 결정).
+# config/samples kustomization은 operator-sdk generate bundle 의 alm-examples
+# 입력으로 쓰이며, OperatorHub UI 가 표시할 CR 예시 1 건씩을 owned CRD 별로 제공한다.
+# e2e 테스트도 단일 entrypoint 로 본 kustomization 을 적용한다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - postgres_v1alpha1_postgrescluster_dev.yaml
-# - postgres_v1alpha1_imagecatalog.yaml  # namespace 단위 imageCatalogRef 샘플
-# - postgres_v1alpha1_clusterimagecatalog.yaml  # cluster-wide imageCatalogRef 샘플
+- postgres_v1alpha1_backupjob.yaml
+- postgres_v1alpha1_scheduledbackup.yaml
+- postgres_v1alpha1_pooler.yaml
+- postgres_v1alpha1_postgresdatabase.yaml
+- postgres_v1alpha1_postgresuser.yaml
+- postgres_v1alpha1_imagecatalog.yaml
+- postgres_v1alpha1_clusterimagecatalog.yaml
 # - postgres_v1alpha1_postgrescluster_replica.yaml  # 외부 source 접근성 필요
 # - postgres_v1alpha1_postgrescluster_prod.yaml  # production: storageClassName "fast-ssd" 필요
-# - postgres_v1alpha1_postgresdatabase.yaml  # quickstart PostgresCluster Ready 후 적용
-# - postgres_v1alpha1_postgresuser.yaml  # quickstart PostgresCluster Ready 후 적용
 # - postgres_v1alpha1_pooler_podmonitor.yaml  # Prometheus Operator PodMonitor CRD 필요

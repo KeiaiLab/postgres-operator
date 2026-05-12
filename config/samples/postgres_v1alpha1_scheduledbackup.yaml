@@ -1,0 +1,24 @@
+# ScheduledBackup 샘플 — 매일 02:00 KST 에 quickstart cluster 의 full backup 생성.
+#
+# 적용 (quickstart PostgresCluster Ready + repo 구성 후):
+#   kubectl apply -f config/samples/postgres_v1alpha1_scheduledbackup.yaml
+#
+# 6-field cron 표기: "second minute hour day-of-month month day-of-week".
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: ScheduledBackup
+metadata:
+  name: quickstart-nightly
+  namespace: default
+spec:
+  schedule: "0 0 17 * * *"
+  cluster:
+    name: quickstart
+  tool: pgbackrest
+  repo: repo1
+  type: full
+  immediate: true
+  suspend: false
+  concurrencyPolicy: Forbid
+  backupOwnerReference: self
+  retention:
+    full: 7

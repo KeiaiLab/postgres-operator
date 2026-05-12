@@ -151,6 +151,24 @@ spec:
                     description: 'Schedule 은 cron expression (예: "0 2 * * *").'
                     type: string
                 type: object
+              bootstrap:
+                description: |-
+                  Bootstrap 은 initdb 외 bootstrap 방식을 정의한다. 현재 pg_basebackup 기반
+                  streaming bootstrap 을 지원한다.
+                properties:
+                  pg_basebackup:
+                    description: |-
+                      PgBaseBackup 은 streaming replication protocol 을 통해 외부 source 에서
+                      물리 base backup 을 가져오는 bootstrap 방식이다.
+                    properties:
+                      source:
+                        description: Source 는 spec.externalClusters[].name 을 참조한다.
+                        minLength: 1
+                        type: string
+                    required:
+                    - source
+                    type: object
+                type: object
               extensions:
                 description: |-
                   Extensions 는 활성화할 PostgreSQL extension 의 이름 목록이다 (RFC 0006 R1).
@@ -163,6 +181,169 @@ spec:
                 items:
                   type: string
                 type: array
+              externalClusters:
+                description: |-
+                  ExternalClusters 는 bootstrap/replica source 로 사용할 외부 PostgreSQL
+                  cluster 목록이다.
+                items:
+                  description: |-
+                    ExternalClusterSpec 는 replica cluster/bootstrap source 로 사용할 외부 PostgreSQL
+                    cluster 접속 정보를 정의한다. CloudNativePG 의 externalClusters 표면과 호환되는
+                    최소 streaming path 부터 제공한다.
+                  properties:
+                    connectionParameters:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        ConnectionParameters 는 PostgreSQL connection string key/value 이다.
+                        지원 key: host, port, user, dbname, sslmode. host 는 필수이고 port 는
+                        미지정 시 5432 로 default 된다.
+                      type: object
+                    name:
+                      description: Name 은 bootstrap/replica.source 에서 참조할 이름이다.
+                      minLength: 1
+                      type: string
+                    password:
+                      description: |-
+                        Password 는 libpq password 인증에 사용할 Secret key 참조다.
+                        CloudNativePG externalClusters[].password 와 같은 형태다.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslCert:
+                      description: SSLCert 는 client certificate 인증에 사용할 certificate
+                        Secret key 참조다.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslKey:
+                      description: SSLKey 는 client certificate 인증에 사용할 private key
+                        Secret key 참조다.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    sslRootCert:
+                      description: SSLRootCert 는 source cluster server certificate
+                        검증에 사용할 CA Secret key 참조다.
+                      properties:
+                        key:
+                          description: The key of the secret to select from.  Must
+                            be a valid secret key.
+                          type: string
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        optional:
+                          description: Specify whether the Secret or its key must
+                            be defined
+                          type: boolean
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              imageCatalogRef:
+                description: |-
+                  ImageCatalogRef 는 PostgreSQL runtime image 를 ImageCatalog 또는
+                  ClusterImageCatalog 에서 선택한다. CNPG 의 spec.imageCatalogRef 와 같은
+                  필드 형태를 사용하며, 설정 시 PostgresVersion 대신 Major 가 image/bin dir
+                  선택의 단일 진실원이 된다.
+                properties:
+                  apiGroup:
+                    description: |-
+                      APIGroup 은 catalog API group 이다. 빈 값, postgres.keiailab.io, postgresql.cnpg.io 를 허용한다.
+                      postgresql.cnpg.io 는 CNPG manifest 이식 편의를 위한 호환 입력이며, 실제 조회는
+                      keiailab CRD 에 대해 수행한다.
+                    type: string
+                  kind:
+                    description: Kind 는 ImageCatalog 또는 ClusterImageCatalog 이다.
+                    enum:
+                    - ImageCatalog
+                    - ClusterImageCatalog
+                    type: string
+                  major:
+                    description: Major 는 catalog 안에서 선택할 PostgreSQL major version
+                      이다.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  name:
+                    description: Name 은 catalog 이름이다.
+                    type: string
+                required:
+                - kind
+                - major
+                - name
+                type: object
               monitoring:
                 description: Monitoring 은 monitoring 통합 설정.
                 properties:
@@ -196,6 +377,72 @@ spec:
                 - "17"
                 - "18"
                 type: string
+              postgresql:
+                description: |-
+                  PostgreSQL 은 PostgreSQL runtime 설정이다. synchronous_standby_names 같은
+                  직접 설정 금지 GUC 는 이 구조화된 표면으로만 생성한다.
+                properties:
+                  synchronous:
+                    description: Synchronous 는 physical synchronous replication 설정이다.
+                      nil 이면 disabled.
+                    properties:
+                      dataDurability:
+                        allOf:
+                        - enum:
+                          - required
+                          - preferred
+                        - enum:
+                          - required
+                          - preferred
+                        default: required
+                        description: |-
+                          DataDurability 는 replica 부족 시 write 를 block 할지(required), Ready replica
+                          수에 맞춰 quorum 을 낮출지(preferred)를 결정한다.
+                        type: string
+                      method:
+                        description: Method 는 quorum(any) 또는 priority(first) 기반 동기
+                          standby 선택 방식이다.
+                        enum:
+                        - any
+                        - first
+                        type: string
+                      number:
+                        description: Number 는 commit 이 응답을 기다릴 synchronous standby
+                          수다.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                    - method
+                    - number
+                    type: object
+                type: object
+              replica:
+                description: Replica 는 standalone/distributed replica cluster 동작을
+                  정의한다.
+                properties:
+                  enabled:
+                    description: Enabled 는 standalone replica cluster continuous recovery
+                      를 활성화한다.
+                    type: boolean
+                  primary:
+                    description: |-
+                      Primary 는 distributed topology 에서 현재 global primary cluster 이름이다.
+                      0.3.0-alpha 에서는 API 표면만 제공하고 controlled switchover 는 후속 구현이다.
+                    type: string
+                  promotionToken:
+                    description: |-
+                      PromotionToken 은 controlled switchover/promotion 토큰이다.
+                      0.3.0-alpha 에서는 API 표면만 제공한다.
+                    type: string
+                  self:
+                    description: Self 는 resource name 과 다른 topology-local 이름을 쓸 때
+                      지정한다.
+                    type: string
+                  source:
+                    description: Source 는 spec.externalClusters[].name 을 참조한다.
+                    type: string
+                type: object
               router:
                 description: Router 는 무상태 QueryRouter 풀. shardingMode=native 시에만 의미.
                 properties:
@@ -1598,6 +1845,9 @@ spec:
             - message: autoSplit requires shardingMode=native
               rule: '!has(self.autoSplit) || self.autoSplit.enabled == false || self.shardingMode
                 == ''native'''
+            - message: postgresql.synchronous.number must be <= shards.replicas
+              rule: '!has(self.postgresql) || !has(self.postgresql.synchronous) ||
+                self.shards.replicas >= self.postgresql.synchronous.number'
           status:
             description: PostgresClusterStatus 는 PostgresCluster CR 의 관찰 상태 (RFC 0001
               §3.2).
@@ -1664,6 +1914,46 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              managedRolesStatus:
+                description: ManagedRolesStatus 는 이 클러스터를 참조하는 PostgresUser CR 들의
+                  집계 상태다.
+                properties:
+                  byStatus:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: |-
+                      ByStatus 는 상태별 role 이름 목록이다.
+                      대표 상태: reserved, reconciled, pending-reconciliation.
+                    type: object
+                  cannotReconcile:
+                    additionalProperties:
+                      items:
+                        type: string
+                      type: array
+                    description: CannotReconcile 은 operator 가 자동 복구할 수 없는 role 오류를
+                      role 별로 기록한다.
+                    type: object
+                  passwordStatus:
+                    additionalProperties:
+                      description: ManagedRolePasswordStatus 는 managed role password
+                        반영 상태다.
+                      properties:
+                        observedGeneration:
+                          description: ObservedGeneration 은 password 를 반영한 PostgresUser
+                            generation 이다.
+                          format: int64
+                          type: integer
+                        secretResourceVersion:
+                          description: SecretResourceVersion 은 마지막으로 성공 반영한 password
+                            Secret resourceVersion 이다.
+                          type: string
+                      type: object
+                    description: PasswordStatus 는 password Secret 이 성공 반영된 role 의
+                      Secret revision 을 기록한다.
+                    type: object
+                type: object
               observedGeneration:
                 description: ObservedGeneration 은 reconciler 가 관측한 spec.metadata.generation.
                 format: int64
@@ -1675,6 +1965,7 @@ spec:
                 - Ready
                 - Reconfiguring
                 - Degraded
+                - Hibernated
                 type: string
               router:
                 description: Router 는 라우터 풀 관찰 상태 (shardingMode=native 시).
@@ -1718,12 +2009,19 @@ spec:
                             는 0 또는 미설정.
                           format: int64
                           type: integer
+                        message:
+                          description: Message 는 endpoint 상태의 human-readable 상세 메시지다.
+                          type: string
                         pod:
                           description: Pod 는 K8s Pod 이름.
                           type: string
                         ready:
                           description: Ready 는 readiness 통과 여부.
                           type: boolean
+                        reason:
+                          description: Reason 은 endpoint 가 Ready=false 또는 degraded
+                            인 machine-readable 원인이다.
+                          type: string
                       type: object
                     replicas:
                       description: Replicas 는 현재 replica endpoint 목록.
@@ -1739,12 +2037,20 @@ spec:
                               는 0 또는 미설정.
                             format: int64
                             type: integer
+                          message:
+                            description: Message 는 endpoint 상태의 human-readable 상세
+                              메시지다.
+                            type: string
                           pod:
                             description: Pod 는 K8s Pod 이름.
                             type: string
                           ready:
                             description: Ready 는 readiness 통과 여부.
                             type: boolean
+                          reason:
+                            description: Reason 은 endpoint 가 Ready=false 또는 degraded
+                              인 machine-readable 원인이다.
+                            type: string
                         type: object
                       type: array
                     sizeBytes:
