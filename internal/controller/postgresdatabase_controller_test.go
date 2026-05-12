@@ -395,6 +395,26 @@ func TestPostgresDatabaseReconcileDropsFDWAndForeignServerWhenAbsent(t *testing.
 	}
 }
 
+// TestPostgresDatabaseReconcileScriptDoesNotUseEval is a regression guard
+// for the PG18 kind smoke iter#5 finding that `eval "$psql_base" ...` was
+// re-parsing the SQL after the outer shell had already stripped the
+// surrounding single quotes — psql then saw `-c CREATE`, `DATABASE`,
+// `smoke_db_x`, … as separate args and failed with `role "1" does not
+// exist`. The script must invoke psql directly so the SQL stays inside
+// one shell-quoted argument.
+func TestPostgresDatabaseReconcileScriptDoesNotUseEval(t *testing.T) {
+	t.Parallel()
+	db := newPostgresDatabase()
+	script := postgresDatabaseReconcileScript(db)
+	if strings.Contains(script, "eval ") || strings.Contains(script, "eval\t") {
+		t.Fatalf("rendered script must not use `eval` — it re-tokenises the SQL on whitespace:\n%s", script)
+	}
+	if !strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -d postgres -c ") &&
+		!strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -d postgres -At -c ") {
+		t.Fatalf("rendered script must inline the full psql command line, got:\n%s", script)
+	}
+}
+
 type fakeDatabaseSQLExecutor struct {
 	calls    []databaseSQLExecCall
 	assertFn func(target BackupSidecarTarget)

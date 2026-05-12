@@ -298,29 +298,44 @@ func postgresDatabaseReconcileScript(db *postgresv1alpha1.PostgresDatabase) stri
 	tablespace := strings.TrimSpace(db.Spec.Tablespace)
 	ensure := defaultedDatabaseEnsure(db.Spec.Ensure)
 
+	// We deliberately avoid `eval "$psql_base" ...` because eval re-parses
+	// its arguments after the outer shell has already stripped the single
+	// quotes around the SQL — the SQL is then re-tokenised on whitespace
+	// and psql sees `-c CREATE`, with `DATABASE`, `smoke_db_x`, etc. as
+	// positional dbname/user args. (Observed during PG18 kind smoke iter#5
+	// as `FATAL: role "1" does not exist` and `role "DATABASE" does not
+	// exist`.) Inlining the full `psql -d postgres -c '<SQL>'` invocation
+	// keeps every SQL token inside a single shell-quoted argument.
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("psql_base='psql -v ON_ERROR_STOP=1 -X -q -d postgres'\n")
 	if ensure == postgresv1alpha1.DatabaseEnsureAbsent {
 		fmt.Fprintf(&b,
-			"if [ \"$(eval \"$psql_base\" -At -c %s)\" = \"1\" ]; then\n  eval \"$psql_base\" -c %s\nfi\n",
+			"if [ \"$(%s -At -c %s)\" = \"1\" ]; then\n  %s -c %s\nfi\n",
+			psqlBase,
 			shellQuote("SELECT 1 FROM pg_database WHERE datname = "+sqlLiteral(name)),
+			psqlBase,
 			shellQuote("DROP DATABASE "+sqlIdent(name)),
 		)
 		return b.String()
 	}
 
 	fmt.Fprintf(&b,
-		"if [ \"$(eval \"$psql_base\" -At -c %s)\" = \"1\" ]; then\n  eval \"$psql_base\" -c %s\n",
+		"if [ \"$(%s -At -c %s)\" = \"1\" ]; then\n  %s -c %s\n",
+		psqlBase,
 		shellQuote("SELECT 1 FROM pg_database WHERE datname = "+sqlLiteral(name)),
+		psqlBase,
 		shellQuote("ALTER DATABASE "+sqlIdent(name)+" OWNER TO "+sqlIdent(owner)),
 	)
 	if tablespace != "" {
-		fmt.Fprintf(&b, "  eval \"$psql_base\" -c %s\n",
+		fmt.Fprintf(&b, "  %s -c %s\n",
+			psqlBase,
 			shellQuote("ALTER DATABASE "+sqlIdent(name)+" SET TABLESPACE "+sqlIdent(tablespace)),
 		)
 	}
-	fmt.Fprintf(&b, "else\n  eval \"$psql_base\" -c %s\nfi\n",
+	fmt.Fprintf(&b, "else\n  %s -c %s\nfi\n",
+		psqlBase,
 		shellQuote(postgresDatabaseCreateStatement(name, owner, tablespace)),
 	)
 	appendPostgresDatabaseGrantScripts(&b, name, postgresDatabaseObjectKindDatabase, name, db.Spec.Privileges)

@@ -356,3 +356,16 @@ func reconcilePostgresUserOnce(
 func int32Ptr(value int32) *int32 {
 	return &value
 }
+
+// TestPostgresUserReconcileScriptDoesNotUseEval mirrors the same
+// regression guard added for PostgresDatabase — the rendered shell
+// script must not use `eval`, which re-tokenises the SQL on whitespace
+// after the outer shell has stripped the surrounding quotes.
+func TestPostgresUserReconcileScriptDoesNotUseEval(t *testing.T) {
+	t.Parallel()
+	user := newPostgresUser()
+	script := postgresUserReconcileScript(user, "PASSWORD 'app'")
+	if strings.Contains(script, "eval ") || strings.Contains(script, "eval\t") {
+		t.Fatalf("rendered script must not use `eval` — it re-tokenises SQL on whitespace:\n%s", script)
+	}
+}

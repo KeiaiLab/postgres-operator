@@ -245,11 +245,16 @@ func postgresUserReconcileScript(user *postgresv1alpha1.PostgresUser, passwordCl
 	name := strings.TrimSpace(user.Spec.Name)
 	ensure := defaultedPostgresUserEnsure(user.Spec.Ensure)
 
+	// See postgresdatabase_controller.go::postgresDatabaseReconcileScript for
+	// the rationale: inlining the full psql invocation avoids the eval
+	// re-tokenisation bug that drops shell-level quotes around the SQL.
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("psql_base='psql -v ON_ERROR_STOP=1 -X -q -d postgres'\n")
 	if ensure == postgresv1alpha1.DatabaseEnsureAbsent {
-		fmt.Fprintf(&b, "eval \"$psql_base\" -c %s\n",
+		fmt.Fprintf(&b, "%s -c %s\n",
+			psqlBase,
 			shellQuote("DROP ROLE IF EXISTS "+sqlIdent(name)),
 		)
 		return b.String()
@@ -257,9 +262,12 @@ func postgresUserReconcileScript(user *postgresv1alpha1.PostgresUser, passwordCl
 
 	options := postgresUserRoleOptions(user, passwordClause)
 	fmt.Fprintf(&b,
-		"if [ \"$(eval \"$psql_base\" -At -c %s)\" = \"1\" ]; then\n  eval \"$psql_base\" -c %s\nelse\n  eval \"$psql_base\" -c %s\nfi\n",
+		"if [ \"$(%s -At -c %s)\" = \"1\" ]; then\n  %s -c %s\nelse\n  %s -c %s\nfi\n",
+		psqlBase,
 		shellQuote("SELECT 1 FROM pg_roles WHERE rolname = "+sqlLiteral(name)),
+		psqlBase,
 		shellQuote("ALTER ROLE "+sqlIdent(name)+" WITH "+options),
+		psqlBase,
 		shellQuote("CREATE ROLE "+sqlIdent(name)+" WITH "+options),
 	)
 	appendPostgresUserMembershipRevokeScript(&b, name, user.Spec.InRoles)
@@ -268,7 +276,8 @@ func postgresUserReconcileScript(user *postgresv1alpha1.PostgresUser, passwordCl
 		if parent == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "eval \"$psql_base\" -c %s\n",
+		fmt.Fprintf(&b, "%s -c %s\n",
+			psqlBase,
 			shellQuote("GRANT "+sqlIdent(parent)+" TO "+sqlIdent(name)),
 		)
 	}
@@ -284,14 +293,21 @@ func appendPostgresUserMembershipRevokeScript(b *strings.Builder, name string, i
 		"WHERE member.rolname = " + sqlLiteral(name),
 		"AND NOT parent.rolname = ANY (" + postgresUserNameArray(inRoles) + ")",
 	}, " ")
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+	// $managed_role is a controlled SQL identifier (sqlIdent output, embedded
+	// inside double quotes) and $parent_role is the output of pg_auth_members
+	// piped through quote_ident, so the inner `psql -c "REVOKE … FROM …"` is
+	// safe under shell expansion without eval.
 	fmt.Fprintf(b,
 		"managed_role=%s\n"+
-			"eval \"$psql_base\" -At -c %s | while IFS= read -r parent_role; do\n"+
+			"%s -At -c %s | while IFS= read -r parent_role; do\n"+
 			"  [ -n \"$parent_role\" ] || continue\n"+
-			"  eval \"$psql_base\" -c \"REVOKE $parent_role FROM $managed_role\"\n"+
+			"  %s -c \"REVOKE $parent_role FROM $managed_role\"\n"+
 			"done\n",
 		shellQuote(sqlIdent(name)),
+		psqlBase,
 		shellQuote(query),
+		psqlBase,
 	)
 }
 
