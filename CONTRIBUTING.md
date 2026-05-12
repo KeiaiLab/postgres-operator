@@ -1,78 +1,101 @@
 # Contributing to keiailab/postgres-operator
 
-본 프로젝트에 기여해주셔서 감사합니다. 한국어/영어 모두 환영합니다.
+Thanks for contributing! Both English and Korean text are welcome in
+issues, discussions, and PR bodies; project documentation itself is
+maintained in English.
 
-## 기본 원칙
+## Ground rules
 
-1. **테스트 없는 기능은 머지될 수 없습니다.** 모든 PR은 단위 테스트 또는 e2e 테스트를 동반해야 합니다.
-2. **DCO sign-off 필수**: 모든 commit에 `Signed-off-by: Your Name <you@example.com>` 라인이 있어야 합니다(`git commit -s`).
-3. **Apache 2.0 라이선스**에 동의하여 기여합니다.
-4. **한국어/영어 commit message 모두 허용**. 본문은 가능하면 영어 권장(글로벌 협업).
+1. **No feature lands without tests.** Every PR must include unit tests or
+   e2e tests.
+2. **DCO sign-off is mandatory.** Every commit must carry a
+   `Signed-off-by: Your Name <you@example.com>` trailer (use
+   `git commit -s`).
+3. **Apache 2.0**: by contributing you agree to license your work under the
+   project license.
+4. **Commit message language**: Korean or English is fine; English is
+   preferred for cross-team collaboration.
 
-## 시작하기
+## Getting started
 
-### 사전 요구사항
+### Prerequisites
+
 - Go 1.23+
-- Docker (buildx 활성화)
+- Docker (buildx enabled)
 - kubectl, kind, kubebuilder v4
 - make
-- [lefthook](https://github.com/evilmartians/lefthook) (pre-commit hook 관리)
+- [lefthook](https://github.com/evilmartians/lefthook) (pre-commit hook manager)
 
-### 로컬 개발
+### Local development
+
 ```bash
 git clone https://github.com/keiailab/postgres-operator.git
 cd postgres-operator
-brew install lefthook   # 또는 go install github.com/evilmartians/lefthook@latest
-make hooks-install      # lefthook install wrapper — pre-commit/commit-msg/pre-push hook 설치
-make hooks-check        # hook 활성 상태 확인 (DCO + Conventional Commits 검사 자동화)
-make test            # envtest + 단위 테스트
-make lint            # golangci-lint
-make e2e             # kind 기반 e2e (5~10분)
-make build           # operator 바이너리 빌드
-make docker-build    # 컨테이너 이미지 (docker buildx 기본 빌더)
+brew install lefthook    # or: go install github.com/evilmartians/lefthook@latest
+make hooks-install       # wrapper around `lefthook install` (pre-commit / commit-msg / pre-push)
+make hooks-check         # confirm hooks are wired (DCO + Conventional Commits enforcement)
+make test                # envtest + unit tests
+make lint                # golangci-lint
+make e2e                 # kind-based e2e (5–10 minutes)
+make build               # build the operator binary
+make docker-build        # build the container image (docker buildx default builder)
 ```
 
-## PR 절차
+## PR workflow
 
-1. **이슈 먼저**: 새 기능은 먼저 이슈를 열어 maintainer와 합의합니다. 사소한 버그픽스/문서 수정은 바로 PR 가능.
-2. **브랜치 명명**: `feat/<short>`, `fix/<short>`, `docs/<short>`, `refactor/<short>`.
-3. **Commit message**: [Conventional Commits](https://www.conventionalcommits.org/) 권장 (`feat:`, `fix:`, `docs:`, `chore:`).
+1. **Open an issue first** for new features so a maintainer can align with
+   you on direction. Trivial bug fixes / documentation tweaks may go
+   straight to a PR.
+2. **Branch naming**: `feat/<short>`, `fix/<short>`, `docs/<short>`,
+   `refactor/<short>`.
+3. **Commit message**: [Conventional Commits](https://www.conventionalcommits.org/)
+   is recommended (`feat:`, `fix:`, `docs:`, `chore:`).
 4. **Sign-off**: `git commit -s -m "feat: ..."`.
-5. **PR 본문**: PR 템플릿을 채우고, 관련 이슈를 `Closes #N`으로 링크.
-6. **로컬 게이트 통과**: `pre-commit run --all-files` + `make lint test validate` 모두 통과 필수 (RFC-0002 GitHub Actions 미사용).
-7. **리뷰**: CODEOWNERS 자동 할당. 일반 변경은 1 maintainer LGTM, 아키텍처 변경은 2명.
+5. **PR body**: fill in the template and link the related issue with
+   `Closes #N`.
+6. **Local gate must be green**: `pre-commit run --all-files` plus
+   `make lint test validate` must all pass (GitHub Actions is forbidden
+   per RFC-0002).
+7. **Review**: CODEOWNERS is auto-assigned. Normal changes need 1 maintainer
+   LGTM; architectural changes need 2.
 
-## 큰 변경은 RFC
+## RFCs for substantial changes
 
-CRD 추가/변경, 새 reconciler, 보안 모델 변경, 외부 의존성 추가 등 아키텍처 영향이 있는 변경은 [`docs/rfcs/`](docs/rfcs/)에 RFC를 먼저 제출합니다.
+Architectural changes — adding/changing a CRD, introducing a new
+reconciler, changing the security model, adding an external dependency —
+require an RFC in [`docs/rfcs/`](docs/rfcs/) first.
 
-- 파일명: `NNNN-short-title.md`
-- 7일 코멘트 윈도우
-- 합의 후 Status를 `Accepted`로 변경하고 PR로 진입
+- Filename: `NNNN-short-title.md`.
+- 7-day comment window.
+- After consensus, flip the status to `Accepted` and proceed with the PR.
 
-## 테스트 정책
+## Testing policy
 
-- **단위 테스트**: `internal/**/*_test.go`, envtest 활용
-- **e2e**: `test/e2e/` Ginkgo + chainsaw, kind 클러스터에서 실행
-- **chaos**: `test/chaos/`, chaos-mesh 시나리오 (Phase 3+)
-- **bench**: `test/bench/` pgbench (Phase 6, 8)
-- 라인 커버리지 ≥ 80% (codecov gating)
+- **Unit tests**: `internal/**/*_test.go`, using envtest where appropriate.
+- **e2e**: `test/e2e/` with Ginkgo + chainsaw on a kind cluster.
+- **chaos**: `test/chaos/` with chaos-mesh scenarios (Phase 3+).
+- **bench**: `test/bench/` with pgbench (Phase 6, 8).
+- Line coverage ≥ 80% (codecov-gated).
 
-## 코드 스타일
+## Code style
 
-- `gofmt`, `goimports` 적용 (자동: `make fmt`)
-- `golangci-lint` 룰 위반 0건 (자동: `make lint`)
-- 한국어 주석은 "왜"를 설명할 때만 사용. 자명한 "무엇"은 식별자로 표현.
-- 외부 라이브러리/프레임워크 도입 전 [context7 MCP](https://github.com/upstash/context7) 또는 공식 문서로 최신 API 확인.
+- `gofmt` / `goimports` (run `make fmt`).
+- 0 `golangci-lint` violations (run `make lint`).
+- Use comments to explain **why**, not **what** — names should carry
+  intent.
+- Before introducing a new external library/framework, double-check the
+  current API against the official docs or
+  [context7 MCP](https://github.com/upstash/context7).
 
-## 보안 취약점
+## Security vulnerabilities
 
-[SECURITY.md](SECURITY.md) 참조. 비공개 채널을 통해 신고하시고, 공개 이슈로 올리지 마세요.
+See [SECURITY.md](SECURITY.md) and use the private channel. Do not file
+vulnerabilities as public issues.
 
-## 행동강령
+## Code of conduct
 
-[Contributor Covenant v2.1](CODE_OF_CONDUCT.md)을 따릅니다.
+We follow [Contributor Covenant v2.1](CODE_OF_CONDUCT.md).
 
-## 라이선스
+## License
 
-기여하시는 모든 코드는 [Apache 2.0](LICENSE)으로 라이선스됩니다.
+All contributions are licensed under [Apache 2.0](LICENSE).
