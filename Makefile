@@ -259,8 +259,10 @@ validate: manifests generate kustomize build-installer test-scripts ## CRD, Kust
 	@test "$$(ls bundle/manifests/postgres.keiailab.io_*.yaml 2>/dev/null | wc -l)" -ge 8 || \
 		{ echo "[error] bundle/manifests/ 안 owned CRD 가 8 개 미만 — make bundle VERSION=... 재실행"; exit 1; }
 	@if command -v operator-sdk >/dev/null 2>&1; then \
-		echo "=== operator-sdk bundle validate ./bundle ==="; \
+		echo "=== operator-sdk bundle validate ./bundle (default suite) ==="; \
 		operator-sdk bundle validate ./bundle; \
+		echo "=== operator-sdk bundle validate ./bundle (suite=operatorframework) ==="; \
+		operator-sdk bundle validate ./bundle --select-optional suite=operatorframework; \
 	else \
 		echo "operator-sdk 미설치: bundle validate 생략 (brew install operator-sdk)"; \
 	fi
