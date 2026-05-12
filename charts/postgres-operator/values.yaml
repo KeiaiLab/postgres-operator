@@ -143,6 +143,17 @@ customStartupProbe: {}
 # -- Container lifecycle hooks (postStart / preStop)
 lifecycleHooks: {}
 
+# cycle 26 hardening rule_73/84/85 (helm-chart-skeleton baseline)
+# -- HA min ready seconds (rolling update graceful)
+minReadySeconds: 10
+# -- Revision history limit (default 10 → 3)
+revisionHistoryLimit: 3
+# -- Automount SA token — operator 는 controller-runtime in-cluster API 접근에 SA token 필수.
+# false 기본값은 operator pod CrashLoop 유발 (INC-0002 valkey-operator sister, incident-kb §10:
+# operator/controller pod automountServiceAccountToken: true 명시 의무). rule_84 (일반 workload
+# false baseline) 의 operator 예외 — knob 는 유지 (명시 false override 가능).
+automountServiceAccountToken: true
+
 # ============================================================================
 # Service Account + RBAC
 # ============================================================================

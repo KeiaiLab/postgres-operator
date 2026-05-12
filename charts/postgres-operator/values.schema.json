@@ -23,6 +23,10 @@
     "tolerations": { "type": "array" },
     "affinity": { "type": "object" },
     "priorityClassName": { "type": "string" },
+    "lifecycleHooks": { "type": "object" },
+    "minReadySeconds": { "type": "integer", "minimum": 0 },
+    "revisionHistoryLimit": { "type": "integer", "minimum": 0 },
+    "automountServiceAccountToken": { "type": "boolean" },
     "serviceAccount": {
       "type": "object",
       "additionalProperties": true,
