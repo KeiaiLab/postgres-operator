@@ -4,13 +4,35 @@
 
 ## [Unreleased]
 
+(다음 cut 진행 중)
+
+## [0.3.0-alpha.18] - 2026-05-12
+
 ### Added
 
-- audit (4-repo cross-cut, 2026-05-09) RFC-0017 §3.4 EventRecorder 도입: PostgresClusterReconciler + BackupJobReconciler 에 `Recorder record.EventRecorder` 필드 + SetupWithManager 자동 주입. BackupJobReconciler.markFailed 에 Eventf(Warning) 1줄 — 모든 error 분기 (ClusterNotFound / PluginNotRegistered / InvalidSpec) 자동 K8s Event 발행. PostgresClusterReconciler reconcile 분기 Eventf 는 후속 PR (ADR-0010 AI-PG10-2).
+- *(api,controller)* `ImageCatalog` + `ClusterImageCatalog` CRD 이식 (TASKS T24). CloudNativePG 호환 `spec.imageCatalogRef.{apiGroup,kind,name,major}` 표면, namespaced/cluster-scoped lookup, catalog → StatefulSet image 반영, image hash annotation 기반 rollout drift 추적.
+- *(api,controller)* `PostgresDatabase` + `PostgresUser` CRD (TASKS T22). ready primary Pod `psql` reconcile 로 database/tablespace/schema/extension/FDW/foreign server + role flags/membership/connectionLimit/passwordSecretRef/disablePassword/validUntil 적용. `databaseReclaimPolicy=delete` finalizer + status `applied/observedGeneration/conditions` + `managedRolesStatus` 집계.
+- *(controller,instance)* standalone replica cluster + externalClusters streaming path (TASKS T25). `spec.externalClusters[]`, `bootstrap.pg_basebackup.source`, `replica.enabled/source`. `POSTGRES_REPLICA_CLUSTER=standalone` 영구 follower election, password Secret passfile + TLS Secret projected mount, source mismatch fail-closed.
+- *(api,controller)* `Pooler` CRD + PgBouncer connection pool 계층 (F05). `instances`, `type=rw/ro`, `pgbouncer.{poolMode,parameters,pg_hba}`, auth/TLS Secret, exporter sidecar, `spec.paused` PAUSE/RESUME, `pgbouncer.parameters` SIGHUP reload, HA topology/PDB.
+- *(observability)* metrics + Grafana dashboards + PrometheusRule + ServiceMonitor (F05). BackupJob/Pooler phase metric, replication lag bytes, PgBouncer exporter alert, cluster overview + Pooler dashboard ConfigMap, kube-prometheus-stack sidecar 호환.
+- *(controller,instance)* failover promoter execution + Follower election (F03 후속, PR #38/#39 합류). replica Pod postgres container exec → `pg_ctl promote` → `pg_is_in_recovery()` polling → primary annotation patch.
+- *(backup)* `ScheduledBackup` CRD + sidecar exec runner + pgbackrest command-runner plugin (F04). 6-field cron + concurrencyPolicy Allow/Forbid + retention + JobTemplate.
+- *(release,ci)* Artifact Hub 자동 등록/조회 hack/artifacthub_*.sh + Makefile artifacthub-{register,smoke} targets. Kind smoke 에 `SMOKE_HIBERNATION=1` (cnpg.io/hibernation annotation + PVC marker 보존) + `SMOKE_POOLER=1` (PgBouncer Service psql/PAUSE/RESUME/config reload) 시나리오 추가. `make validate` CRD count 2 → 8 + monitoring 렌더 18 grep.
+- *(olm)* `bundle/manifests/` 0.3.0-alpha.18 — 8 CRD + alm-examples 정합 (operator-sdk bundle validate 0 warning). config/samples 7 종 owned CRD 모두 활성화.
+
+### Fixed
+
+- *(security)* `github.com/moby/spdystream` v0.5.0 → v0.5.1 (CVE-2026-35469 HIGH, Kubelet/CRI-O/kube-apiserver DoS via SPDY streaming). k8s.io/client-go indirect 표면 갱신.
 
 ### Changed
 
-- audit (2026-05-09): RFC-0017 채택 — `.lefthook.yml` 신설, ADR-0010 등재. 본 repo `.golangci.yml` + `.custom-gcl.yml` (logcheck) 가 4-repo 표준 원본으로 승격됨 (변경 없음).
+- *(chart)* version 0.3.0-alpha.16 → 0.3.0-alpha.18, appVersion 0.3.0-alpha.17 → 0.3.0-alpha.18, manager image newTag 0.3.0-alpha.18. 직전 alpha.17 bump 의 `version: 0.3.0-alpha.16` 누락분 정렬.
+
+## [0.3.0-alpha.17] - 2026-05-12
+
+### Fixed
+
+- *(bootstrap)* non-empty stale `postmaster.pid` 의 PID alive check (argos INC-0046 P19 ⑲). 좀비 file 이 남았을 때 새 PG 부팅이 막히던 회귀 해결.
 
 ## [0.3.0-alpha.16] - 2026-05-10
 
