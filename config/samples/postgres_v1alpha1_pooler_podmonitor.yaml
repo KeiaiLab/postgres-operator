@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: quickstart-rw-pooler
+  namespace: default
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      postgres.keiailab.io/cluster: quickstart
+      postgres.keiailab.io/pooler: quickstart-rw
+      postgres.keiailab.io/pooler-type: rw
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
