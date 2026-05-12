@@ -255,14 +255,25 @@ if [[ "${SMOKE_POOLER:-0}" == "1" ]]; then
     load_image_into_kind "$PGBOUNCER_IMG"
 fi
 
-# 3. CRD + operator 설치 (kustomize 결과 dist/install.yaml 사용)
+# 3. CRD + operator install (uses kustomize-rendered dist/install.yaml)
 log "Generating dist/install.yaml + applying"
 make build-installer >/dev/null
-# operator image override — local kind 에서는 IfNotPresent 로 로딩 이미지 사용.
+# imagePullPolicy=IfNotPresent on local kind picks up the freshly loaded
+# image — but only if the Pod is restarted. `kubectl apply` does NOT
+# trigger a rollout when the image tag is unchanged, so on a re-run the
+# kind node would keep using the previously cached image (observed in
+# PG18 kind smoke iter#5/#6 — operator Pod ran the old binary, the new
+# code never executed). Force a rollout restart so kubelet re-creates
+# the Pod with the (locally loaded) up-to-date image.
 kubectl apply --server-side -f dist/install.yaml
+if kubectl -n postgres-operator-system get deployment postgres-operator-controller-manager >/dev/null 2>&1; then
+    kubectl -n postgres-operator-system rollout restart deployment postgres-operator-controller-manager >/dev/null
+fi
 
-# operator Pod Ready 대기
+# Wait for operator manager Pod
 log "Waiting for operator manager Pod"
+kubectl -n postgres-operator-system rollout status deployment \
+    -l control-plane=controller-manager --timeout=180s
 kubectl -n postgres-operator-system wait --for=condition=Available deployment \
     -l control-plane=controller-manager --timeout=180s
 

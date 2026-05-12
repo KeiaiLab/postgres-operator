@@ -306,7 +306,13 @@ func postgresDatabaseReconcileScript(db *postgresv1alpha1.PostgresDatabase) stri
 	// as `FATAL: role "1" does not exist` and `role "DATABASE" does not
 	// exist`.) Inlining the full `psql -d postgres -c '<SQL>'` invocation
 	// keeps every SQL token inside a single shell-quoted argument.
-	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+	//
+	// `-U postgres` is required because the postgres container's USER
+	// directive is `pg-keiailab` (uid 70). Without `-U`, psql defaults to
+	// the OS user and connects as `pg-keiailab`, which is not a PostgreSQL
+	// role — observed in PG18 kind smoke iter#6 as
+	// `FATAL: role "pg-keiailab" does not exist`.
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres"
 
 	var b strings.Builder
 	b.WriteString("set -eu\n")
@@ -381,7 +387,7 @@ func appendPostgresDatabaseSchemaScript(
 	}
 	ensure := defaultedDatabaseEnsure(schema.Ensure)
 	if ensure == postgresv1alpha1.DatabaseEnsureAbsent {
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote("DROP SCHEMA IF EXISTS "+sqlIdent(name)),
 		)
@@ -391,7 +397,7 @@ func appendPostgresDatabaseSchemaScript(
 	if owner == "" {
 		owner = strings.TrimSpace(dbName)
 	}
-	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 		shellQuote(dbName),
 		shellQuote("CREATE SCHEMA IF NOT EXISTS "+sqlIdent(name)+" AUTHORIZATION "+sqlIdent(owner)+"; ALTER SCHEMA "+sqlIdent(name)+" OWNER TO "+sqlIdent(owner)),
 	)
@@ -409,7 +415,7 @@ func appendPostgresDatabaseExtensionScript(
 	}
 	ensure := defaultedDatabaseEnsure(extension.Ensure)
 	if ensure == postgresv1alpha1.DatabaseEnsureAbsent {
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote("DROP EXTENSION IF EXISTS "+sqlIdent(name)),
 		)
@@ -427,7 +433,7 @@ func appendPostgresDatabaseExtensionScript(
 		stmt.WriteString(" WITH SCHEMA ")
 		stmt.WriteString(sqlIdent(schema))
 	}
-	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 		shellQuote(dbName),
 		shellQuote(stmt.String()),
 	)
@@ -443,7 +449,7 @@ func appendPostgresDatabaseFDWScript(
 		return
 	}
 	if defaultedDatabaseEnsure(fdw.Ensure) == postgresv1alpha1.DatabaseEnsureAbsent {
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote("DROP FOREIGN DATA WRAPPER IF EXISTS "+sqlIdent(name)),
 		)
@@ -470,7 +476,7 @@ func appendPostgresDatabaseFDWScript(
 		shellQuote(createStmt),
 	)
 	if owner := strings.TrimSpace(fdw.Owner); owner != "" {
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote("ALTER FOREIGN DATA WRAPPER "+sqlIdent(name)+" OWNER TO "+sqlIdent(owner)),
 		)
@@ -492,14 +498,14 @@ func appendPostgresDatabaseServerScript(
 		return
 	}
 	if defaultedDatabaseEnsure(server.Ensure) == postgresv1alpha1.DatabaseEnsureAbsent {
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote("DROP SERVER IF EXISTS "+sqlIdent(name)),
 		)
 		return
 	}
 
-	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 		shellQuote(dbName),
 		shellQuote(postgresDatabaseCreateServerStatement(server)),
 	)
@@ -669,7 +675,7 @@ func appendPostgresDatabaseUsageScript(
 	if defaultedDatabaseUsageType(usage.Type) == postgresv1alpha1.DatabaseUsageRevoke {
 		action = "REVOKE USAGE ON " + objectKind + " " + sqlIdent(objectName) + " FROM " + sqlIdent(role)
 	}
-	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+	fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 		shellQuote(dbName),
 		shellQuote(action),
 	)
@@ -705,7 +711,7 @@ func appendPostgresDatabaseGrantScripts(
 				" ON " + objectKind + " " + sqlIdent(objectName) +
 				" FROM " + sqlIdent(role)
 		}
-		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -d %s -c %s\n",
+		fmt.Fprintf(b, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d %s -c %s\n",
 			shellQuote(dbName),
 			shellQuote(action),
 		)

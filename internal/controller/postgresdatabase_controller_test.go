@@ -409,9 +409,9 @@ func TestPostgresDatabaseReconcileScriptDoesNotUseEval(t *testing.T) {
 	if strings.Contains(script, "eval ") || strings.Contains(script, "eval\t") {
 		t.Fatalf("rendered script must not use `eval` — it re-tokenises the SQL on whitespace:\n%s", script)
 	}
-	if !strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -d postgres -c ") &&
-		!strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -d postgres -At -c ") {
-		t.Fatalf("rendered script must inline the full psql command line, got:\n%s", script)
+	if !strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres -c ") &&
+		!strings.Contains(script, "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres -At -c ") {
+		t.Fatalf("rendered script must inline the full psql command line with -U postgres, got:\n%s", script)
 	}
 }
 

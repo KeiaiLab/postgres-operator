@@ -248,7 +248,10 @@ func postgresUserReconcileScript(user *postgresv1alpha1.PostgresUser, passwordCl
 	// See postgresdatabase_controller.go::postgresDatabaseReconcileScript for
 	// the rationale: inlining the full psql invocation avoids the eval
 	// re-tokenisation bug that drops shell-level quotes around the SQL.
-	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+	// `-U postgres` is required because the postgres container's USER is
+	// `pg-keiailab` — psql would otherwise default to the OS user and emit
+	// `FATAL: role "pg-keiailab" does not exist` (PG18 kind smoke iter#6).
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres"
 
 	var b strings.Builder
 	b.WriteString("set -eu\n")
@@ -293,7 +296,7 @@ func appendPostgresUserMembershipRevokeScript(b *strings.Builder, name string, i
 		"WHERE member.rolname = " + sqlLiteral(name),
 		"AND NOT parent.rolname = ANY (" + postgresUserNameArray(inRoles) + ")",
 	}, " ")
-	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -d postgres"
+	const psqlBase = "psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres"
 	// $managed_role is a controlled SQL identifier (sqlIdent output, embedded
 	// inside double quotes) and $parent_role is the output of pg_auth_members
 	// piped through quote_ident, so the inner `psql -c "REVOKE … FROM …"` is
