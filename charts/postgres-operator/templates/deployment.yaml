@@ -7,6 +7,10 @@ metadata:
     {{- include "postgres-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
+  # cycle 26 rule_85 — revision history limit (default 10 → 3)
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit | default 3 }}
+  # cycle 26 rule_73 — HA min ready seconds (rolling update graceful)
+  minReadySeconds: {{ .Values.minReadySeconds | default 10 }}
   selector:
     matchLabels:
       {{- include "postgres-operator.selectorLabels" . | nindent 6 }}
@@ -22,6 +26,8 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      # cycle 26 rule_84 — automount SA token (RBAC 의무 chart only override true)
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default false }}
       serviceAccountName: {{ include "postgres-operator.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
