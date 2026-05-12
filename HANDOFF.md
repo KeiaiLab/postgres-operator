@@ -30,7 +30,7 @@
 | Task | Stage / % | Notes |
 |---|---|---|
 | T26 OSS/OLM standards alignment | Complete 100% | spdystream CVE fix, OLM bundle, CHANGELOG/SUPPORT, README, 4 new `make validate` gates, lefthook DCO enforced. |
-| T27 Live kind smoke + Pooler built-in auth + password rotation | Implementation 98% | `SMOKE_DATABASE` / `SMOKE_USER` / `SMOKE_SCHEDULEDBACKUP` / `SMOKE_IMAGECATALOG` scenarios + built-in auth (`keiailab_pooler_pgbouncer`) + rotation annotation. PostgresDatabase / PostgresUser `status.applied` non-convergence root-caused (finalizer Requeue race + statusUpdate conflict swallow) and fixed in single-pass apply + retry. Live PG18 re-run in progress to confirm. |
+| T27 Live kind smoke + Pooler built-in auth + password rotation | Implementation 99% | `SMOKE_DATABASE` / `SMOKE_USER` / `SMOKE_SCHEDULEDBACKUP` / `SMOKE_IMAGECATALOG` scenarios + built-in auth (`keiailab_pooler_pgbouncer`) + rotation annotation. Two convergence races root-caused this session and fixed: (i) PostgresDatabase / PostgresUser finalizer-add Requeue race + `statusUpdate` IsConflict swallow (single-pass apply + retry); (ii) Pooler reconciler had no `Watches` on PostgresCluster — the first reconcile in PG18 iter#4 raced the cluster's Primary.Ready=true transition by 4 s and stayed in `phase=Failed/TargetNotFound` forever. The reconciler now Watches PostgresCluster and re-enqueues every Pooler in the namespace on status flips, and a missing target marks Pending + RequeueAfter instead of Failed. The same conflict-retry pattern was retrofitted onto BackupJob / ScheduledBackup / Pooler statusUpdate helpers for consistency. New regression test `TestPoolerReconcileTargetNotFoundIsPendingWithRequeue`. Live PG18 re-run is iterating with the new image. |
 | T28 community-operators PR | Implementation 60% | Draft PR opened (#8109). Awaiting bundle image push + CI. |
 | T29 Pooler TLS auto-issuance | Implementation 70% | cert-manager `Certificate` CR auto-issuance via `spec.pgbouncer.autoTLS` (stage 1 spec + stage 2 controller). Live cert-manager kind drill still pending. |
 
@@ -68,10 +68,13 @@ make audit               # govulncheck + trivy fs HIGH/CRITICAL + gosec
 
 ### To finish T29 (Pooler TLS)
 
-- Stage 3 — live cert-manager kind drill: install cert-manager, create an
-  `Issuer` (or self-signed root), apply
-  `config/samples/postgres_v1alpha1_pooler_autotls.yaml`, and confirm the
-  Pooler Deployment mounts the cert-manager-issued Secret.
+- Stage 3 — live cert-manager kind drill: run
+  `hack/smoke-cert-manager.sh` after a successful
+  `./hack/smoke.sh --keep`. The helper installs cert-manager,
+  creates a self-signed `Issuer`, applies a
+  `Pooler` with `spec.pgbouncer.autoTLS.clientEnabled=true`, and
+  verifies the operator emits a cert-manager `Certificate` CR
+  whose issued Secret is mounted onto the Pooler Deployment.
 - Stage 4 — self-signed fallback for cert-manager-less environments.
 - Stage 5 — automatic rotation observability (status condition that tracks
   cert-manager `Certificate.status.notAfter`).
