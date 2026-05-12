@@ -143,26 +143,34 @@ func TestHandleStoppedLeading_SkipsFenceAndDemoteForSingleMember(t *testing.T) {
 	}
 }
 
-func TestHandleStoppedLeading_FencesAndDemotesMultiMember(t *testing.T) {
+// TestHandleStoppedLeading_NeverFencesOrDemotes is the T30 contract:
+// handleStoppedLeading is *always* a no-op on the fencing + demote side
+// effects, irrespective of memberCount or promotedAtLeastOnce. Failover
+// is the operator's job through executeClusterPromotion exec — never
+// the instance manager's.
+func TestHandleStoppedLeading_NeverFencesOrDemotes(t *testing.T) {
 	fencer := fencing.NewMock()
 	sup := supervise.NewMock()
 	if err := sup.Start(t.Context()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// promotedAtLeastOnce=true — this models "pod was the primary, lost
-	// leadership, expects to be fenced to prevent zombie resurrection".
-	handleStoppedLeading(
-		fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary",
-		2, true, discardLogger(),
-	)
+	// Exercise the worst-case input (multi-member + already-promoted) to
+	// prove the no-op behaviour, then a second time with the bootstrap
+	// pre-promote case to prove no regression.
+	for _, promoted := range []bool{true, false} {
+		handleStoppedLeading(
+			fencer, sup, t.TempDir(), "demo-shard-0-0", "demo-shard-0-primary",
+			2, promoted, discardLogger(),
+		)
+	}
 
 	mark, _, _ := fencer.Calls()
-	if mark != 1 {
-		t.Fatalf("MarkFenced calls = %d, want 1", mark)
+	if mark != 0 {
+		t.Fatalf("MarkFenced calls = %d, want 0 (T30 no-op)", mark)
 	}
-	if sup.StopCalls != 1 {
-		t.Fatalf("Stop calls = %d, want 1", sup.StopCalls)
+	if sup.StopCalls != 0 {
+		t.Fatalf("Stop calls = %d, want 0 (T30 no-op)", sup.StopCalls)
 	}
 }
 

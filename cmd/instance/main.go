@@ -390,76 +390,50 @@ func runOnStartedLeading(
 	return true
 }
 
+// handleStoppedLeading is intentionally side-effect-free as of T30 redesign.
+//
+// The previous implementation reacted to any lease loss by (a) fencing
+// the PVC and (b) running CreateStandbySignal + sup.Stop to demote
+// postgres. That made every transient K8s API hiccup permanently
+// poison the data dir — the next boot would see the standby.signal,
+// take the Follower election branch, and never re-promote. The bug
+// cascaded into the HA bootstrap crashloop observed in PG18 / PG17
+// SHARD_REPLICAS=1 kind smoke iter#1..#4.
+//
+// Failover is now exclusively operator-driven through
+// `executeClusterPromotion` in postgrescluster_controller.go:
+//  1. operator detects primary failure via cluster status,
+//  2. exec's into the chosen replica,
+//  3. removes standby.signal + runs pg_ctl promote,
+//  4. kills the pod so the next boot crosses the
+//     `bootedAsStandby=false` branch in main and becomes the new
+//     Real elector / primary.
+//
+// The instance-manager's role at OnStoppedLeading is therefore just to
+// log the event — no fence, no signal creation, no Stop. If the lease
+// reattaches (transient renewal failure), the pod stays primary and
+// the cluster continues unaffected. If the lease genuinely moves
+// elsewhere, the operator will reconcile and the exec-promote path
+// will kill this pod when needed.
+//
+// Parameters are retained for the existing call sites and to keep the
+// regression-test signatures stable.
 func handleStoppedLeading(
-	fencer fencing.Fencer,
-	sup supervise.Supervisor,
+	_ fencing.Fencer,
+	_ supervise.Supervisor,
 	dataDir, podName, leaseName string,
 	memberCount int,
 	promotedAtLeastOnce bool,
 	logger *slog.Logger,
 ) {
-	if memberCount <= 1 {
-		logger.Warn("Leadership stop observed in single-member cluster — skipping PVC fence and demote",
-			"identity", podName, "lease", leaseName, "memberCount", memberCount)
-		return
-	}
-
-	// Skip the PVC fence if this pod never successfully promoted to primary.
-	// The fence is only valuable for zombie-revival split-brain — and only a
-	// formerly running primary can resurrect with stale data. A pod that
-	// acquired the lease but exited before promote (initdb still running,
-	// readiness wait timed out, etc.) has no primary data to guard. Without
-	// this guard, the PG18 HA kind smoke iter#1 crashlooped both shard pods
-	// because the first failed waitSupReady fenced the PVC permanently.
-	if !promotedAtLeastOnce {
-		logger.Warn(
-			"Leadership stop observed before this pod ever promoted — "+
-				"skipping fence, no primary data at risk",
-			"identity", podName, "lease", leaseName,
-		)
-		return
-	}
-
-	// Defensive belt-and-braces: even if promotedAtLeastOnce is somehow set,
-	// a standby.signal-on-disk pod is also no fencing risk. The two checks
-	// together cover the worst-case race where promote partially completed.
-	if supervise.IsStandby(dataDir) {
-		logger.Warn(
-			"Leadership stop observed while still in standby (standby.signal present) "+
-				"— skipping fence, no primary data at risk",
-			"identity", podName, "lease", leaseName, "dataDir", dataDir,
-		)
-		return
-	}
-
-	// Fence own PVC to prevent split-brain on zombie revival.
-	// Use a background ctx — the election ctx may already be cancelling.
-	markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer markCancel()
-	if err := fencer.MarkFenced(markCtx); err != nil {
-		logger.Error("Failed to fence own PVC after losing leadership",
-			"identity", podName, "error", err)
-	} else {
-		logger.Warn("Leadership lost — fenced own PVC, demoting postgres",
-			"identity", podName, "lease", leaseName)
-	}
-	// Demote — PostgreSQL 은 native pg_demote() 가 없으므로 fast Stop
-	// (SIGINT) 으로 primary 를 종료. 본 instance 는 ExitCh 가 fire 하면
-	// 통째 exit → K8s 가 Pod 재시작 → 다음 부팅 시 standby 로 진입
-	// (standby.signal 재구성 로직은 F03 후속).
-	// RFC 0006 R3: 다음 부팅 시 standby 로 진입하도록 signal 파일을
-	// 미리 생성. best-effort — 실패해도 demote 자체는 진행 (Pod 재시작 +
-	// bootstrap init container 가 보조 mechanism).
-	if err := supervise.CreateStandbySignal(dataDir); err != nil {
-		logger.Error("CreateStandbySignal failed (best-effort)", "identity", podName, "error", err)
-	}
-	if sup != nil {
-		demoteCtx, demoteCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer demoteCancel()
-		if err := sup.Stop(demoteCtx, true); err != nil {
-			logger.Error("Demote (fast stop) failed", "identity", podName, "error", err)
-		}
-	}
+	logger.Warn(
+		"Leadership stop observed — no automatic fence / demote (T30: operator-driven failover only)",
+		"identity", podName,
+		"lease", leaseName,
+		"memberCount", memberCount,
+		"promotedAtLeastOnce", promotedAtLeastOnce,
+		"dataDir", dataDir,
+	)
 }
 
 func buildElectionIdentity(podName, podUID string) string {
