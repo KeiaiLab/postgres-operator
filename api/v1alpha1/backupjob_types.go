@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package v1alpha1
 
 import (
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -57,6 +58,13 @@ type BackupJobSpec struct {
 	// +kubebuilder:validation:Enum=sidecar;job;""
 	// +optional
 	ExecutionMode string `json:"executionMode,omitempty"`
+
+	// JobTemplate은 ExecutionMode="job"일 때 생성할 runner batch/v1 Job 템플릿이다.
+	// operator는 name/namespace/ownerReference/표준 label/env만 주입하고, image,
+	// command, volume, secret, resource, securityContext 같은 실행 세부사항은 본
+	// 템플릿을 그대로 따른다.
+	// +optional
+	JobTemplate *batchv1.JobTemplateSpec `json:"jobTemplate,omitempty"`
 
 	// Labels는 BackupResult 메타데이터에 첨부될 K8s 스타일 레이블.
 	// +optional
@@ -116,6 +124,9 @@ type BackupJobStatus struct {
 	// BackupID는 plugin이 부여한 고유 식별자 (Succeeded 후).
 	BackupID string `json:"backupID,omitempty"`
 
+	// RunnerJobName은 ExecutionMode="job"에서 생성한 batch/v1 Job 이름이다.
+	RunnerJobName string `json:"runnerJobName,omitempty"`
+
 	// StartedAt은 백업 시작 시각.
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 
@@ -149,7 +160,7 @@ type BackupJobStatus struct {
 // BackupJob은 단일 백업 실행 명령이다 (RFC 0004).
 //
 // 본 CRD는 *atomic 단위*다 — 변경 시 새 BackupJob 생성. cron 기반 정기 백업은
-// 별도 ScheduledBackup CRD (RFC 0004 §2.3, P4-T2 시점).
+// ScheduledBackup CRD 가 BackupJob 을 생성하는 방식으로 분리한다.
 type BackupJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -76,6 +76,20 @@ type BackupPlugin interface {
 	Validate(spec *BackupSpec) error
 }
 
+// BackupCommandPlugin 은 operator manager 밖에서 실행할 백업 도구 command 를
+// 계획한다. executionMode=sidecar 처럼 controller 가 K8s pod exec 로 명령을
+// 전달해야 하는 경우 BackupPlugin 이 본 확장 인터페이스를 함께 구현한다.
+type BackupCommandPlugin interface {
+	// BackupCommand 는 target 백업을 수행할 argv 를 반환한다.
+	BackupCommand(target ClusterTarget, opts BackupOptions) ([]string, error)
+
+	// RestoreCommand 는 target PITR 복구를 수행할 argv 를 반환한다.
+	RestoreCommand(target ClusterTarget, ts time.Time) ([]string, error)
+
+	// ParseBackupResult 는 백업 command 출력에서 BackupResult 를 추출한다.
+	ParseBackupResult(output []byte, opts BackupOptions) BackupResult
+}
+
 // BackupSpec은 BackupJob CRD의 Spec.Backup 서브필드를 본 SDK 관점에서 본 형태다.
 // 본 구조체는 BackupJob CRD 시그니처와 1:1 매핑은 아니며, CRD에서 본 SDK로
 // 넘기기 위한 어댑터 역할이다.
