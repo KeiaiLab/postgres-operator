@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
@@ -1549,6 +1550,74 @@ func TestPoolerBuiltinAuth_CreatesSecretAndExecutesRoleSQL(t *testing.T) {
 	reconcilePoolerOnce(t, r, c, pooler)
 	if exec.called != 0 {
 		t.Fatalf("PodExecutor called %d times on idempotent reconcile, want 0", exec.called)
+	}
+}
+
+// TestPoolerBuiltinAuth_RotatesPasswordOnAnnotation 은 사용자가 force rotation
+// annotation 을 적용하면 reconcile 이 새 password 를 생성하고 Secret 을 in-place
+// update 한 뒤 annotation 을 제거하고 status.builtinAuthLastRotation 을 기록하는지
+// 검증한다.
+func TestPoolerBuiltinAuth_RotatesPasswordOnAnnotation(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	cluster := newPoolerCluster()
+	pooler := newPooler()
+	pooler.Name = "demo-rw-builtin-rotate"
+	pooler.Spec.PgBouncer.AuthSecretRef = nil
+	defer DeletePoolerMetricsFor(pooler.Namespace, pooler.Name)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(cluster, pooler).
+		WithStatusSubresource(&postgresv1alpha1.Pooler{}).
+		Build()
+
+	exec := &fakePoolerPodExecutor{}
+	r := &PoolerReconciler{Client: c, Scheme: scheme, PodExecutor: exec}
+
+	// 1. 첫 reconcile — Secret 생성.
+	got := reconcilePoolerOnce(t, r, c, pooler)
+	if got.Status.BuiltinAuthLastRotation == nil {
+		t.Fatalf("first reconcile must set status.builtinAuthLastRotation")
+	}
+	firstRotation := got.Status.BuiltinAuthLastRotation.Time
+	secretName := pooler.Name + "-builtin-auth"
+	var secret corev1.Secret
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: pooler.Namespace, Name: secretName}, &secret); err != nil {
+		t.Fatalf("Secret get: %v", err)
+	}
+	firstUserlist := string(secret.Data["userlist.txt"])
+
+	// 2. force rotation annotation 적용.
+	exec.called = 0
+	exec.calls = nil
+	patched := got.DeepCopy()
+	if patched.Annotations == nil {
+		patched.Annotations = map[string]string{}
+	}
+	patched.Annotations[PoolerRotateAuthAnnotation] = poolerPausedValueTrue
+	if err := c.Update(context.Background(), patched); err != nil {
+		t.Fatalf("apply rotate annotation: %v", err)
+	}
+
+	// 3. 두 번째 reconcile — Secret 갱신 + annotation 제거 + status timestamp 갱신.
+	// fake client 의 시간 정밀도가 같은 second 단위라 timestamp 비교는 != 로만 검증.
+	time.Sleep(1100 * time.Millisecond)
+	rotated := reconcilePoolerOnce(t, r, c, patched)
+	if exec.called < 1 {
+		t.Fatalf("rotation reconcile must invoke ALTER ROLE psql: PodExecutor called %d", exec.called)
+	}
+	if v, ok := rotated.Annotations[PoolerRotateAuthAnnotation]; ok {
+		t.Fatalf("rotate annotation should be removed after rotation, got %q", v)
+	}
+	if rotated.Status.BuiltinAuthLastRotation == nil ||
+		!rotated.Status.BuiltinAuthLastRotation.After(firstRotation) {
+		t.Fatalf("status.builtinAuthLastRotation must advance after rotation: first=%v rotated=%v",
+			firstRotation, rotated.Status.BuiltinAuthLastRotation)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: pooler.Namespace, Name: secretName}, &secret); err != nil {
+		t.Fatalf("Secret get post-rotation: %v", err)
+	}
+	if string(secret.Data["userlist.txt"]) == firstUserlist {
+		t.Fatalf("Secret userlist.txt did not change after rotation")
 	}
 }
 

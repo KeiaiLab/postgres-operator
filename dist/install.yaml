@@ -18573,6 +18573,14 @@ spec:
                 items:
                   type: string
                 type: array
+              builtinAuthLastRotation:
+                description: |-
+                  BuiltinAuthLastRotation 은 operator-managed built-in auth 의 마지막 password
+                  rotation 시각이다. 사용자가 `postgres.keiailab.io/rotate-pooler-password=true`
+                  annotation 을 적용해 force rotation 을 트리거할 때마다 갱신된다. spec.pgbouncer.
+                  authSecretRef 가 명시된 user-supplied 경로에서는 사용하지 않는다.
+                format: date-time
+                type: string
               conditions:
                 description: Conditions 는 K8s 표준 상태다.
                 items:

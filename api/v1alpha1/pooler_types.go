@@ -220,6 +220,13 @@ type PoolerStatus struct {
 	// ConfigHash 는 현재 PgBouncer config 의 sha256 이다.
 	ConfigHash string `json:"configHash,omitempty"`
 
+	// BuiltinAuthLastRotation 은 operator-managed built-in auth 의 마지막 password
+	// rotation 시각이다. 사용자가 `postgres.keiailab.io/rotate-pooler-password=true`
+	// annotation 을 적용해 force rotation 을 트리거할 때마다 갱신된다. spec.pgbouncer.
+	// authSecretRef 가 명시된 user-supplied 경로에서는 사용하지 않는다.
+	// +optional
+	BuiltinAuthLastRotation *metav1.Time `json:"builtinAuthLastRotation,omitempty"`
+
 	// ObservedGeneration 은 마지막 처리 generation 이다.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 

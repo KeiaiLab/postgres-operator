@@ -51,6 +51,12 @@ const (
 	// poolerBuiltinAuthSecretSuffix 는 auto-generated userlist.txt Secret 이름의
 	// suffix 다. 최종 이름은 `<pooler-name><suffix>` 형식이다.
 	poolerBuiltinAuthSecretSuffix = "-builtin-auth"
+
+	// PoolerRotateAuthAnnotation 은 사용자가 built-in auth password 의 force
+	// rotation 을 트리거하는 annotation key 다. value 가 `true` 면 reconciler 가
+	// 다음 cycle 에서 새 password 를 생성하고 annotation 을 제거하면서
+	// status.builtinAuthLastRotation 을 갱신한다.
+	PoolerRotateAuthAnnotation = "postgres.keiailab.io/rotate-pooler-password"
 )
 
 const (
@@ -462,17 +468,26 @@ func (r *PoolerReconciler) ensurePoolerBuiltinAuth(
 	secretName := poolerAuthSecretName(pooler)
 	key := client.ObjectKey{Namespace: pooler.Namespace, Name: secretName}
 
+	rotateRequested := strings.EqualFold(pooler.Annotations[PoolerRotateAuthAnnotation], "true")
+
 	var existing corev1.Secret
-	if err := r.Get(ctx, key, &existing); err == nil {
+	existingErr := r.Get(ctx, key, &existing)
+	switch {
+	case existingErr == nil:
 		if !metav1.IsControlledBy(&existing, pooler) {
 			return "Pooler built-in auth Secret " + secretName + " exists but is not owned by this Pooler — delete it or set spec.pgbouncer.authSecretRef", nil, nil
 		}
 		if strings.TrimSpace(string(existing.Data["userlist.txt"])) == "" {
 			return "Pooler built-in auth Secret " + secretName + " is empty — delete it to let the operator regenerate", nil, nil
 		}
-		return "", nil, nil
-	} else if !apierrors.IsNotFound(err) {
-		return "", nil, err
+		if !rotateRequested {
+			return "", nil, nil
+		}
+		// rotation 요청 — 아래의 신규 password 생성 + ALTER ROLE + Secret update path 진입.
+	case apierrors.IsNotFound(existingErr):
+		// 첫 생성 — 아래 path.
+	default:
+		return "", nil, existingErr
 	}
 
 	if r.PodExecutor == nil {
@@ -506,27 +521,62 @@ END$$;`, poolerBuiltinRoleName, password)
 	}
 
 	userlist := fmt.Sprintf("\"%s\" \"%s\"\n", poolerBuiltinRoleName, hashed)
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: pooler.Namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "postgres-operator",
-				"postgres.keiailab.io/pooler":  pooler.Name,
-				"postgres.keiailab.io/cluster": cluster.Name,
+	desiredLabels := map[string]string{
+		"app.kubernetes.io/managed-by": "postgres-operator",
+		"postgres.keiailab.io/pooler":  pooler.Name,
+		"postgres.keiailab.io/cluster": cluster.Name,
+	}
+
+	if existingErr == nil {
+		// rotation path — in-place update. OwnerReference 는 이미 우리 소유 (위에서 검증).
+		existing.Labels = desiredLabels
+		if existing.Data == nil {
+			existing.Data = map[string][]byte{}
+		}
+		existing.Data["userlist.txt"] = []byte(userlist)
+		if err := r.Update(ctx, &existing); err != nil {
+			return "", nil, fmt.Errorf("rotate Pooler built-in auth Secret: %w", err)
+		}
+	} else {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: pooler.Namespace,
+				Labels:    desiredLabels,
 			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"userlist.txt": []byte(userlist),
-		},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"userlist.txt": []byte(userlist),
+			},
+		}
+		if err := controllerutil.SetControllerReference(pooler, secret, r.Scheme); err != nil {
+			return "", nil, fmt.Errorf("set OwnerReference on Pooler built-in auth Secret: %w", err)
+		}
+		if err := r.Create(ctx, secret); err != nil {
+			return "", nil, fmt.Errorf("create Pooler built-in auth Secret: %w", err)
+		}
 	}
-	if err := controllerutil.SetControllerReference(pooler, secret, r.Scheme); err != nil {
-		return "", nil, fmt.Errorf("set OwnerReference on Pooler built-in auth Secret: %w", err)
+
+	now := metav1.NewTime(time.Now().UTC())
+	pooler.Status.BuiltinAuthLastRotation = &now
+
+	if rotateRequested {
+		// rotation annotation 제거 — controller 의 spec mutation 은 client.Update 로
+		// 처리. status subresource 와 별개 round-trip.
+		updated := pooler.DeepCopy()
+		delete(updated.Annotations, PoolerRotateAuthAnnotation)
+		if err := r.Update(ctx, updated); err != nil && !apierrors.IsConflict(err) {
+			return "", nil, fmt.Errorf("clear %s annotation after rotation: %w",
+				PoolerRotateAuthAnnotation, err)
+		}
+		// caller 가 reconcile 의 후속 단계에서 같은 pooler 객체를 더 쓰므로 메모리상
+		// annotation 도 정리.
+		if pooler.Annotations != nil {
+			delete(pooler.Annotations, PoolerRotateAuthAnnotation)
+		}
+		pooler.ResourceVersion = updated.ResourceVersion
 	}
-	if err := r.Create(ctx, secret); err != nil {
-		return "", nil, fmt.Errorf("create Pooler built-in auth Secret: %w", err)
-	}
+
 	return "", nil, nil
 }
 

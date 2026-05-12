@@ -1067,6 +1067,10 @@ func (in *PoolerStatus) DeepCopyInto(out *PoolerStatus) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.BuiltinAuthLastRotation != nil {
+		in, out := &in.BuiltinAuthLastRotation, &out.BuiltinAuthLastRotation
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))
