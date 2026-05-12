@@ -191,6 +191,29 @@ func TestNull_AlwaysLeader_FiresCallbacksOnRun(t *testing.T) {
 	}
 }
 
+func TestFollower_NeverPromotes(t *testing.T) {
+	var (
+		started = false
+		stopped = false
+	)
+	f := NewFollower("replica-0", Callbacks{
+		OnStartedLeading: func(context.Context) { started = true },
+		OnStoppedLeading: func() { stopped = true },
+	})
+	if f.Status() != StatusFollower {
+		t.Fatalf("initial Status = %v, want Follower", f.Status())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := f.Run(ctx); err != context.Canceled {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+	if started || stopped {
+		t.Fatalf("Follower must never call promotion callbacks, started=%v stopped=%v", started, stopped)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Mock election
 // ----------------------------------------------------------------------------
@@ -260,6 +283,7 @@ func TestMock_SetExternalLeader_DemoteIfWasLeader(t *testing.T) {
 func TestAllImplementations_SatisfyInterface(t *testing.T) {
 	var _ Election = (*Real)(nil)
 	var _ Election = (*Null)(nil)
+	var _ Election = (*Follower)(nil)
 	var _ Election = (*Mock)(nil)
 }
 
