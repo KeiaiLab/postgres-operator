@@ -114,6 +114,14 @@ customStartupProbe: {}
 # -- Container lifecycle hooks (postStart / preStop)
 lifecycleHooks: {}
 
+# cycle 26 hardening rule_73/84/85 (helm-chart-skeleton baseline)
+# -- HA min ready seconds (rolling update graceful)
+minReadySeconds: 10
+# -- Revision history limit (default 10 → 3)
+revisionHistoryLimit: 3
+# -- Automount SA token (RBAC 의무, default true → false security baseline)
+automountServiceAccountToken: false
+
 # ============================================================================
 # Service Account + RBAC
 # ============================================================================
