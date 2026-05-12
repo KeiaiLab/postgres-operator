@@ -1,0 +1,19 @@
+# ImageCatalog 샘플 — namespace 단위 PostgreSQL runtime image catalog.
+#
+# 적용:
+#   kubectl apply -f config/samples/postgres_v1alpha1_imagecatalog.yaml
+#
+# PostgresCluster 에서 spec.imageCatalogRef.kind=ImageCatalog 로 참조한다.
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: ImageCatalog
+metadata:
+  name: postgresql
+  namespace: default
+spec:
+  images:
+    - major: 18
+      image: ghcr.io/keiailab/pg:18
+      extensions:
+        - name: pgaudit
+          image:
+            reference: ghcr.io/keiailab/pg-extension-pgaudit:18

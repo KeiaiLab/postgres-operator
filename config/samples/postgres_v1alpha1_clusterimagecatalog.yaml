@@ -1,0 +1,16 @@
+# ClusterImageCatalog 샘플 — 조직 전체에서 공유할 PostgreSQL runtime image catalog.
+#
+# 적용:
+#   kubectl apply -f config/samples/postgres_v1alpha1_clusterimagecatalog.yaml
+#
+# PostgresCluster 에서 spec.imageCatalogRef.kind=ClusterImageCatalog 로 참조한다.
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: ClusterImageCatalog
+metadata:
+  name: postgresql-standard
+spec:
+  images:
+    - major: 17
+      image: ghcr.io/keiailab/pg:17
+    - major: 18
+      image: ghcr.io/keiailab/pg:18
