@@ -46,13 +46,15 @@ Copy this repo's `bundle/` directory byte-for-byte into
 gh repo fork k8s-operatorhub/community-operators --clone --remote
 cd community-operators
 
-# 2. Create the new version directory
-mkdir -p operators/postgres-operator/0.3.0-alpha.18
+# 2. Create the new version directory (the directory must match the
+#    bundle's package name; `postgres-operator` is taken by zalando, so
+#    we register under `keiailab-postgres-operator`).
+mkdir -p operators/keiailab-postgres-operator/0.3.0-alpha.18
 cp -r /path/to/postgres-operator/bundle/* \
-      operators/postgres-operator/0.3.0-alpha.18/
+      operators/keiailab-postgres-operator/0.3.0-alpha.18/
 
 # 3. ci.yaml (community-operators metadata)
-cat <<'YAML' > operators/postgres-operator/ci.yaml
+cat <<'YAML' > operators/keiailab-postgres-operator/ci.yaml
 ---
 updateGraph: replaces-mode
 reviewers:
@@ -63,7 +65,7 @@ YAML
 gh pr create \
   --repo k8s-operatorhub/community-operators \
   --base main \
-  --title "operator postgres-operator (0.3.0-alpha.18)" \
+  --title "operator keiailab-postgres-operator (0.3.0-alpha.18)" \
   --body-file /path/to/postgres-operator/.github/PULL_REQUEST_TEMPLATE.md
 ```
 

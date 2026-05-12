@@ -380,7 +380,7 @@ bundle: ## OperatorHub.io bundle 생성 — operator-sdk + kustomize. VERSION �
 		--version "$(VERSION)" \
 		--channels alpha \
 		--default-channel alpha \
-		--package postgres-operator
+		--package keiailab-postgres-operator
 	@echo "=== scorecard config copy: config/scorecard → bundle/tests/scorecard ==="
 	mkdir -p bundle/tests/scorecard
 	kustomize build config/scorecard > bundle/tests/scorecard/config.yaml

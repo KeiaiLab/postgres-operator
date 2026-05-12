@@ -190,7 +190,7 @@ metadata:
       wrapper 로 사용하지 않는 독립 신규 구현. PG17/PG18 양 메이저 지원.
     repository: https://github.com/keiailab/postgres-operator
     support: https://github.com/keiailab/postgres-operator/issues
-  name: postgres-operator.v0.0.0
+  name: keiailab-postgres-operator.v0.0.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
