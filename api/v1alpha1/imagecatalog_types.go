@@ -12,73 +12,73 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-// ImageCatalogRef 는 CloudNativePG 의 spec.imageCatalogRef 와 같은 필드 형태로
-// PostgresCluster 가 사용할 PostgreSQL runtime image 를 catalog 에서 선택한다.
+// ImageCatalogRef selects the PostgreSQL runtime image for a PostgresCluster from a catalog
+// using the same field shape as CloudNativePG's spec.imageCatalogRef.
 type ImageCatalogRef struct {
-	// APIGroup 은 catalog API group 이다. 빈 값, postgres.keiailab.io, postgresql.cnpg.io 를 허용한다.
-	// postgresql.cnpg.io 는 CNPG manifest 이식 편의를 위한 호환 입력이며, 실제 조회는
-	// keiailab CRD 에 대해 수행한다.
+	// APIGroup is the catalog API group. Empty string, postgres.keiailab.io, and
+	// postgresql.cnpg.io are accepted. postgresql.cnpg.io is accepted for compatibility
+	// when porting CNPG manifests; lookups are still resolved against the keiailab CRDs.
 	// +optional
 	APIGroup string `json:"apiGroup,omitempty"`
 
-	// Kind 는 ImageCatalog 또는 ClusterImageCatalog 이다.
+	// Kind is ImageCatalog or ClusterImageCatalog.
 	// +kubebuilder:validation:Enum=ImageCatalog;ClusterImageCatalog
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
 
-	// Name 은 catalog 이름이다.
+	// Name is the catalog name.
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// Major 는 catalog 안에서 선택할 PostgreSQL major version 이다.
+	// Major is the PostgreSQL major version to select within the catalog.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Required
 	Major int32 `json:"major"`
 }
 
-// ImageCatalogEntry 는 PostgreSQL major version 하나에 대응하는 operand image 다.
+// ImageCatalogEntry is the operand image for a single PostgreSQL major version.
 type ImageCatalogEntry struct {
-	// Major 는 PostgreSQL major version 이다. catalog 안에서 유일해야 한다.
+	// Major is the PostgreSQL major version. It must be unique within the catalog.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Required
 	Major int32 `json:"major"`
 
-	// Image 는 해당 major 에 사용할 immutable image reference 다. production catalog 는
-	// digest pin 을 권장한다.
+	// Image is the immutable image reference used for this major version. Production catalogs
+	// should pin by digest.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Required
 	Image string `json:"image"`
 
-	// Extensions 는 이 이미지와 함께 사용할 수 있는 extension image 후보 목록이다.
-	// 0.3.0-alpha 에서는 저장/검증 표면만 제공하고, 실제 volume-extension mount 는
-	// 후속 단계에서 연결한다.
+	// Extensions is the list of extension image candidates available with this image.
+	// In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+	// volume-extension mount path is wired up in a later phase.
 	// +optional
 	Extensions []ImageCatalogExtension `json:"extensions,omitempty"`
 }
 
-// ImageCatalogExtension 은 catalog entry 에 연결된 extension image metadata 다.
+// ImageCatalogExtension is the metadata for an extension image attached to a catalog entry.
 type ImageCatalogExtension struct {
-	// Name 은 extension 식별자다.
+	// Name is the extension identifier.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// Image 는 extension image reference 다.
+	// Image is the extension image reference.
 	// +kubebuilder:validation:Required
 	Image ImageCatalogExtensionImage `json:"image"`
 }
 
-// ImageCatalogExtensionImage 는 extension image 위치를 표현한다.
+// ImageCatalogExtensionImage describes the location of an extension image.
 type ImageCatalogExtensionImage struct {
-	// Reference 는 OCI image reference 다.
+	// Reference is the OCI image reference.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Required
 	Reference string `json:"reference"`
 }
 
-// ImageCatalogSpec 은 namespaced/cluster-wide catalog 가 공유하는 spec 이다.
+// ImageCatalogSpec is the spec shared by namespaced and cluster-wide catalogs.
 type ImageCatalogSpec struct {
-	// Images 는 PostgreSQL major version 별 image 목록이다.
+	// Images is the list of images per PostgreSQL major version.
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=major
@@ -91,7 +91,7 @@ type ImageCatalogSpec struct {
 // +kubebuilder:printcolumn:name="Images",type=integer,JSONPath=".spec.images[*].major"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
-// ImageCatalog 는 namespace 단위 PostgreSQL image catalog 다.
+// ImageCatalog is a namespace-scoped PostgreSQL image catalog.
 type ImageCatalog struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -101,7 +101,7 @@ type ImageCatalog struct {
 
 // +kubebuilder:object:root=true
 
-// ImageCatalogList 는 ImageCatalog 컬렉션이다.
+// ImageCatalogList is a collection of ImageCatalog resources.
 type ImageCatalogList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -113,7 +113,7 @@ type ImageCatalogList struct {
 // +kubebuilder:printcolumn:name="Images",type=integer,JSONPath=".spec.images[*].major"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
-// ClusterImageCatalog 는 cluster 전체에서 공유하는 PostgreSQL image catalog 다.
+// ClusterImageCatalog is a cluster-wide PostgreSQL image catalog shared across namespaces.
 type ClusterImageCatalog struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -123,7 +123,7 @@ type ClusterImageCatalog struct {
 
 // +kubebuilder:object:root=true
 
-// ClusterImageCatalogList 는 ClusterImageCatalog 컬렉션이다.
+// ClusterImageCatalogList is a collection of ClusterImageCatalog resources.
 type ClusterImageCatalogList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

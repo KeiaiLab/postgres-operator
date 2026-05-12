@@ -58,14 +58,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: PostgresDatabaseSpec 은 CNPG Database CRD 의 핵심 운영 표면을 본 operator
-              모델로 이식한다.
+            description: PostgresDatabaseSpec ports the core operational surface of
+              the CNPG Database CRD to this operator's model.
             properties:
               cluster:
-                description: Cluster 는 database 를 생성할 PostgresCluster 이다.
+                description: Cluster is the PostgresCluster in which the database
+                  is created.
                 properties:
                   name:
-                    description: Name 은 PostgresCluster.metadata.name 이다.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -73,110 +74,118 @@ spec:
                 type: object
               databaseReclaimPolicy:
                 default: retain
-                description: DatabaseReclaimPolicy 는 CR 삭제 시 database 처리 정책이다. 빈 값이면
-                  retain.
+                description: DatabaseReclaimPolicy controls how the database is handled
+                  when the CR is deleted. Empty defaults to retain.
                 enum:
                 - retain
                 - delete
                 type: string
               ensure:
                 default: present
-                description: Ensure 는 database 존재 상태다. 빈 값이면 present.
+                description: Ensure is the desired database existence state. Empty
+                  defaults to present.
                 enum:
                 - present
                 - absent
                 type: string
               extensions:
-                description: Extensions 는 target database 안에서 선언적으로 관리할 extension
-                  목록이다.
+                description: Extensions is the list of extensions declaratively managed
+                  inside the target database.
                 items:
-                  description: DatabaseExtensionSpec 은 target database 안에서 관리할 extension
-                    이다.
+                  description: DatabaseExtensionSpec is an extension managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 extension 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired extension existence state.
+                        Empty defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name 은 PostgreSQL extension 이름이다.
+                      description: Name is the PostgreSQL extension name.
                       minLength: 1
                       type: string
                     schema:
-                      description: Schema 는 extension 을 배치할 schema 다.
+                      description: Schema is the schema in which the extension is
+                        placed.
                       type: string
                     version:
-                      description: Version 은 설치 또는 업그레이드할 extension version 이다.
+                      description: Version is the extension version to install or
+                        upgrade to.
                       type: string
                   required:
                   - name
                   type: object
                 type: array
               fdws:
-                description: FDWs 는 target database 안에서 선언적으로 관리할 foreign data wrapper
-                  목록이다.
+                description: FDWs is the list of foreign data wrappers declaratively
+                  managed inside the target database.
                 items:
-                  description: DatabaseFDWSpec 은 target database 안에서 관리할 foreign data
-                    wrapper 이다.
+                  description: DatabaseFDWSpec is a foreign data wrapper managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 FDW 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired FDW existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     handler:
-                      description: Handler 는 FDW handler function 이름이다. "-" 는 NO HANDLER
-                        를 의미한다.
+                      description: Handler is the FDW handler function name. "-" means
+                        NO HANDLER.
                       type: string
                     name:
-                      description: Name 은 foreign data wrapper 이름이다.
+                      description: Name is the foreign data wrapper name.
                       minLength: 1
                       type: string
                     options:
-                      description: Options 는 FDW option 목록이다.
+                      description: Options is the list of FDW options.
                       items:
-                        description: DatabaseOptionSpec 은 FDW/server option 하나의 선언
-                          상태다.
+                        description: DatabaseOptionSpec is the declared state of a
+                          single FDW/server option.
                         properties:
                           ensure:
                             default: present
-                            description: Ensure 는 option 존재 상태다. 빈 값이면 present.
+                            description: Ensure is the desired option existence state.
+                              Empty defaults to present.
                             enum:
                             - present
                             - absent
                             type: string
                           name:
-                            description: Name 은 option 이름이다.
+                            description: Name is the option name.
                             minLength: 1
                             type: string
                           value:
-                            description: Value 는 option 값이다. ensure=absent 에서는 생략할
-                              수 있다.
+                            description: Value is the option value. May be omitted
+                              when ensure=absent.
                             type: string
                         required:
                         - name
                         type: object
                       type: array
                     owner:
-                      description: Owner 는 FDW owner role 이다.
+                      description: Owner is the FDW owner role.
                       type: string
                     usage:
-                      description: Usage 는 FDW USAGE 권한 목록이다.
+                      description: Usage is the list of FDW USAGE privilege entries.
                       items:
-                        description: DatabaseUsageSpec 은 FDW/server 에 대한 role USAGE
-                          권한 reconcile 항목이다.
+                        description: DatabaseUsageSpec is a reconcile entry for granting
+                          or revoking role USAGE on an FDW/server.
                         properties:
                           name:
-                            description: Name 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Name is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -186,44 +195,45 @@ spec:
                         type: object
                       type: array
                     validator:
-                      description: Validator 는 FDW validator function 이름이다. "-" 는
-                        NO VALIDATOR 를 의미한다.
+                      description: Validator is the FDW validator function name. "-"
+                        means NO VALIDATOR.
                       type: string
                   required:
                   - name
                   type: object
                 type: array
               name:
-                description: Name 은 PostgreSQL database 이름이다.
+                description: Name is the PostgreSQL database name.
                 minLength: 1
                 type: string
               owner:
-                description: Owner 는 database owner role 이다.
+                description: Owner is the database owner role.
                 minLength: 1
                 type: string
               privileges:
-                description: Privileges 는 database 객체 자체에 대한 role privilege grant/revoke
-                  목록이다.
+                description: Privileges is the list of role privilege grants/revokes
+                  on the database object itself.
                 items:
-                  description: DatabaseGrantSpec 은 database 또는 schema privilege grant/revoke
-                    항목이다.
+                  description: DatabaseGrantSpec is a database- or schema-level privilege
+                    grant/revoke entry.
                   properties:
                     privileges:
                       description: |-
-                        Privileges 는 대상 객체에 적용할 PostgreSQL privilege 목록이다.
-                        database 대상: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES
-                        schema 대상: USAGE, CREATE, ALL PRIVILEGES
+                        Privileges is the list of PostgreSQL privileges to apply to the target object.
+                        For databases: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES.
+                        For schemas: USAGE, CREATE, ALL PRIVILEGES.
                       items:
                         type: string
                       minItems: 1
                       type: array
                     role:
-                      description: Role 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                      description: Role is the PostgreSQL role to grant or revoke
+                        privileges from.
                       minLength: 1
                       type: string
                     type:
                       default: grant
-                      description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                      description: Type is grant or revoke. Empty defaults to grant.
                       enum:
                       - grant
                       - revoke
@@ -234,48 +244,52 @@ spec:
                   type: object
                 type: array
               schemas:
-                description: Schemas 는 target database 안에서 선언적으로 관리할 schema 목록이다.
+                description: Schemas is the list of schemas declaratively managed
+                  inside the target database.
                 items:
-                  description: DatabaseSchemaSpec 은 target database 안에서 관리할 schema
-                    이다.
+                  description: DatabaseSchemaSpec is a schema managed inside the target
+                    database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 schema 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired schema existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name 은 PostgreSQL schema 이름이다.
+                      description: Name is the PostgreSQL schema name.
                       minLength: 1
                       type: string
                     owner:
-                      description: Owner 는 schema owner role 이다.
+                      description: Owner is the schema owner role.
                       type: string
                     privileges:
-                      description: Privileges 는 이 schema 에 대한 role privilege grant/revoke
-                        목록이다.
+                      description: Privileges is the list of role privilege grants/revokes
+                        on this schema.
                       items:
-                        description: DatabaseGrantSpec 은 database 또는 schema privilege
-                          grant/revoke 항목이다.
+                        description: DatabaseGrantSpec is a database- or schema-level
+                          privilege grant/revoke entry.
                         properties:
                           privileges:
                             description: |-
-                              Privileges 는 대상 객체에 적용할 PostgreSQL privilege 목록이다.
-                              database 대상: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES
-                              schema 대상: USAGE, CREATE, ALL PRIVILEGES
+                              Privileges is the list of PostgreSQL privileges to apply to the target object.
+                              For databases: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES.
+                              For schemas: USAGE, CREATE, ALL PRIVILEGES.
                             items:
                               type: string
                             minItems: 1
                             type: array
                           role:
-                            description: Role 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Role is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -290,65 +304,70 @@ spec:
                   type: object
                 type: array
               servers:
-                description: Servers 는 target database 안에서 선언적으로 관리할 foreign server
-                  목록이다.
+                description: Servers is the list of foreign servers declaratively
+                  managed inside the target database.
                 items:
-                  description: DatabaseServerSpec 은 target database 안에서 관리할 foreign
-                    server 이다.
+                  description: DatabaseServerSpec is a foreign server managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 server 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired server existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     fdw:
-                      description: FDW 는 이 server 가 사용할 foreign data wrapper 이름이다.
+                      description: FDW is the foreign data wrapper name this server
+                        uses.
                       minLength: 1
                       type: string
                     name:
-                      description: Name 은 foreign server 이름이다.
+                      description: Name is the foreign server name.
                       minLength: 1
                       type: string
                     options:
-                      description: Options 는 server option 목록이다.
+                      description: Options is the list of server options.
                       items:
-                        description: DatabaseOptionSpec 은 FDW/server option 하나의 선언
-                          상태다.
+                        description: DatabaseOptionSpec is the declared state of a
+                          single FDW/server option.
                         properties:
                           ensure:
                             default: present
-                            description: Ensure 는 option 존재 상태다. 빈 값이면 present.
+                            description: Ensure is the desired option existence state.
+                              Empty defaults to present.
                             enum:
                             - present
                             - absent
                             type: string
                           name:
-                            description: Name 은 option 이름이다.
+                            description: Name is the option name.
                             minLength: 1
                             type: string
                           value:
-                            description: Value 는 option 값이다. ensure=absent 에서는 생략할
-                              수 있다.
+                            description: Value is the option value. May be omitted
+                              when ensure=absent.
                             type: string
                         required:
                         - name
                         type: object
                       type: array
                     usage:
-                      description: Usage 는 server USAGE 권한 목록이다.
+                      description: Usage is the list of server USAGE privilege entries.
                       items:
-                        description: DatabaseUsageSpec 은 FDW/server 에 대한 role USAGE
-                          권한 reconcile 항목이다.
+                        description: DatabaseUsageSpec is a reconcile entry for granting
+                          or revoking role USAGE on an FDW/server.
                         properties:
                           name:
-                            description: Name 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Name is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -363,7 +382,7 @@ spec:
                   type: object
                 type: array
               tablespace:
-                description: Tablespace 는 database 의 기본 tablespace 이다.
+                description: Tablespace is the default tablespace for the database.
                 type: string
             required:
             - cluster
@@ -375,14 +394,15 @@ spec:
               rule: self.name != 'postgres' && self.name != 'template0' && self.name
                 != 'template1'
           status:
-            description: PostgresDatabaseStatus 는 database reconcile 관찰 상태다.
+            description: PostgresDatabaseStatus is the observed reconcile state of
+              the database.
             properties:
               applied:
-                description: Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로
-                  반영됐는지 여부다.
+                description: Applied reports whether the latest observedGeneration
+                  was successfully applied to PostgreSQL.
                 type: boolean
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -442,10 +462,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               message:
-                description: Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+                description: Message is a summary of the last reconcile or the failure
+                  cause.
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 마지막 처리 generation 이다.
+                description: ObservedGeneration is the last generation processed by
+                  the reconciler.
                 format: int64
                 type: integer
             type: object

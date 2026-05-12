@@ -12,7 +12,7 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-// DatabaseEnsure 는 PostgreSQL database/schema/extension 의 선언적 존재 상태다.
+// DatabaseEnsure is the declarative existence state of a PostgreSQL database/schema/extension.
 // +kubebuilder:validation:Enum=present;absent
 type DatabaseEnsure string
 
@@ -21,7 +21,7 @@ const (
 	DatabaseEnsureAbsent  DatabaseEnsure = "absent"
 )
 
-// DatabaseReclaimPolicy 는 PostgresDatabase CR 삭제 시 PostgreSQL database 처리 정책이다.
+// DatabaseReclaimPolicy controls how the PostgreSQL database is handled when the PostgresDatabase CR is deleted.
 // +kubebuilder:validation:Enum=retain;delete
 type DatabaseReclaimPolicy string
 
@@ -30,7 +30,7 @@ const (
 	DatabaseReclaimDelete DatabaseReclaimPolicy = "delete"
 )
 
-// DatabaseUsageType 는 FDW/server USAGE 권한 reconcile 동작이다.
+// DatabaseUsageType is the reconcile action for FDW/server USAGE privileges.
 // +kubebuilder:validation:Enum=grant;revoke
 type DatabaseUsageType string
 
@@ -39,233 +39,233 @@ const (
 	DatabaseUsageRevoke DatabaseUsageType = "revoke"
 )
 
-// DatabaseClusterRef 는 같은 namespace 의 PostgresCluster 참조다.
+// DatabaseClusterRef is a reference to a PostgresCluster in the same namespace.
 type DatabaseClusterRef struct {
-	// Name 은 PostgresCluster.metadata.name 이다.
+	// Name is the PostgresCluster.metadata.name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
-// DatabaseExtensionSpec 은 target database 안에서 관리할 extension 이다.
+// DatabaseExtensionSpec is an extension managed inside the target database.
 type DatabaseExtensionSpec struct {
-	// Name 은 PostgreSQL extension 이름이다.
+	// Name is the PostgreSQL extension name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Ensure 는 extension 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired extension existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// Version 은 설치 또는 업그레이드할 extension version 이다.
+	// Version is the extension version to install or upgrade to.
 	// +optional
 	Version string `json:"version,omitempty"`
 
-	// Schema 는 extension 을 배치할 schema 다.
+	// Schema is the schema in which the extension is placed.
 	// +optional
 	Schema string `json:"schema,omitempty"`
 }
 
-// DatabaseSchemaSpec 은 target database 안에서 관리할 schema 이다.
+// DatabaseSchemaSpec is a schema managed inside the target database.
 type DatabaseSchemaSpec struct {
-	// Name 은 PostgreSQL schema 이름이다.
+	// Name is the PostgreSQL schema name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Owner 는 schema owner role 이다.
+	// Owner is the schema owner role.
 	// +optional
 	Owner string `json:"owner,omitempty"`
 
-	// Ensure 는 schema 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired schema existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// Privileges 는 이 schema 에 대한 role privilege grant/revoke 목록이다.
+	// Privileges is the list of role privilege grants/revokes on this schema.
 	// +optional
 	Privileges []DatabaseGrantSpec `json:"privileges,omitempty"`
 }
 
-// DatabaseOptionSpec 은 FDW/server option 하나의 선언 상태다.
+// DatabaseOptionSpec is the declared state of a single FDW/server option.
 type DatabaseOptionSpec struct {
-	// Name 은 option 이름이다.
+	// Name is the option name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Value 는 option 값이다. ensure=absent 에서는 생략할 수 있다.
+	// Value is the option value. May be omitted when ensure=absent.
 	// +optional
 	Value string `json:"value,omitempty"`
 
-	// Ensure 는 option 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired option existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 }
 
-// DatabaseUsageSpec 은 FDW/server 에 대한 role USAGE 권한 reconcile 항목이다.
+// DatabaseUsageSpec is a reconcile entry for granting or revoking role USAGE on an FDW/server.
 type DatabaseUsageSpec struct {
-	// Name 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+	// Name is the PostgreSQL role to grant or revoke privileges from.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+	// Type is grant or revoke. Empty defaults to grant.
 	// +kubebuilder:default=grant
 	// +optional
 	Type DatabaseUsageType `json:"type,omitempty"`
 }
 
-// DatabaseGrantSpec 은 database 또는 schema privilege grant/revoke 항목이다.
+// DatabaseGrantSpec is a database- or schema-level privilege grant/revoke entry.
 type DatabaseGrantSpec struct {
-	// Role 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+	// Role is the PostgreSQL role to grant or revoke privileges from.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Role string `json:"role"`
 
-	// Privileges 는 대상 객체에 적용할 PostgreSQL privilege 목록이다.
-	// database 대상: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES
-	// schema 대상: USAGE, CREATE, ALL PRIVILEGES
+	// Privileges is the list of PostgreSQL privileges to apply to the target object.
+	// For databases: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES.
+	// For schemas: USAGE, CREATE, ALL PRIVILEGES.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	Privileges []string `json:"privileges"`
 
-	// Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+	// Type is grant or revoke. Empty defaults to grant.
 	// +kubebuilder:default=grant
 	// +optional
 	Type DatabaseUsageType `json:"type,omitempty"`
 }
 
-// DatabaseFDWSpec 은 target database 안에서 관리할 foreign data wrapper 이다.
+// DatabaseFDWSpec is a foreign data wrapper managed inside the target database.
 type DatabaseFDWSpec struct {
-	// Name 은 foreign data wrapper 이름이다.
+	// Name is the foreign data wrapper name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Ensure 는 FDW 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired FDW existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// Handler 는 FDW handler function 이름이다. "-" 는 NO HANDLER 를 의미한다.
+	// Handler is the FDW handler function name. "-" means NO HANDLER.
 	// +optional
 	Handler string `json:"handler,omitempty"`
 
-	// Validator 는 FDW validator function 이름이다. "-" 는 NO VALIDATOR 를 의미한다.
+	// Validator is the FDW validator function name. "-" means NO VALIDATOR.
 	// +optional
 	Validator string `json:"validator,omitempty"`
 
-	// Owner 는 FDW owner role 이다.
+	// Owner is the FDW owner role.
 	// +optional
 	Owner string `json:"owner,omitempty"`
 
-	// Options 는 FDW option 목록이다.
+	// Options is the list of FDW options.
 	// +optional
 	Options []DatabaseOptionSpec `json:"options,omitempty"`
 
-	// Usage 는 FDW USAGE 권한 목록이다.
+	// Usage is the list of FDW USAGE privilege entries.
 	// +optional
 	Usage []DatabaseUsageSpec `json:"usage,omitempty"`
 }
 
-// DatabaseServerSpec 은 target database 안에서 관리할 foreign server 이다.
+// DatabaseServerSpec is a foreign server managed inside the target database.
 type DatabaseServerSpec struct {
-	// Name 은 foreign server 이름이다.
+	// Name is the foreign server name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// FDW 는 이 server 가 사용할 foreign data wrapper 이름이다.
+	// FDW is the foreign data wrapper name this server uses.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	FDW string `json:"fdw"`
 
-	// Ensure 는 server 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired server existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// Options 는 server option 목록이다.
+	// Options is the list of server options.
 	// +optional
 	Options []DatabaseOptionSpec `json:"options,omitempty"`
 
-	// Usage 는 server USAGE 권한 목록이다.
+	// Usage is the list of server USAGE privilege entries.
 	// +optional
 	Usage []DatabaseUsageSpec `json:"usage,omitempty"`
 }
 
-// PostgresDatabaseSpec 은 CNPG Database CRD 의 핵심 운영 표면을 본 operator 모델로 이식한다.
+// PostgresDatabaseSpec ports the core operational surface of the CNPG Database CRD to this operator's model.
 //
 // +kubebuilder:validation:XValidation:rule="self.name != 'postgres' && self.name != 'template0' && self.name != 'template1'",message="postgres, template0, template1 are reserved database names"
 type PostgresDatabaseSpec struct {
-	// Cluster 는 database 를 생성할 PostgresCluster 이다.
+	// Cluster is the PostgresCluster in which the database is created.
 	// +kubebuilder:validation:Required
 	Cluster DatabaseClusterRef `json:"cluster"`
 
-	// Name 은 PostgreSQL database 이름이다.
+	// Name is the PostgreSQL database name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Owner 는 database owner role 이다.
+	// Owner is the database owner role.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Owner string `json:"owner"`
 
-	// Ensure 는 database 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired database existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// DatabaseReclaimPolicy 는 CR 삭제 시 database 처리 정책이다. 빈 값이면 retain.
+	// DatabaseReclaimPolicy controls how the database is handled when the CR is deleted. Empty defaults to retain.
 	// +kubebuilder:default=retain
 	// +optional
 	DatabaseReclaimPolicy DatabaseReclaimPolicy `json:"databaseReclaimPolicy,omitempty"`
 
-	// Tablespace 는 database 의 기본 tablespace 이다.
+	// Tablespace is the default tablespace for the database.
 	// +optional
 	Tablespace string `json:"tablespace,omitempty"`
 
-	// Extensions 는 target database 안에서 선언적으로 관리할 extension 목록이다.
+	// Extensions is the list of extensions declaratively managed inside the target database.
 	// +optional
 	Extensions []DatabaseExtensionSpec `json:"extensions,omitempty"`
 
-	// Schemas 는 target database 안에서 선언적으로 관리할 schema 목록이다.
+	// Schemas is the list of schemas declaratively managed inside the target database.
 	// +optional
 	Schemas []DatabaseSchemaSpec `json:"schemas,omitempty"`
 
-	// FDWs 는 target database 안에서 선언적으로 관리할 foreign data wrapper 목록이다.
+	// FDWs is the list of foreign data wrappers declaratively managed inside the target database.
 	// +optional
 	FDWs []DatabaseFDWSpec `json:"fdws,omitempty"`
 
-	// Servers 는 target database 안에서 선언적으로 관리할 foreign server 목록이다.
+	// Servers is the list of foreign servers declaratively managed inside the target database.
 	// +optional
 	Servers []DatabaseServerSpec `json:"servers,omitempty"`
 
-	// Privileges 는 database 객체 자체에 대한 role privilege grant/revoke 목록이다.
+	// Privileges is the list of role privilege grants/revokes on the database object itself.
 	// +optional
 	Privileges []DatabaseGrantSpec `json:"privileges,omitempty"`
 }
 
-// PostgresDatabaseStatus 는 database reconcile 관찰 상태다.
+// PostgresDatabaseStatus is the observed reconcile state of the database.
 type PostgresDatabaseStatus struct {
-	// Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로 반영됐는지 여부다.
+	// Applied reports whether the latest observedGeneration was successfully applied to PostgreSQL.
 	// +optional
 	Applied bool `json:"applied,omitempty"`
 
-	// ObservedGeneration 은 마지막 처리 generation 이다.
+	// ObservedGeneration is the last generation processed by the reconciler.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+	// Message is a summary of the last reconcile or the failure cause.
 	// +optional
 	Message string `json:"message,omitempty"`
 
-	// Conditions 는 K8s 표준 상태다.
+	// Conditions is the standard Kubernetes condition set.
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge

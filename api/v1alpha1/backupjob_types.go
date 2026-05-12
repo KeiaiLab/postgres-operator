@@ -15,97 +15,97 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// BackupJobSpec은 단일 백업 호출의 명세다 (RFC 0004 §2.1).
+// BackupJobSpec is the specification of a single backup invocation (RFC 0004 §2.1).
 //
-// immutable 필드 (생성 후 변경 불가, webhook이 reject 예정 — phase 2):
+// Immutable fields (cannot be changed after creation; the webhook will reject — phase 2):
 //   - cluster.name
 //   - tool
 //   - type
 //   - executionMode
 type BackupJobSpec struct {
-	// Cluster는 백업 대상 PostgresCluster 참조 (같은 namespace).
+	// Cluster references the PostgresCluster to back up (same namespace).
 	// +kubebuilder:validation:Required
 	Cluster BackupClusterRef `json:"cluster"`
 
-	// Tool은 사용할 백업 도구 이름. BackupPlugin.Name()과 일치해야 한다.
-	// 예: "pgbackrest" (RFC 0004 §4 1차 reference), "walg", "barman".
+	// Tool is the name of the backup tool to use; must match BackupPlugin.Name().
+	// Examples: "pgbackrest" (RFC 0004 §4 primary reference), "walg", "barman".
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Tool string `json:"tool"`
 
-	// Repo는 다중 저장소 환경에서 어느 repo를 쓸지 식별.
+	// Repo identifies which repository to use in multi-repo deployments.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Repo string `json:"repo"`
 
-	// Type은 백업 종류.
+	// Type is the backup kind.
 	// +kubebuilder:validation:Enum=full;incremental;differential;restore
 	// +kubebuilder:validation:Required
 	Type string `json:"type"`
 
-	// Restore는 Type=restore 시 PITR 설정 (RFC 0004 §5.1).
+	// Restore holds the PITR settings when Type=restore (RFC 0004 §5.1).
 	// +optional
 	Restore *BackupRestoreSpec `json:"restore,omitempty"`
 
-	// Retention은 백업 보존 정책.
+	// Retention is the backup retention policy.
 	// +optional
 	Retention BackupRetentionSpec `json:"retention,omitempty"`
 
-	// ExecutionMode는 plugin이 백업을 *어디서 실행*할지 결정 (P1-6, RFC 0004 §3.1):
-	//   - "sidecar": PG Pod 동거 컨테이너 (pgBackRest 패턴)
-	//   - "job":     standalone K8s Job (WAL-G 패턴)
+	// ExecutionMode controls *where* the plugin runs the backup (P1-6, RFC 0004 §3.1):
+	//   - "sidecar": a container co-located with the PG Pod (pgBackRest pattern)
+	//   - "job":     a standalone Kubernetes Job (WAL-G pattern)
 	//   - "":        plugin default
 	// +kubebuilder:validation:Enum=sidecar;job;""
 	// +optional
 	ExecutionMode string `json:"executionMode,omitempty"`
 
-	// JobTemplate은 ExecutionMode="job"일 때 생성할 runner batch/v1 Job 템플릿이다.
-	// operator는 name/namespace/ownerReference/표준 label/env만 주입하고, image,
-	// command, volume, secret, resource, securityContext 같은 실행 세부사항은 본
-	// 템플릿을 그대로 따른다.
+	// JobTemplate is the runner batch/v1 Job template used when ExecutionMode="job".
+	// The operator only injects name/namespace/ownerReference/standard labels/env;
+	// execution details such as image, command, volume, secret, resources, and
+	// securityContext are taken verbatim from this template.
 	// +optional
 	JobTemplate *batchv1.JobTemplateSpec `json:"jobTemplate,omitempty"`
 
-	// Labels는 BackupResult 메타데이터에 첨부될 K8s 스타일 레이블.
+	// Labels are Kubernetes-style labels attached to the BackupResult metadata.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// BackupClusterRef는 같은 namespace의 PostgresCluster 참조.
-// 이름이 ClusterRef가 아닌 BackupClusterRef인 이유: 향후 다른 CRD가 동일
-// 이름을 사용하지 않도록 유형별 prefix 규약 (kubebuilder convention).
+// BackupClusterRef is a reference to a PostgresCluster in the same namespace.
+// The name is BackupClusterRef rather than ClusterRef to follow the kubebuilder convention
+// of per-type prefixes, preventing future CRDs from clashing on the same type name.
 type BackupClusterRef struct {
-	// Name은 PostgresCluster.metadata.name.
+	// Name is the PostgresCluster.metadata.name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
-// BackupRestoreSpec은 PITR 복구 명세 (RFC 0004 §5.1).
+// BackupRestoreSpec is the PITR restore specification (RFC 0004 §5.1).
 type BackupRestoreSpec struct {
-	// TargetTime은 복구 대상 시각 (UTC, ISO 8601 RFC3339).
+	// TargetTime is the target recovery time (UTC, ISO 8601 RFC3339).
 	// +optional
 	TargetTime *metav1.Time `json:"targetTime,omitempty"`
 
-	// BackupID는 복구 대상 백업 식별자 (TargetTime 대신 직접 지정).
+	// BackupID is the identifier of the backup to restore from (used instead of TargetTime).
 	// +optional
 	BackupID string `json:"backupID,omitempty"`
 }
 
-// BackupRetentionSpec은 백업 보존 정책.
+// BackupRetentionSpec is the backup retention policy.
 type BackupRetentionSpec struct {
-	// KeepFull은 보존할 full 백업 개수. 0이면 무제한 (plugin 기본).
+	// KeepFull is the number of full backups to retain. 0 means unlimited (plugin default).
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	KeepFull int32 `json:"keepFull,omitempty"`
 
-	// KeepIncremental은 보존할 incremental/differential 백업 개수.
+	// KeepIncremental is the number of incremental/differential backups to retain.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	KeepIncremental int32 `json:"keepIncremental,omitempty"`
 }
 
-// BackupJobPhase는 BackupJob 진행 단계.
+// BackupJobPhase is the progress phase of a BackupJob.
 // +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed
 type BackupJobPhase string
 
@@ -116,30 +116,30 @@ const (
 	BackupJobFailed    BackupJobPhase = "Failed"
 )
 
-// BackupJobStatus는 BackupJob의 관찰 상태.
+// BackupJobStatus is the observed state of a BackupJob.
 type BackupJobStatus struct {
-	// Phase는 BackupJob 진행 단계.
+	// Phase is the progress phase of the BackupJob.
 	Phase BackupJobPhase `json:"phase,omitempty"`
 
-	// BackupID는 plugin이 부여한 고유 식별자 (Succeeded 후).
+	// BackupID is the unique identifier assigned by the plugin (populated after Succeeded).
 	BackupID string `json:"backupID,omitempty"`
 
-	// RunnerJobName은 ExecutionMode="job"에서 생성한 batch/v1 Job 이름이다.
+	// RunnerJobName is the name of the batch/v1 Job created when ExecutionMode="job".
 	RunnerJobName string `json:"runnerJobName,omitempty"`
 
-	// StartedAt은 백업 시작 시각.
+	// StartedAt is when the backup started.
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 
-	// EndedAt은 백업 종료 시각.
+	// EndedAt is when the backup ended.
 	EndedAt *metav1.Time `json:"endedAt,omitempty"`
 
-	// Bytes는 백업 크기 (bytes). 0 허용 (스트리밍 도구).
+	// Bytes is the backup size in bytes. 0 is allowed (streaming tools).
 	Bytes int64 `json:"bytes,omitempty"`
 
-	// ObservedGeneration은 reconcile이 마지막 처리한 spec generation.
+	// ObservedGeneration is the spec generation last processed by the reconciler.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions는 K8s 표준 상태 (Ready, Available, Progressing).
+	// Conditions is the standard Kubernetes condition set (Ready, Available, Progressing).
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -157,10 +157,10 @@ type BackupJobStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// BackupJob은 단일 백업 실행 명령이다 (RFC 0004).
+// BackupJob is a single backup-execution command (RFC 0004).
 //
-// 본 CRD는 *atomic 단위*다 — 변경 시 새 BackupJob 생성. cron 기반 정기 백업은
-// ScheduledBackup CRD 가 BackupJob 을 생성하는 방식으로 분리한다.
+// This CRD is an *atomic unit* — any change requires creating a new BackupJob. Cron-based
+// scheduled backups are separated out: the ScheduledBackup CRD creates BackupJobs.
 type BackupJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -171,7 +171,7 @@ type BackupJob struct {
 
 // +kubebuilder:object:root=true
 
-// BackupJobList는 BackupJob 다중 응답.
+// BackupJobList is a list response of BackupJob resources.
 type BackupJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

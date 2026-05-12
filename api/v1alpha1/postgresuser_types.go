@@ -15,95 +15,106 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PostgresUserSpec 은 CNPG managed.roles 의 핵심 운영 표면을 별도 CRD 로 제공한다.
+// PostgresUserSpec exposes the core operational surface of CNPG's managed.roles as a separate CRD.
 //
 // +kubebuilder:validation:XValidation:rule="self.name != 'postgres' && !self.name.startsWith('pg_')",message="postgres and pg_* are reserved role names"
 // +kubebuilder:validation:XValidation:rule="!(has(self.passwordSecretRef) && self.disablePassword)",message="passwordSecretRef and disablePassword cannot both be set"
 type PostgresUserSpec struct {
-	// Cluster 는 role 을 생성할 PostgresCluster 이다.
+	// Cluster is the PostgresCluster in which the role is created.
 	// +kubebuilder:validation:Required
 	Cluster DatabaseClusterRef `json:"cluster"`
 
-	// Name 은 PostgreSQL role 이름이다.
+	// Name is the PostgreSQL role name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Ensure 는 role 존재 상태다. 빈 값이면 present.
+	// Ensure is the desired role existence state. Empty defaults to present.
 	// +kubebuilder:default=present
 	// +optional
 	Ensure DatabaseEnsure `json:"ensure,omitempty"`
 
-	// Login 은 role 이 LOGIN 권한을 갖는지 여부다.
+	// Login controls whether the role has the LOGIN attribute.
 	// +optional
 	Login bool `json:"login,omitempty"`
 
-	// Superuser 는 role 이 SUPERUSER 권한을 갖는지 여부다.
+	// Superuser controls whether the role has the SUPERUSER attribute.
 	// +optional
 	Superuser bool `json:"superuser,omitempty"`
 
-	// CreateDB 는 role 이 CREATEDB 권한을 갖는지 여부다.
+	// CreateDB controls whether the role has the CREATEDB attribute.
 	// +optional
 	CreateDB bool `json:"createdb,omitempty"`
 
-	// CreateRole 은 role 이 CREATEROLE 권한을 갖는지 여부다.
+	// CreateRole controls whether the role has the CREATEROLE attribute.
 	// +optional
 	CreateRole bool `json:"createrole,omitempty"`
 
-	// Replication 은 role 이 REPLICATION 권한을 갖는지 여부다.
+	// Replication controls whether the role has the REPLICATION attribute.
 	// +optional
 	Replication bool `json:"replication,omitempty"`
 
-	// BypassRLS 는 role 이 row-level security 를 우회할 수 있는지 여부다.
+	// BypassRLS controls whether the role can bypass row-level security.
 	// +optional
 	BypassRLS bool `json:"bypassrls,omitempty"`
 
-	// Inherit 는 role privilege inheritance 여부다. nil 이면 PostgreSQL 기본값인 true 로 reconcile 한다.
+	// Inherit controls role privilege inheritance. nil reconciles to PostgreSQL's default of true.
 	// +optional
 	Inherit *bool `json:"inherit,omitempty"`
 
-	// ConnectionLimit 은 role connection limit 이다. nil 이면 변경하지 않고, -1 은 제한 없음을 뜻한다.
+	// ConnectionLimit is the role's connection limit. nil leaves it unchanged; -1 means unlimited.
 	// +kubebuilder:validation:Minimum=-1
 	// +optional
 	ConnectionLimit *int32 `json:"connectionLimit,omitempty"`
 
-	// InRoles 는 이 role 이 member 로 들어갈 parent role 목록이다.
+	// InRoles is the list of parent roles that this role becomes a member of.
 	// +optional
 	InRoles []string `json:"inRoles,omitempty"`
 
-	// PasswordSecretRef 는 data.username/data.password 값을 PostgreSQL role password 로 반영할 Secret 이다.
-	// data.username 은 spec.name 과 일치해야 한다.
+	// PasswordSecretRef is the Secret whose data.username/data.password values are applied as
+	// the PostgreSQL role password. data.username must match spec.name.
 	// +optional
 	PasswordSecretRef *corev1.LocalObjectReference `json:"passwordSecretRef,omitempty"`
 
-	// DisablePassword 는 password 를 NULL 로 설정해 password login 을 비활성화한다.
+	// DisablePassword sets the role password to NULL, disabling password login.
 	// +optional
 	DisablePassword bool `json:"disablePassword,omitempty"`
 
-	// ValidUntil 은 role password 만료 시각이다. PostgreSQL 이 허용하는 timestamp 또는 infinity 를 사용한다.
+	// ValidUntil is the expiry timestamp of the role password. Use any value PostgreSQL accepts
+	// as a timestamp, or "infinity".
 	// +optional
 	ValidUntil string `json:"validUntil,omitempty"`
+
+	// UserReclaimPolicy controls how the PostgreSQL role is handled when the
+	// CR is deleted. Empty defaults to "retain" (CR deletion is non-destructive
+	// — the role keeps existing in PostgreSQL). When set to "delete" the
+	// reconciler attaches a finalizer and runs `DROP ROLE` before allowing
+	// the CR to be garbage-collected. Mirrors PostgresDatabase.spec.databaseReclaimPolicy.
+	// +kubebuilder:validation:Enum=retain;delete
+	// +kubebuilder:default=retain
+	// +optional
+	UserReclaimPolicy DatabaseReclaimPolicy `json:"userReclaimPolicy,omitempty"`
 }
 
-// PostgresUserStatus 는 role reconcile 관찰 상태다.
+// PostgresUserStatus is the observed reconcile state of the role.
 type PostgresUserStatus struct {
-	// Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로 반영됐는지 여부다.
+	// Applied reports whether the latest observedGeneration was successfully applied to PostgreSQL.
 	// +optional
 	Applied bool `json:"applied,omitempty"`
 
-	// ObservedGeneration 은 마지막 처리 generation 이다.
+	// ObservedGeneration is the last generation processed by the reconciler.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+	// Message is a summary of the last reconcile or the failure cause.
 	// +optional
 	Message string `json:"message,omitempty"`
 
-	// PasswordSecretResourceVersion 은 마지막으로 성공 반영한 password Secret resourceVersion 이다.
+	// PasswordSecretResourceVersion is the resourceVersion of the password Secret that was last successfully applied.
 	// +optional
 	PasswordSecretResourceVersion string `json:"passwordSecretResourceVersion,omitempty"`
 
-	// Conditions 는 K8s 표준 상태다.
+	// Conditions is the standard Kubernetes condition set.
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge

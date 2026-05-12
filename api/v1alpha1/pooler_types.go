@@ -16,18 +16,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PoolerType 은 PgBouncer 가 연결할 PostgreSQL 서비스 역할이다.
+// PoolerType is the PostgreSQL service role that PgBouncer connects to.
 // +kubebuilder:validation:Enum=rw;ro
 type PoolerType string
 
 const (
-	// PoolerTypeRW 는 primary 쓰기 endpoint 로 연결한다.
+	// PoolerTypeRW connects to the primary's write endpoint.
 	PoolerTypeRW PoolerType = "rw"
-	// PoolerTypeRO 는 replica 읽기 endpoint 로 연결한다. replica 가 없으면 primary 로 fail-closed 하지 않는다.
+	// PoolerTypeRO connects to the replica read endpoint. If no replica is available, it does not
+	// fail-closed by falling back to the primary.
 	PoolerTypeRO PoolerType = "ro"
 )
 
-// PoolerPoolMode 는 PgBouncer pool_mode 값이다.
+// PoolerPoolMode is the value of PgBouncer's pool_mode setting.
 // +kubebuilder:validation:Enum=session;transaction;statement
 type PoolerPoolMode string
 
@@ -37,215 +38,216 @@ const (
 	PoolerPoolModeStatement   PoolerPoolMode = "statement"
 )
 
-// PoolerClusterRef 는 같은 namespace 의 PostgresCluster 참조다.
+// PoolerClusterRef is a reference to a PostgresCluster in the same namespace.
 type PoolerClusterRef struct {
-	// Name 은 PostgresCluster.metadata.name.
+	// Name is the PostgresCluster.metadata.name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
-// PgBouncerSpec 은 Pooler 가 생성할 PgBouncer 런타임 설정이다.
+// PgBouncerSpec is the PgBouncer runtime configuration created by the Pooler.
 type PgBouncerSpec struct {
-	// Image 는 PgBouncer 컨테이너 이미지다. PgBouncer 1.19+ 를 요구한다.
+	// Image is the PgBouncer container image. PgBouncer 1.19+ is required.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 
-	// PoolMode 는 PgBouncer pool_mode 값이다.
+	// PoolMode is the PgBouncer pool_mode value.
 	// +kubebuilder:default=session
 	// +optional
 	PoolMode PoolerPoolMode `json:"poolMode,omitempty"`
 
-	// Parameters 는 pgbouncer.ini [pgbouncer] 섹션에 병합할 자유형식 설정이다.
+	// Parameters is a free-form key/value set merged into the [pgbouncer] section of pgbouncer.ini.
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
 
-	// PgHBA 는 PgBouncer HBA 파일에 기록할 접근 제어 규칙이다.
+	// PgHBA is the list of access-control rules written to the PgBouncer HBA file.
 	// +optional
 	PgHBA []string `json:"pg_hba,omitempty"`
 
-	// AuthSecretRef 는 userlist.txt 를 제공하는 Secret 이름이다.
-	// 비어 있으면 operator 가 built-in auth path 를 활성화한다 — PostgresCluster
-	// 의 ready primary Pod 에 `keiailab_pooler_pgbouncer` LOGIN role 을 random
-	// password 로 자동 생성하고, userlist.txt 를 담은 `<pooler-name>-builtin-auth`
-	// Secret 을 Pooler OwnerReference 와 함께 생성한다 (CNPG `cnpg_pooler_pgbouncer`
-	// 패턴 호환). 사용자가 명시한 Secret 이 우선한다.
+	// AuthSecretRef is the name of the Secret that supplies userlist.txt.
+	// When empty, the operator enables the built-in auth path: it automatically creates a
+	// `keiailab_pooler_pgbouncer` LOGIN role with a random password on the PostgresCluster's
+	// ready primary Pod and creates a `<pooler-name>-builtin-auth` Secret holding userlist.txt
+	// with the Pooler OwnerReference (compatible with the CNPG `cnpg_pooler_pgbouncer` pattern).
+	// A user-supplied Secret takes precedence.
 	// +optional
 	AuthSecretRef *corev1.LocalObjectReference `json:"authSecretRef,omitempty"`
 
-	// ServerTLSSecret 은 PostgreSQL 서버에 mTLS 로 접속할 때 사용할 tls.crt/tls.key Secret 이다.
+	// ServerTLSSecret is the tls.crt/tls.key Secret used for mTLS to the PostgreSQL server.
 	// +optional
 	ServerTLSSecret *corev1.LocalObjectReference `json:"serverTLSSecret,omitempty"`
 
-	// ServerCASecret 은 PostgreSQL 서버 인증서를 검증할 ca.crt Secret 이다.
+	// ServerCASecret is the ca.crt Secret used to verify the PostgreSQL server certificate.
 	// +optional
 	ServerCASecret *corev1.LocalObjectReference `json:"serverCASecret,omitempty"`
 
-	// ClientTLSSecret 은 클라이언트 TLS 연결을 받을 때 사용할 tls.crt/tls.key Secret 이다.
+	// ClientTLSSecret is the tls.crt/tls.key Secret used when accepting client TLS connections.
 	// +optional
 	ClientTLSSecret *corev1.LocalObjectReference `json:"clientTLSSecret,omitempty"`
 
-	// ClientCASecret 은 클라이언트 인증서를 검증할 ca.crt Secret 이다.
+	// ClientCASecret is the ca.crt Secret used to verify client certificates.
 	// +optional
 	ClientCASecret *corev1.LocalObjectReference `json:"clientCASecret,omitempty"`
 
-	// AutoTLS 는 cert-manager 통합을 통해 server/client TLS Secret 을 자동 발급한다.
-	// 본 표면이 설정되어 있고 ServerTLSSecret/ClientTLSSecret 이 비어 있으면
-	// operator 가 cert-manager Certificate CR 을 생성해 Secret 발급을 위임한다.
-	// CNPG 의 cert-manager 통합 패턴과 호환되는 표면 (T29).
+	// AutoTLS auto-issues server/client TLS Secrets via cert-manager integration.
+	// When this surface is set and ServerTLSSecret/ClientTLSSecret are empty, the operator
+	// creates cert-manager Certificate CRs and delegates Secret issuance to cert-manager.
+	// Compatible with the CNPG cert-manager integration surface (T29).
 	// +optional
 	AutoTLS *PoolerAutoTLSSpec `json:"autoTLS,omitempty"`
 
-	// Exporter 는 PgBouncer Prometheus exporter sidecar 설정이다.
+	// Exporter is the PgBouncer Prometheus exporter sidecar configuration.
 	// +optional
 	Exporter *PgBouncerExporterSpec `json:"exporter,omitempty"`
 }
 
-// PoolerAutoTLSSpec 은 cert-manager Issuer/ClusterIssuer 를 통한 자동 TLS Secret 발급 설정이다.
-// PoolerReconciler 는 본 spec 으로 cert-manager `Certificate` CR 을 생성하고,
-// cert-manager 가 자동으로 발급한 Secret 을 PgBouncer Deployment 에 mount 한다.
+// PoolerAutoTLSSpec is the configuration for auto-issuing TLS Secrets via a cert-manager
+// Issuer or ClusterIssuer. PoolerReconciler uses this spec to create cert-manager
+// `Certificate` CRs and mounts the Secrets cert-manager issues into the PgBouncer Deployment.
 //
-// 발급되는 Secret 이름 규칙:
+// Issued Secret naming convention:
 //   - Server: `<pooler-name>-server-tls`
 //   - Client: `<pooler-name>-client-tls`
 //
-// 사용자가 ServerTLSSecret/ClientTLSSecret 을 명시한 경우 자동 발급보다 우선한다.
+// If the user explicitly sets ServerTLSSecret/ClientTLSSecret, those take precedence over auto-issuance.
 type PoolerAutoTLSSpec struct {
-	// IssuerRef 는 cert-manager Issuer 또는 ClusterIssuer 참조다.
+	// IssuerRef is a reference to a cert-manager Issuer or ClusterIssuer.
 	// +kubebuilder:validation:Required
 	IssuerRef PoolerCertIssuerRef `json:"issuerRef"`
 
-	// ServerEnabled=true 이면 server (PostgreSQL backend 연결용) TLS Secret 을 자동 발급한다.
+	// ServerEnabled=true auto-issues a server TLS Secret (for connecting to the PostgreSQL backend).
 	// +kubebuilder:default=false
 	// +optional
 	ServerEnabled bool `json:"serverEnabled,omitempty"`
 
-	// ClientEnabled=true 이면 client (외부 application 연결 수용) TLS Secret 을 자동 발급한다.
+	// ClientEnabled=true auto-issues a client TLS Secret (for accepting external application connections).
 	// +kubebuilder:default=true
 	// +optional
 	ClientEnabled bool `json:"clientEnabled,omitempty"`
 
-	// CommonName 은 발급될 Certificate 의 commonName 이다. 빈 값이면 Pooler Service DNS 를 사용한다.
+	// CommonName is the commonName of the issued Certificate. If empty, the Pooler Service DNS is used.
 	// +optional
 	CommonName string `json:"commonName,omitempty"`
 
-	// DNSNames 는 발급될 Certificate 의 추가 SANs 이다. 기본값은 Pooler Service 의
-	// `<pooler>.<ns>.svc` 와 `<pooler>.<ns>.svc.cluster.local` 이며, 사용자 지정 항목이 있으면
-	// 기본값에 union 된다.
+	// DNSNames are the additional SANs on the issued Certificate. The defaults are
+	// `<pooler>.<ns>.svc` and `<pooler>.<ns>.svc.cluster.local`; user-supplied entries are unioned
+	// with these defaults.
 	// +optional
 	DNSNames []string `json:"dnsNames,omitempty"`
 }
 
-// PoolerCertIssuerRef 는 cert-manager Issuer 또는 ClusterIssuer 참조다.
+// PoolerCertIssuerRef is a reference to a cert-manager Issuer or ClusterIssuer.
 type PoolerCertIssuerRef struct {
-	// Name 은 cert-manager Issuer/ClusterIssuer 이름이다.
+	// Name is the cert-manager Issuer/ClusterIssuer name.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// Kind 는 `Issuer` (namespace-scoped) 또는 `ClusterIssuer` (cluster-scoped) 중 하나다.
+	// Kind is `Issuer` (namespace-scoped) or `ClusterIssuer` (cluster-scoped).
 	// +kubebuilder:validation:Enum=Issuer;ClusterIssuer
 	// +kubebuilder:default=Issuer
 	// +optional
 	Kind string `json:"kind,omitempty"`
 }
 
-// PgBouncerExporterSpec 은 PgBouncer metrics sidecar 계약이다.
+// PgBouncerExporterSpec is the contract for the PgBouncer metrics sidecar.
 type PgBouncerExporterSpec struct {
-	// Image 는 exporter 컨테이너 이미지다.
+	// Image is the exporter container image.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 
-	// Port 는 exporter HTTP metrics port 다. 빈 값이면 9127.
+	// Port is the exporter's HTTP metrics port. Defaults to 9127 when empty.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	// +kubebuilder:default=9127
 	// +optional
 	Port int32 `json:"port,omitempty"`
 
-	// Args 는 exporter 컨테이너 args override 다.
+	// Args overrides the exporter container args.
 	// +optional
 	Args []string `json:"args,omitempty"`
 
-	// Env 는 exporter 컨테이너 환경 변수다.
+	// Env is the exporter container environment.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
-	// Resources 는 exporter 컨테이너 리소스 요청/제한이다.
+	// Resources is the exporter container resource requests/limits.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
-// PoolerServiceTemplateSpec 은 PgBouncer Service 의 안전한 override 표면이다.
+// PoolerServiceTemplateSpec is the safe override surface for the PgBouncer Service.
 type PoolerServiceTemplateSpec struct {
-	// Type 은 Service type 이다. 빈 값이면 ClusterIP.
+	// Type is the Service type. Empty defaults to ClusterIP.
 	// +optional
 	Type corev1.ServiceType `json:"type,omitempty"`
 
-	// Labels 는 Service metadata.labels 에 추가된다.
+	// Labels are added to Service metadata.labels.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 
-	// Annotations 는 Service metadata.annotations 에 추가된다.
+	// Annotations are added to Service metadata.annotations.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 
-	// Ports 는 Service 에 추가할 포트 목록이다. pgbouncer 기본 포트와 name 또는 port 가
-	// 충돌하면 사용자가 지정한 포트를 우선한다.
+	// Ports is the list of additional Service ports. If a name or port collides with the
+	// default pgbouncer port, the user-supplied port wins.
 	// +optional
 	Ports []corev1.ServicePort `json:"ports,omitempty"`
 }
 
-// PoolerSpec 은 CNPG Pooler 의 핵심 운영 표면을 본 operator 모델로 이식한다.
+// PoolerSpec ports the core operational surface of the CNPG Pooler to this operator's model.
 type PoolerSpec struct {
-	// Cluster 는 PgBouncer 가 바라볼 PostgresCluster 이다.
+	// Cluster is the PostgresCluster PgBouncer fronts.
 	// +kubebuilder:validation:Required
 	Cluster PoolerClusterRef `json:"cluster"`
 
-	// Instances 는 PgBouncer Pod 수다.
+	// Instances is the number of PgBouncer Pods.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	// +optional
 	Instances int32 `json:"instances,omitempty"`
 
-	// Type 은 rw(primary) 또는 ro(replica) endpoint 선택이다.
+	// Type selects the rw (primary) or ro (replica) endpoint.
 	// +kubebuilder:default=rw
 	// +optional
 	Type PoolerType `json:"type,omitempty"`
 
-	// Paused 는 PgBouncer PAUSE/RESUME 상태를 선언적으로 제어한다.
-	// true 로 바뀌면 operator 가 준비된 PgBouncer Pod 에 PAUSE 를 적용하고,
-	// false 로 돌아오면 RESUME 을 적용한다.
+	// Paused declaratively controls PgBouncer PAUSE/RESUME state.
+	// Setting it to true causes the operator to apply PAUSE to ready PgBouncer Pods;
+	// setting it back to false causes RESUME.
 	// +kubebuilder:default=false
 	// +optional
 	Paused bool `json:"paused,omitempty"`
 
-	// PgBouncer 는 PgBouncer 설정이다.
+	// PgBouncer is the PgBouncer configuration.
 	// +kubebuilder:validation:Required
 	PgBouncer PgBouncerSpec `json:"pgbouncer"`
 
-	// Template 은 PgBouncer Pod template override 다.
+	// Template is the PgBouncer Pod template override.
 	// +optional
 	Template *corev1.PodTemplateSpec `json:"template,omitempty"`
 
-	// DeploymentStrategy 는 PgBouncer Deployment 교체 전략이다. 빈 값이면 zero-unavailable rolling update 를 사용한다.
+	// DeploymentStrategy is the PgBouncer Deployment replacement strategy. Empty uses a
+	// zero-unavailable rolling update.
 	// +optional
 	DeploymentStrategy *appsv1.DeploymentStrategy `json:"deploymentStrategy,omitempty"`
 
-	// ServiceTemplate 은 PgBouncer Service override 다.
+	// ServiceTemplate is the PgBouncer Service override.
 	// +optional
 	ServiceTemplate *PoolerServiceTemplateSpec `json:"serviceTemplate,omitempty"`
 
-	// ServiceAccountName 은 Pooler Pod 가 사용할 기존 ServiceAccount 이름이다.
+	// ServiceAccountName is the name of an existing ServiceAccount used by Pooler Pods.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
-// PoolerPhase 는 Pooler reconcile 상태다.
+// PoolerPhase is the reconcile state of a Pooler.
 // +kubebuilder:validation:Enum=Pending;Ready;Failed
 type PoolerPhase string
 
@@ -255,38 +257,38 @@ const (
 	PoolerFailed  PoolerPhase = "Failed"
 )
 
-// PoolerStatus 는 PgBouncer 하위 리소스 관찰 상태다.
+// PoolerStatus is the observed state of the PgBouncer subordinate resources.
 type PoolerStatus struct {
-	// Phase 는 Pooler reconcile 상태다.
+	// Phase is the Pooler reconcile state.
 	Phase PoolerPhase `json:"phase,omitempty"`
 
-	// Instances 는 PgBouncer Deployment 가 수렴하려는 replica 수다.
+	// Instances is the replica count the PgBouncer Deployment is converging on.
 	Instances int32 `json:"instances,omitempty"`
 
-	// ReadyReplicas 는 observed Deployment 의 readyReplicas 값이다.
+	// ReadyReplicas is the readyReplicas value observed on the Deployment.
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
 
-	// Paused 는 모든 준비된 PgBouncer Pod 에 마지막으로 수렴된 PAUSE/RESUME 상태다.
+	// Paused is the PAUSE/RESUME state last converged across all ready PgBouncer Pods.
 	Paused bool `json:"paused,omitempty"`
 
-	// BackendTargets 는 현재 PgBouncer config 로 라우팅되는 PostgreSQL backend DNS 목록이다.
+	// BackendTargets is the list of PostgreSQL backend DNS names the current PgBouncer config routes to.
 	// +optional
 	BackendTargets []string `json:"backendTargets,omitempty"`
 
-	// ConfigHash 는 현재 PgBouncer config 의 sha256 이다.
+	// ConfigHash is the sha256 of the current PgBouncer config.
 	ConfigHash string `json:"configHash,omitempty"`
 
-	// BuiltinAuthLastRotation 은 operator-managed built-in auth 의 마지막 password
-	// rotation 시각이다. 사용자가 `postgres.keiailab.io/rotate-pooler-password=true`
-	// annotation 을 적용해 force rotation 을 트리거할 때마다 갱신된다. spec.pgbouncer.
-	// authSecretRef 가 명시된 user-supplied 경로에서는 사용하지 않는다.
+	// BuiltinAuthLastRotation is the time the operator-managed built-in auth last rotated
+	// its password. It is updated whenever the user triggers a forced rotation by applying
+	// the `postgres.keiailab.io/rotate-pooler-password=true` annotation. It is unused on
+	// the user-supplied path where spec.pgbouncer.authSecretRef is set.
 	// +optional
 	BuiltinAuthLastRotation *metav1.Time `json:"builtinAuthLastRotation,omitempty"`
 
-	// ObservedGeneration 은 마지막 처리 generation 이다.
+	// ObservedGeneration is the last generation processed by the reconciler.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions 는 K8s 표준 상태다.
+	// Conditions is the standard Kubernetes condition set.
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -305,7 +307,7 @@ type PoolerStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// Pooler 는 PgBouncer 기반 PostgreSQL connection pool 계층이다.
+// Pooler is the PgBouncer-based PostgreSQL connection pool layer.
 type Pooler struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -316,7 +318,7 @@ type Pooler struct {
 
 // +kubebuilder:object:root=true
 
-// PoolerList 는 Pooler 컬렉션이다.
+// PoolerList is a collection of Pooler resources.
 type PoolerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

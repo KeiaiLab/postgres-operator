@@ -40,10 +40,10 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          BackupJob은 단일 백업 실행 명령이다 (RFC 0004).
+          BackupJob is a single backup-execution command (RFC 0004).
 
-          본 CRD는 *atomic 단위*다 — 변경 시 새 BackupJob 생성. cron 기반 정기 백업은
-          ScheduledBackup CRD 가 BackupJob 을 생성하는 방식으로 분리한다.
+          This CRD is an *atomic unit* — any change requires creating a new BackupJob. Cron-based
+          scheduled backups are separated out: the ScheduledBackup CRD creates BackupJobs.
         properties:
           apiVersion:
             description: |-
@@ -64,19 +64,20 @@ spec:
             type: object
           spec:
             description: |-
-              BackupJobSpec은 단일 백업 호출의 명세다 (RFC 0004 §2.1).
+              BackupJobSpec is the specification of a single backup invocation (RFC 0004 §2.1).
 
-              immutable 필드 (생성 후 변경 불가, webhook이 reject 예정 — phase 2):
+              Immutable fields (cannot be changed after creation; the webhook will reject — phase 2):
                 - cluster.name
                 - tool
                 - type
                 - executionMode
             properties:
               cluster:
-                description: Cluster는 백업 대상 PostgresCluster 참조 (같은 namespace).
+                description: Cluster references the PostgresCluster to back up (same
+                  namespace).
                 properties:
                   name:
-                    description: Name은 PostgresCluster.metadata.name.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -84,9 +85,9 @@ spec:
                 type: object
               executionMode:
                 description: |-
-                  ExecutionMode는 plugin이 백업을 *어디서 실행*할지 결정 (P1-6, RFC 0004 §3.1):
-                    - "sidecar": PG Pod 동거 컨테이너 (pgBackRest 패턴)
-                    - "job":     standalone K8s Job (WAL-G 패턴)
+                  ExecutionMode controls *where* the plugin runs the backup (P1-6, RFC 0004 §3.1):
+                    - "sidecar": a container co-located with the PG Pod (pgBackRest pattern)
+                    - "job":     a standalone Kubernetes Job (WAL-G pattern)
                     - "":        plugin default
                 enum:
                 - sidecar
@@ -95,10 +96,10 @@ spec:
                 type: string
               jobTemplate:
                 description: |-
-                  JobTemplate은 ExecutionMode="job"일 때 생성할 runner batch/v1 Job 템플릿이다.
-                  operator는 name/namespace/ownerReference/표준 label/env만 주입하고, image,
-                  command, volume, secret, resource, securityContext 같은 실행 세부사항은 본
-                  템플릿을 그대로 따른다.
+                  JobTemplate is the runner batch/v1 Job template used when ExecutionMode="job".
+                  The operator only injects name/namespace/ownerReference/standard labels/env;
+                  execution details such as image, command, volume, secret, resources, and
+                  securityContext are taken verbatim from this template.
                 properties:
                   metadata:
                     description: |-
@@ -9104,46 +9105,52 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Labels는 BackupResult 메타데이터에 첨부될 K8s 스타일 레이블.
+                description: Labels are Kubernetes-style labels attached to the BackupResult
+                  metadata.
                 type: object
               repo:
-                description: Repo는 다중 저장소 환경에서 어느 repo를 쓸지 식별.
+                description: Repo identifies which repository to use in multi-repo
+                  deployments.
                 minLength: 1
                 type: string
               restore:
-                description: Restore는 Type=restore 시 PITR 설정 (RFC 0004 §5.1).
+                description: Restore holds the PITR settings when Type=restore (RFC
+                  0004 §5.1).
                 properties:
                   backupID:
-                    description: BackupID는 복구 대상 백업 식별자 (TargetTime 대신 직접 지정).
+                    description: BackupID is the identifier of the backup to restore
+                      from (used instead of TargetTime).
                     type: string
                   targetTime:
-                    description: TargetTime은 복구 대상 시각 (UTC, ISO 8601 RFC3339).
+                    description: TargetTime is the target recovery time (UTC, ISO
+                      8601 RFC3339).
                     format: date-time
                     type: string
                 type: object
               retention:
-                description: Retention은 백업 보존 정책.
+                description: Retention is the backup retention policy.
                 properties:
                   keepFull:
-                    description: KeepFull은 보존할 full 백업 개수. 0이면 무제한 (plugin 기본).
+                    description: KeepFull is the number of full backups to retain.
+                      0 means unlimited (plugin default).
                     format: int32
                     minimum: 0
                     type: integer
                   keepIncremental:
-                    description: KeepIncremental은 보존할 incremental/differential 백업
-                      개수.
+                    description: KeepIncremental is the number of incremental/differential
+                      backups to retain.
                     format: int32
                     minimum: 0
                     type: integer
                 type: object
               tool:
                 description: |-
-                  Tool은 사용할 백업 도구 이름. BackupPlugin.Name()과 일치해야 한다.
-                  예: "pgbackrest" (RFC 0004 §4 1차 reference), "walg", "barman".
+                  Tool is the name of the backup tool to use; must match BackupPlugin.Name().
+                  Examples: "pgbackrest" (RFC 0004 §4 primary reference), "walg", "barman".
                 minLength: 1
                 type: string
               type:
-                description: Type은 백업 종류.
+                description: Type is the backup kind.
                 enum:
                 - full
                 - incremental
@@ -9157,17 +9164,20 @@ spec:
             - type
             type: object
           status:
-            description: BackupJobStatus는 BackupJob의 관찰 상태.
+            description: BackupJobStatus is the observed state of a BackupJob.
             properties:
               backupID:
-                description: BackupID는 plugin이 부여한 고유 식별자 (Succeeded 후).
+                description: BackupID is the unique identifier assigned by the plugin
+                  (populated after Succeeded).
                 type: string
               bytes:
-                description: Bytes는 백업 크기 (bytes). 0 허용 (스트리밍 도구).
+                description: Bytes is the backup size in bytes. 0 is allowed (streaming
+                  tools).
                 format: int64
                 type: integer
               conditions:
-                description: Conditions는 K8s 표준 상태 (Ready, Available, Progressing).
+                description: Conditions is the standard Kubernetes condition set (Ready,
+                  Available, Progressing).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -9227,15 +9237,16 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               endedAt:
-                description: EndedAt은 백업 종료 시각.
+                description: EndedAt is when the backup ended.
                 format: date-time
                 type: string
               observedGeneration:
-                description: ObservedGeneration은 reconcile이 마지막 처리한 spec generation.
+                description: ObservedGeneration is the spec generation last processed
+                  by the reconciler.
                 format: int64
                 type: integer
               phase:
-                description: Phase는 BackupJob 진행 단계.
+                description: Phase is the progress phase of the BackupJob.
                 enum:
                 - Pending
                 - Running
@@ -9243,11 +9254,11 @@ spec:
                 - Failed
                 type: string
               runnerJobName:
-                description: RunnerJobName은 ExecutionMode="job"에서 생성한 batch/v1 Job
-                  이름이다.
+                description: RunnerJobName is the name of the batch/v1 Job created
+                  when ExecutionMode="job".
                 type: string
               startedAt:
-                description: StartedAt은 백업 시작 시각.
+                description: StartedAt is when the backup started.
                 format: date-time
                 type: string
             type: object

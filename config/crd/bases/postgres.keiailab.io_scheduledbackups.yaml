@@ -39,7 +39,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ScheduledBackup 은 cron schedule 에 따라 atomic BackupJob 을 생성한다.
+        description: ScheduledBackup creates atomic BackupJobs according to a cron
+          schedule.
         properties:
           apiVersion:
             description: |-
@@ -59,22 +60,23 @@ spec:
           metadata:
             type: object
           spec:
-            description: ScheduledBackupSpec 은 cron 기반 정기 백업 정책이다.
+            description: ScheduledBackupSpec is the cron-based scheduled-backup policy.
             properties:
               backupOwnerReference:
                 default: self
-                description: BackupOwnerReference 는 생성된 BackupJob 의 ownerReference
-                  정책이다.
+                description: BackupOwnerReference is the ownerReference policy applied
+                  to BackupJobs that are created.
                 enum:
                 - none
                 - self
                 - cluster
                 type: string
               cluster:
-                description: Cluster 는 백업 대상 PostgresCluster 참조 (같은 namespace).
+                description: Cluster references the PostgresCluster to back up (same
+                  namespace).
                 properties:
                   name:
-                    description: Name은 PostgresCluster.metadata.name.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -83,14 +85,15 @@ spec:
               concurrencyPolicy:
                 default: Forbid
                 description: |-
-                  ConcurrencyPolicy 는 이전 BackupJob 이 Running/Pending 일 때 새 실행을 만들지
-                  결정한다.
+                  ConcurrencyPolicy decides whether to create a new run while the previous BackupJob is
+                  Running/Pending.
                 enum:
                 - Allow
                 - Forbid
                 type: string
               executionMode:
-                description: ExecutionMode 는 생성되는 BackupJob 에 복사되는 실행 모드다.
+                description: ExecutionMode is the execution mode copied to each created
+                  BackupJob.
                 enum:
                 - sidecar
                 - job
@@ -99,13 +102,13 @@ spec:
               immediate:
                 default: false
                 description: |-
-                  Immediate=true 이면 ScheduledBackup 생성 후 첫 reconcile 에서 즉시 BackupJob
-                  1건을 만든 뒤, 이후에는 Schedule 기준으로 동작한다.
+                  Immediate=true creates one BackupJob in the first reconcile after the ScheduledBackup is
+                  created; subsequent runs follow Schedule.
                 type: boolean
               jobTemplate:
                 description: |-
-                  JobTemplate 은 ExecutionMode="job"일 때 생성되는 BackupJob 에 복사할 runner
-                  batch/v1 Job 템플릿이다.
+                  JobTemplate is the runner batch/v1 Job template copied to each created BackupJob when
+                  ExecutionMode="job".
                 properties:
                   metadata:
                     description: |-
@@ -9111,46 +9114,51 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Labels 는 생성되는 BackupJob 의 spec.labels 에 복사된다.
+                description: Labels are copied to spec.labels of each created BackupJob.
                 type: object
               repo:
-                description: Repo 는 다중 저장소 환경에서 어느 repo 를 쓸지 식별한다.
+                description: Repo identifies which repository to use in multi-repo
+                  deployments.
                 minLength: 1
                 type: string
               retention:
-                description: Retention 은 생성되는 BackupJob 에 복사되는 보존 정책이다.
+                description: Retention is the retention policy copied to each created
+                  BackupJob.
                 properties:
                   keepFull:
-                    description: KeepFull은 보존할 full 백업 개수. 0이면 무제한 (plugin 기본).
+                    description: KeepFull is the number of full backups to retain.
+                      0 means unlimited (plugin default).
                     format: int32
                     minimum: 0
                     type: integer
                   keepIncremental:
-                    description: KeepIncremental은 보존할 incremental/differential 백업
-                      개수.
+                    description: KeepIncremental is the number of incremental/differential
+                      backups to retain.
                     format: int32
                     minimum: 0
                     type: integer
                 type: object
               schedule:
                 description: |-
-                  Schedule 은 초 필드를 포함한 6-field cron expression 이다.
-                  형식: "second minute hour day-of-month month day-of-week".
-                  예: "0 0 2 * * *" = 매일 02:00:00.
+                  Schedule is a 6-field cron expression that includes a seconds field.
+                  Format: "second minute hour day-of-month month day-of-week".
+                  Example: "0 0 2 * * *" — every day at 02:00:00.
                 minLength: 1
                 type: string
               suspend:
                 default: false
-                description: Suspend=true 이면 새 BackupJob 생성을 중단한다. 기존 BackupJob 은
-                  건드리지 않는다.
+                description: Suspend=true stops the creation of new BackupJobs. Existing
+                  BackupJobs are left alone.
                 type: boolean
               tool:
-                description: Tool 은 사용할 백업 도구 이름. BackupPlugin.Name() 과 일치해야 한다.
+                description: Tool is the name of the backup tool to use; must match
+                  BackupPlugin.Name().
                 minLength: 1
                 type: string
               type:
                 default: full
-                description: Type 은 정기 백업 종류다. restore 는 atomic BackupJob 에서만 허용한다.
+                description: Type is the scheduled backup kind. The restore kind is
+                  only allowed on an atomic BackupJob.
                 enum:
                 - full
                 - incremental
@@ -9163,10 +9171,11 @@ spec:
             - tool
             type: object
           status:
-            description: ScheduledBackupStatus 는 정기 백업 컨트롤러의 관찰 상태다.
+            description: ScheduledBackupStatus is the observed state of the scheduled-backup
+              controller.
             properties:
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -9226,19 +9235,21 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               lastBackupJobName:
-                description: LastBackupJobName 은 마지막으로 생성한 BackupJob 이름이다.
+                description: LastBackupJobName is the name of the most recently created
+                  BackupJob.
                 type: string
               lastScheduleTime:
-                description: LastScheduleTime 은 마지막으로 BackupJob 생성을 시도한 스케줄 시각이다.
+                description: LastScheduleTime is the schedule time at which BackupJob
+                  creation was last attempted.
                 format: date-time
                 type: string
               nextScheduleTime:
-                description: NextScheduleTime 은 다음 생성 예정 시각이다.
+                description: NextScheduleTime is the next scheduled creation time.
                 format: date-time
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 reconciler 가 마지막 처리한 spec generation
-                  이다.
+                description: ObservedGeneration is the spec generation last processed
+                  by the reconciler.
                 format: int64
                 type: integer
             type: object

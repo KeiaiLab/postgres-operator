@@ -644,6 +644,7 @@ spec:
   inherit: true
   connectionLimit: 10
   disablePassword: true
+  userReclaimPolicy: delete
 USERSPEC
 
     user_applied=""

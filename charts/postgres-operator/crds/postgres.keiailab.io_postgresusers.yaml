@@ -58,65 +58,69 @@ spec:
           metadata:
             type: object
           spec:
-            description: PostgresUserSpec 은 CNPG managed.roles 의 핵심 운영 표면을 별도 CRD
-              로 제공한다.
+            description: PostgresUserSpec exposes the core operational surface of
+              CNPG's managed.roles as a separate CRD.
             properties:
               bypassrls:
-                description: BypassRLS 는 role 이 row-level security 를 우회할 수 있는지 여부다.
+                description: BypassRLS controls whether the role can bypass row-level
+                  security.
                 type: boolean
               cluster:
-                description: Cluster 는 role 을 생성할 PostgresCluster 이다.
+                description: Cluster is the PostgresCluster in which the role is created.
                 properties:
                   name:
-                    description: Name 은 PostgresCluster.metadata.name 이다.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
                 - name
                 type: object
               connectionLimit:
-                description: ConnectionLimit 은 role connection limit 이다. nil 이면 변경하지
-                  않고, -1 은 제한 없음을 뜻한다.
+                description: ConnectionLimit is the role's connection limit. nil leaves
+                  it unchanged; -1 means unlimited.
                 format: int32
                 minimum: -1
                 type: integer
               createdb:
-                description: CreateDB 는 role 이 CREATEDB 권한을 갖는지 여부다.
+                description: CreateDB controls whether the role has the CREATEDB attribute.
                 type: boolean
               createrole:
-                description: CreateRole 은 role 이 CREATEROLE 권한을 갖는지 여부다.
+                description: CreateRole controls whether the role has the CREATEROLE
+                  attribute.
                 type: boolean
               disablePassword:
-                description: DisablePassword 는 password 를 NULL 로 설정해 password login
-                  을 비활성화한다.
+                description: DisablePassword sets the role password to NULL, disabling
+                  password login.
                 type: boolean
               ensure:
                 default: present
-                description: Ensure 는 role 존재 상태다. 빈 값이면 present.
+                description: Ensure is the desired role existence state. Empty defaults
+                  to present.
                 enum:
                 - present
                 - absent
                 type: string
               inRoles:
-                description: InRoles 는 이 role 이 member 로 들어갈 parent role 목록이다.
+                description: InRoles is the list of parent roles that this role becomes
+                  a member of.
                 items:
                   type: string
                 type: array
               inherit:
-                description: Inherit 는 role privilege inheritance 여부다. nil 이면 PostgreSQL
-                  기본값인 true 로 reconcile 한다.
+                description: Inherit controls role privilege inheritance. nil reconciles
+                  to PostgreSQL's default of true.
                 type: boolean
               login:
-                description: Login 은 role 이 LOGIN 권한을 갖는지 여부다.
+                description: Login controls whether the role has the LOGIN attribute.
                 type: boolean
               name:
-                description: Name 은 PostgreSQL role 이름이다.
+                description: Name is the PostgreSQL role name.
                 minLength: 1
                 type: string
               passwordSecretRef:
                 description: |-
-                  PasswordSecretRef 는 data.username/data.password 값을 PostgreSQL role password 로 반영할 Secret 이다.
-                  data.username 은 spec.name 과 일치해야 한다.
+                  PasswordSecretRef is the Secret whose data.username/data.password values are applied as
+                  the PostgreSQL role password. data.username must match spec.name.
                 properties:
                   name:
                     default: ""
@@ -130,14 +134,33 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               replication:
-                description: Replication 은 role 이 REPLICATION 권한을 갖는지 여부다.
+                description: Replication controls whether the role has the REPLICATION
+                  attribute.
                 type: boolean
               superuser:
-                description: Superuser 는 role 이 SUPERUSER 권한을 갖는지 여부다.
+                description: Superuser controls whether the role has the SUPERUSER
+                  attribute.
                 type: boolean
+              userReclaimPolicy:
+                allOf:
+                - enum:
+                  - retain
+                  - delete
+                - enum:
+                  - retain
+                  - delete
+                default: retain
+                description: |-
+                  UserReclaimPolicy controls how the PostgreSQL role is handled when the
+                  CR is deleted. Empty defaults to "retain" (CR deletion is non-destructive
+                  — the role keeps existing in PostgreSQL). When set to "delete" the
+                  reconciler attaches a finalizer and runs `DROP ROLE` before allowing
+                  the CR to be garbage-collected. Mirrors PostgresDatabase.spec.databaseReclaimPolicy.
+                type: string
               validUntil:
-                description: ValidUntil 은 role password 만료 시각이다. PostgreSQL 이 허용하는
-                  timestamp 또는 infinity 를 사용한다.
+                description: |-
+                  ValidUntil is the expiry timestamp of the role password. Use any value PostgreSQL accepts
+                  as a timestamp, or "infinity".
                 type: string
             required:
             - cluster
@@ -149,14 +172,15 @@ spec:
             - message: passwordSecretRef and disablePassword cannot both be set
               rule: '!(has(self.passwordSecretRef) && self.disablePassword)'
           status:
-            description: PostgresUserStatus 는 role reconcile 관찰 상태다.
+            description: PostgresUserStatus is the observed reconcile state of the
+              role.
             properties:
               applied:
-                description: Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로
-                  반영됐는지 여부다.
+                description: Applied reports whether the latest observedGeneration
+                  was successfully applied to PostgreSQL.
                 type: boolean
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -216,15 +240,17 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               message:
-                description: Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+                description: Message is a summary of the last reconcile or the failure
+                  cause.
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 마지막 처리 generation 이다.
+                description: ObservedGeneration is the last generation processed by
+                  the reconciler.
                 format: int64
                 type: integer
               passwordSecretResourceVersion:
-                description: PasswordSecretResourceVersion 은 마지막으로 성공 반영한 password
-                  Secret resourceVersion 이다.
+                description: PasswordSecretResourceVersion is the resourceVersion
+                  of the password Secret that was last successfully applied.
                 type: string
             type: object
         type: object

@@ -48,10 +48,10 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          BackupJob은 단일 백업 실행 명령이다 (RFC 0004).
+          BackupJob is a single backup-execution command (RFC 0004).
 
-          본 CRD는 *atomic 단위*다 — 변경 시 새 BackupJob 생성. cron 기반 정기 백업은
-          ScheduledBackup CRD 가 BackupJob 을 생성하는 방식으로 분리한다.
+          This CRD is an *atomic unit* — any change requires creating a new BackupJob. Cron-based
+          scheduled backups are separated out: the ScheduledBackup CRD creates BackupJobs.
         properties:
           apiVersion:
             description: |-
@@ -72,19 +72,20 @@ spec:
             type: object
           spec:
             description: |-
-              BackupJobSpec은 단일 백업 호출의 명세다 (RFC 0004 §2.1).
+              BackupJobSpec is the specification of a single backup invocation (RFC 0004 §2.1).
 
-              immutable 필드 (생성 후 변경 불가, webhook이 reject 예정 — phase 2):
+              Immutable fields (cannot be changed after creation; the webhook will reject — phase 2):
                 - cluster.name
                 - tool
                 - type
                 - executionMode
             properties:
               cluster:
-                description: Cluster는 백업 대상 PostgresCluster 참조 (같은 namespace).
+                description: Cluster references the PostgresCluster to back up (same
+                  namespace).
                 properties:
                   name:
-                    description: Name은 PostgresCluster.metadata.name.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -92,9 +93,9 @@ spec:
                 type: object
               executionMode:
                 description: |-
-                  ExecutionMode는 plugin이 백업을 *어디서 실행*할지 결정 (P1-6, RFC 0004 §3.1):
-                    - "sidecar": PG Pod 동거 컨테이너 (pgBackRest 패턴)
-                    - "job":     standalone K8s Job (WAL-G 패턴)
+                  ExecutionMode controls *where* the plugin runs the backup (P1-6, RFC 0004 §3.1):
+                    - "sidecar": a container co-located with the PG Pod (pgBackRest pattern)
+                    - "job":     a standalone Kubernetes Job (WAL-G pattern)
                     - "":        plugin default
                 enum:
                 - sidecar
@@ -103,10 +104,10 @@ spec:
                 type: string
               jobTemplate:
                 description: |-
-                  JobTemplate은 ExecutionMode="job"일 때 생성할 runner batch/v1 Job 템플릿이다.
-                  operator는 name/namespace/ownerReference/표준 label/env만 주입하고, image,
-                  command, volume, secret, resource, securityContext 같은 실행 세부사항은 본
-                  템플릿을 그대로 따른다.
+                  JobTemplate is the runner batch/v1 Job template used when ExecutionMode="job".
+                  The operator only injects name/namespace/ownerReference/standard labels/env;
+                  execution details such as image, command, volume, secret, resources, and
+                  securityContext are taken verbatim from this template.
                 properties:
                   metadata:
                     description: |-
@@ -9112,46 +9113,52 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Labels는 BackupResult 메타데이터에 첨부될 K8s 스타일 레이블.
+                description: Labels are Kubernetes-style labels attached to the BackupResult
+                  metadata.
                 type: object
               repo:
-                description: Repo는 다중 저장소 환경에서 어느 repo를 쓸지 식별.
+                description: Repo identifies which repository to use in multi-repo
+                  deployments.
                 minLength: 1
                 type: string
               restore:
-                description: Restore는 Type=restore 시 PITR 설정 (RFC 0004 §5.1).
+                description: Restore holds the PITR settings when Type=restore (RFC
+                  0004 §5.1).
                 properties:
                   backupID:
-                    description: BackupID는 복구 대상 백업 식별자 (TargetTime 대신 직접 지정).
+                    description: BackupID is the identifier of the backup to restore
+                      from (used instead of TargetTime).
                     type: string
                   targetTime:
-                    description: TargetTime은 복구 대상 시각 (UTC, ISO 8601 RFC3339).
+                    description: TargetTime is the target recovery time (UTC, ISO
+                      8601 RFC3339).
                     format: date-time
                     type: string
                 type: object
               retention:
-                description: Retention은 백업 보존 정책.
+                description: Retention is the backup retention policy.
                 properties:
                   keepFull:
-                    description: KeepFull은 보존할 full 백업 개수. 0이면 무제한 (plugin 기본).
+                    description: KeepFull is the number of full backups to retain.
+                      0 means unlimited (plugin default).
                     format: int32
                     minimum: 0
                     type: integer
                   keepIncremental:
-                    description: KeepIncremental은 보존할 incremental/differential 백업
-                      개수.
+                    description: KeepIncremental is the number of incremental/differential
+                      backups to retain.
                     format: int32
                     minimum: 0
                     type: integer
                 type: object
               tool:
                 description: |-
-                  Tool은 사용할 백업 도구 이름. BackupPlugin.Name()과 일치해야 한다.
-                  예: "pgbackrest" (RFC 0004 §4 1차 reference), "walg", "barman".
+                  Tool is the name of the backup tool to use; must match BackupPlugin.Name().
+                  Examples: "pgbackrest" (RFC 0004 §4 primary reference), "walg", "barman".
                 minLength: 1
                 type: string
               type:
-                description: Type은 백업 종류.
+                description: Type is the backup kind.
                 enum:
                 - full
                 - incremental
@@ -9165,17 +9172,20 @@ spec:
             - type
             type: object
           status:
-            description: BackupJobStatus는 BackupJob의 관찰 상태.
+            description: BackupJobStatus is the observed state of a BackupJob.
             properties:
               backupID:
-                description: BackupID는 plugin이 부여한 고유 식별자 (Succeeded 후).
+                description: BackupID is the unique identifier assigned by the plugin
+                  (populated after Succeeded).
                 type: string
               bytes:
-                description: Bytes는 백업 크기 (bytes). 0 허용 (스트리밍 도구).
+                description: Bytes is the backup size in bytes. 0 is allowed (streaming
+                  tools).
                 format: int64
                 type: integer
               conditions:
-                description: Conditions는 K8s 표준 상태 (Ready, Available, Progressing).
+                description: Conditions is the standard Kubernetes condition set (Ready,
+                  Available, Progressing).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -9235,15 +9245,16 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               endedAt:
-                description: EndedAt은 백업 종료 시각.
+                description: EndedAt is when the backup ended.
                 format: date-time
                 type: string
               observedGeneration:
-                description: ObservedGeneration은 reconcile이 마지막 처리한 spec generation.
+                description: ObservedGeneration is the spec generation last processed
+                  by the reconciler.
                 format: int64
                 type: integer
               phase:
-                description: Phase는 BackupJob 진행 단계.
+                description: Phase is the progress phase of the BackupJob.
                 enum:
                 - Pending
                 - Running
@@ -9251,11 +9262,11 @@ spec:
                 - Failed
                 type: string
               runnerJobName:
-                description: RunnerJobName은 ExecutionMode="job"에서 생성한 batch/v1 Job
-                  이름이다.
+                description: RunnerJobName is the name of the batch/v1 Job created
+                  when ExecutionMode="job".
                 type: string
               startedAt:
-                description: StartedAt은 백업 시작 시각.
+                description: StartedAt is when the backup started.
                 format: date-time
                 type: string
             type: object
@@ -9296,8 +9307,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ClusterImageCatalog 는 cluster 전체에서 공유하는 PostgreSQL image catalog
-          다.
+        description: ClusterImageCatalog is a cluster-wide PostgreSQL image catalog
+          shared across namespaces.
         properties:
           apiVersion:
             description: |-
@@ -9317,36 +9328,36 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImageCatalogSpec 은 namespaced/cluster-wide catalog 가 공유하는
-              spec 이다.
+            description: ImageCatalogSpec is the spec shared by namespaced and cluster-wide
+              catalogs.
             properties:
               images:
-                description: Images 는 PostgreSQL major version 별 image 목록이다.
+                description: Images is the list of images per PostgreSQL major version.
                 items:
-                  description: ImageCatalogEntry 는 PostgreSQL major version 하나에 대응하는
-                    operand image 다.
+                  description: ImageCatalogEntry is the operand image for a single
+                    PostgreSQL major version.
                   properties:
                     extensions:
                       description: |-
-                        Extensions 는 이 이미지와 함께 사용할 수 있는 extension image 후보 목록이다.
-                        0.3.0-alpha 에서는 저장/검증 표면만 제공하고, 실제 volume-extension mount 는
-                        후속 단계에서 연결한다.
+                        Extensions is the list of extension image candidates available with this image.
+                        In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+                        volume-extension mount path is wired up in a later phase.
                       items:
-                        description: ImageCatalogExtension 은 catalog entry 에 연결된 extension
-                          image metadata 다.
+                        description: ImageCatalogExtension is the metadata for an
+                          extension image attached to a catalog entry.
                         properties:
                           image:
-                            description: Image 는 extension image reference 다.
+                            description: Image is the extension image reference.
                             properties:
                               reference:
-                                description: Reference 는 OCI image reference 다.
+                                description: Reference is the OCI image reference.
                                 minLength: 1
                                 type: string
                             required:
                             - reference
                             type: object
                           name:
-                            description: Name 은 extension 식별자다.
+                            description: Name is the extension identifier.
                             minLength: 1
                             type: string
                         required:
@@ -9356,13 +9367,13 @@ spec:
                       type: array
                     image:
                       description: |-
-                        Image 는 해당 major 에 사용할 immutable image reference 다. production catalog 는
-                        digest pin 을 권장한다.
+                        Image is the immutable image reference used for this major version. Production catalogs
+                        should pin by digest.
                       minLength: 1
                       type: string
                     major:
-                      description: Major 는 PostgreSQL major version 이다. catalog 안에서
-                        유일해야 한다.
+                      description: Major is the PostgreSQL major version. It must
+                        be unique within the catalog.
                       format: int32
                       minimum: 1
                       type: integer
@@ -9414,7 +9425,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageCatalog 는 namespace 단위 PostgreSQL image catalog 다.
+        description: ImageCatalog is a namespace-scoped PostgreSQL image catalog.
         properties:
           apiVersion:
             description: |-
@@ -9434,36 +9445,36 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImageCatalogSpec 은 namespaced/cluster-wide catalog 가 공유하는
-              spec 이다.
+            description: ImageCatalogSpec is the spec shared by namespaced and cluster-wide
+              catalogs.
             properties:
               images:
-                description: Images 는 PostgreSQL major version 별 image 목록이다.
+                description: Images is the list of images per PostgreSQL major version.
                 items:
-                  description: ImageCatalogEntry 는 PostgreSQL major version 하나에 대응하는
-                    operand image 다.
+                  description: ImageCatalogEntry is the operand image for a single
+                    PostgreSQL major version.
                   properties:
                     extensions:
                       description: |-
-                        Extensions 는 이 이미지와 함께 사용할 수 있는 extension image 후보 목록이다.
-                        0.3.0-alpha 에서는 저장/검증 표면만 제공하고, 실제 volume-extension mount 는
-                        후속 단계에서 연결한다.
+                        Extensions is the list of extension image candidates available with this image.
+                        In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+                        volume-extension mount path is wired up in a later phase.
                       items:
-                        description: ImageCatalogExtension 은 catalog entry 에 연결된 extension
-                          image metadata 다.
+                        description: ImageCatalogExtension is the metadata for an
+                          extension image attached to a catalog entry.
                         properties:
                           image:
-                            description: Image 는 extension image reference 다.
+                            description: Image is the extension image reference.
                             properties:
                               reference:
-                                description: Reference 는 OCI image reference 다.
+                                description: Reference is the OCI image reference.
                                 minLength: 1
                                 type: string
                             required:
                             - reference
                             type: object
                           name:
-                            description: Name 은 extension 식별자다.
+                            description: Name is the extension identifier.
                             minLength: 1
                             type: string
                         required:
@@ -9473,13 +9484,13 @@ spec:
                       type: array
                     image:
                       description: |-
-                        Image 는 해당 major 에 사용할 immutable image reference 다. production catalog 는
-                        digest pin 을 권장한다.
+                        Image is the immutable image reference used for this major version. Production catalogs
+                        should pin by digest.
                       minLength: 1
                       type: string
                     major:
-                      description: Major 는 PostgreSQL major version 이다. catalog 안에서
-                        유일해야 한다.
+                      description: Major is the PostgreSQL major version. It must
+                        be unique within the catalog.
                       format: int32
                       minimum: 1
                       type: integer
@@ -9543,7 +9554,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Pooler 는 PgBouncer 기반 PostgreSQL connection pool 계층이다.
+        description: Pooler is the PgBouncer-based PostgreSQL connection pool layer.
         properties:
           apiVersion:
             description: |-
@@ -9563,21 +9574,23 @@ spec:
           metadata:
             type: object
           spec:
-            description: PoolerSpec 은 CNPG Pooler 의 핵심 운영 표면을 본 operator 모델로 이식한다.
+            description: PoolerSpec ports the core operational surface of the CNPG
+              Pooler to this operator's model.
             properties:
               cluster:
-                description: Cluster 는 PgBouncer 가 바라볼 PostgresCluster 이다.
+                description: Cluster is the PostgresCluster PgBouncer fronts.
                 properties:
                   name:
-                    description: Name 은 PostgresCluster.metadata.name.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
                 - name
                 type: object
               deploymentStrategy:
-                description: DeploymentStrategy 는 PgBouncer Deployment 교체 전략이다. 빈
-                  값이면 zero-unavailable rolling update 를 사용한다.
+                description: |-
+                  DeploymentStrategy is the PgBouncer Deployment replacement strategy. Empty uses a
+                  zero-unavailable rolling update.
                 properties:
                   rollingUpdate:
                     description: |-
@@ -9625,28 +9638,28 @@ spec:
                 type: object
               instances:
                 default: 1
-                description: Instances 는 PgBouncer Pod 수다.
+                description: Instances is the number of PgBouncer Pods.
                 format: int32
                 minimum: 1
                 type: integer
               paused:
                 default: false
                 description: |-
-                  Paused 는 PgBouncer PAUSE/RESUME 상태를 선언적으로 제어한다.
-                  true 로 바뀌면 operator 가 준비된 PgBouncer Pod 에 PAUSE 를 적용하고,
-                  false 로 돌아오면 RESUME 을 적용한다.
+                  Paused declaratively controls PgBouncer PAUSE/RESUME state.
+                  Setting it to true causes the operator to apply PAUSE to ready PgBouncer Pods;
+                  setting it back to false causes RESUME.
                 type: boolean
               pgbouncer:
-                description: PgBouncer 는 PgBouncer 설정이다.
+                description: PgBouncer is the PgBouncer configuration.
                 properties:
                   authSecretRef:
                     description: |-
-                      AuthSecretRef 는 userlist.txt 를 제공하는 Secret 이름이다.
-                      비어 있으면 operator 가 built-in auth path 를 활성화한다 — PostgresCluster
-                      의 ready primary Pod 에 `keiailab_pooler_pgbouncer` LOGIN role 을 random
-                      password 로 자동 생성하고, userlist.txt 를 담은 `<pooler-name>-builtin-auth`
-                      Secret 을 Pooler OwnerReference 와 함께 생성한다 (CNPG `cnpg_pooler_pgbouncer`
-                      패턴 호환). 사용자가 명시한 Secret 이 우선한다.
+                      AuthSecretRef is the name of the Secret that supplies userlist.txt.
+                      When empty, the operator enables the built-in auth path: it automatically creates a
+                      `keiailab_pooler_pgbouncer` LOGIN role with a random password on the PostgresCluster's
+                      ready primary Pod and creates a `<pooler-name>-builtin-auth` Secret holding userlist.txt
+                      with the Pooler OwnerReference (compatible with the CNPG `cnpg_pooler_pgbouncer` pattern).
+                      A user-supplied Secret takes precedence.
                     properties:
                       name:
                         default: ""
@@ -9661,43 +9674,43 @@ spec:
                     x-kubernetes-map-type: atomic
                   autoTLS:
                     description: |-
-                      AutoTLS 는 cert-manager 통합을 통해 server/client TLS Secret 을 자동 발급한다.
-                      본 표면이 설정되어 있고 ServerTLSSecret/ClientTLSSecret 이 비어 있으면
-                      operator 가 cert-manager Certificate CR 을 생성해 Secret 발급을 위임한다.
-                      CNPG 의 cert-manager 통합 패턴과 호환되는 표면 (T29).
+                      AutoTLS auto-issues server/client TLS Secrets via cert-manager integration.
+                      When this surface is set and ServerTLSSecret/ClientTLSSecret are empty, the operator
+                      creates cert-manager Certificate CRs and delegates Secret issuance to cert-manager.
+                      Compatible with the CNPG cert-manager integration surface (T29).
                     properties:
                       clientEnabled:
                         default: true
-                        description: ClientEnabled=true 이면 client (외부 application
-                          연결 수용) TLS Secret 을 자동 발급한다.
+                        description: ClientEnabled=true auto-issues a client TLS Secret
+                          (for accepting external application connections).
                         type: boolean
                       commonName:
-                        description: CommonName 은 발급될 Certificate 의 commonName 이다.
-                          빈 값이면 Pooler Service DNS 를 사용한다.
+                        description: CommonName is the commonName of the issued Certificate.
+                          If empty, the Pooler Service DNS is used.
                         type: string
                       dnsNames:
                         description: |-
-                          DNSNames 는 발급될 Certificate 의 추가 SANs 이다. 기본값은 Pooler Service 의
-                          `<pooler>.<ns>.svc` 와 `<pooler>.<ns>.svc.cluster.local` 이며, 사용자 지정 항목이 있으면
-                          기본값에 union 된다.
+                          DNSNames are the additional SANs on the issued Certificate. The defaults are
+                          `<pooler>.<ns>.svc` and `<pooler>.<ns>.svc.cluster.local`; user-supplied entries are unioned
+                          with these defaults.
                         items:
                           type: string
                         type: array
                       issuerRef:
-                        description: IssuerRef 는 cert-manager Issuer 또는 ClusterIssuer
-                          참조다.
+                        description: IssuerRef is a reference to a cert-manager Issuer
+                          or ClusterIssuer.
                         properties:
                           kind:
                             default: Issuer
-                            description: Kind 는 `Issuer` (namespace-scoped) 또는 `ClusterIssuer`
-                              (cluster-scoped) 중 하나다.
+                            description: Kind is `Issuer` (namespace-scoped) or `ClusterIssuer`
+                              (cluster-scoped).
                             enum:
                             - Issuer
                             - ClusterIssuer
                             type: string
                           name:
-                            description: Name 은 cert-manager Issuer/ClusterIssuer
-                              이름이다.
+                            description: Name is the cert-manager Issuer/ClusterIssuer
+                              name.
                             minLength: 1
                             type: string
                         required:
@@ -9705,14 +9718,15 @@ spec:
                         type: object
                       serverEnabled:
                         default: false
-                        description: ServerEnabled=true 이면 server (PostgreSQL backend
-                          연결용) TLS Secret 을 자동 발급한다.
+                        description: ServerEnabled=true auto-issues a server TLS Secret
+                          (for connecting to the PostgreSQL backend).
                         type: boolean
                     required:
                     - issuerRef
                     type: object
                   clientCASecret:
-                    description: ClientCASecret 은 클라이언트 인증서를 검증할 ca.crt Secret 이다.
+                    description: ClientCASecret is the ca.crt Secret used to verify
+                      client certificates.
                     properties:
                       name:
                         default: ""
@@ -9726,8 +9740,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   clientTLSSecret:
-                    description: ClientTLSSecret 은 클라이언트 TLS 연결을 받을 때 사용할 tls.crt/tls.key
-                      Secret 이다.
+                    description: ClientTLSSecret is the tls.crt/tls.key Secret used
+                      when accepting client TLS connections.
                     properties:
                       name:
                         default: ""
@@ -9741,16 +9755,16 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   exporter:
-                    description: Exporter 는 PgBouncer Prometheus exporter sidecar
-                      설정이다.
+                    description: Exporter is the PgBouncer Prometheus exporter sidecar
+                      configuration.
                     properties:
                       args:
-                        description: Args 는 exporter 컨테이너 args override 다.
+                        description: Args overrides the exporter container args.
                         items:
                           type: string
                         type: array
                       env:
-                        description: Env 는 exporter 컨테이너 환경 변수다.
+                        description: Env is the exporter container environment.
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -9908,18 +9922,20 @@ spec:
                           type: object
                         type: array
                       image:
-                        description: Image 는 exporter 컨테이너 이미지다.
+                        description: Image is the exporter container image.
                         minLength: 1
                         type: string
                       port:
                         default: 9127
-                        description: Port 는 exporter HTTP metrics port 다. 빈 값이면 9127.
+                        description: Port is the exporter's HTTP metrics port. Defaults
+                          to 9127 when empty.
                         format: int32
                         maximum: 65535
                         minimum: 1
                         type: integer
                       resources:
-                        description: Resources 는 exporter 컨테이너 리소스 요청/제한이다.
+                        description: Resources is the exporter container resource
+                          requests/limits.
                         properties:
                           claims:
                             description: |-
@@ -9981,31 +9997,33 @@ spec:
                     - image
                     type: object
                   image:
-                    description: Image 는 PgBouncer 컨테이너 이미지다. PgBouncer 1.19+ 를 요구한다.
+                    description: Image is the PgBouncer container image. PgBouncer
+                      1.19+ is required.
                     minLength: 1
                     type: string
                   parameters:
                     additionalProperties:
                       type: string
-                    description: Parameters 는 pgbouncer.ini [pgbouncer] 섹션에 병합할 자유형식
-                      설정이다.
+                    description: Parameters is a free-form key/value set merged into
+                      the [pgbouncer] section of pgbouncer.ini.
                     type: object
                   pg_hba:
-                    description: PgHBA 는 PgBouncer HBA 파일에 기록할 접근 제어 규칙이다.
+                    description: PgHBA is the list of access-control rules written
+                      to the PgBouncer HBA file.
                     items:
                       type: string
                     type: array
                   poolMode:
                     default: session
-                    description: PoolMode 는 PgBouncer pool_mode 값이다.
+                    description: PoolMode is the PgBouncer pool_mode value.
                     enum:
                     - session
                     - transaction
                     - statement
                     type: string
                   serverCASecret:
-                    description: ServerCASecret 은 PostgreSQL 서버 인증서를 검증할 ca.crt Secret
-                      이다.
+                    description: ServerCASecret is the ca.crt Secret used to verify
+                      the PostgreSQL server certificate.
                     properties:
                       name:
                         default: ""
@@ -10019,8 +10037,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   serverTLSSecret:
-                    description: ServerTLSSecret 은 PostgreSQL 서버에 mTLS 로 접속할 때 사용할
-                      tls.crt/tls.key Secret 이다.
+                    description: ServerTLSSecret is the tls.crt/tls.key Secret used
+                      for mTLS to the PostgreSQL server.
                     properties:
                       name:
                         default: ""
@@ -10037,28 +10055,28 @@ spec:
                 - image
                 type: object
               serviceAccountName:
-                description: ServiceAccountName 은 Pooler Pod 가 사용할 기존 ServiceAccount
-                  이름이다.
+                description: ServiceAccountName is the name of an existing ServiceAccount
+                  used by Pooler Pods.
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
               serviceTemplate:
-                description: ServiceTemplate 은 PgBouncer Service override 다.
+                description: ServiceTemplate is the PgBouncer Service override.
                 properties:
                   annotations:
                     additionalProperties:
                       type: string
-                    description: Annotations 는 Service metadata.annotations 에 추가된다.
+                    description: Annotations are added to Service metadata.annotations.
                     type: object
                   labels:
                     additionalProperties:
                       type: string
-                    description: Labels 는 Service metadata.labels 에 추가된다.
+                    description: Labels are added to Service metadata.labels.
                     type: object
                   ports:
                     description: |-
-                      Ports 는 Service 에 추가할 포트 목록이다. pgbouncer 기본 포트와 name 또는 port 가
-                      충돌하면 사용자가 지정한 포트를 우선한다.
+                      Ports is the list of additional Service ports. If a name or port collides with the
+                      default pgbouncer port, the user-supplied port wins.
                     items:
                       description: ServicePort contains information on service's port.
                       properties:
@@ -10130,11 +10148,11 @@ spec:
                       type: object
                     type: array
                   type:
-                    description: Type 은 Service type 이다. 빈 값이면 ClusterIP.
+                    description: Type is the Service type. Empty defaults to ClusterIP.
                     type: string
                 type: object
               template:
-                description: Template 은 PgBouncer Pod template override 다.
+                description: Template is the PgBouncer Pod template override.
                 properties:
                   metadata:
                     description: |-
@@ -18607,7 +18625,7 @@ spec:
                 type: object
               type:
                 default: rw
-                description: Type 은 rw(primary) 또는 ro(replica) endpoint 선택이다.
+                description: Type selects the rw (primary) or ro (replica) endpoint.
                 enum:
                 - rw
                 - ro
@@ -18617,24 +18635,25 @@ spec:
             - pgbouncer
             type: object
           status:
-            description: PoolerStatus 는 PgBouncer 하위 리소스 관찰 상태다.
+            description: PoolerStatus is the observed state of the PgBouncer subordinate
+              resources.
             properties:
               backendTargets:
-                description: BackendTargets 는 현재 PgBouncer config 로 라우팅되는 PostgreSQL
-                  backend DNS 목록이다.
+                description: BackendTargets is the list of PostgreSQL backend DNS
+                  names the current PgBouncer config routes to.
                 items:
                   type: string
                 type: array
               builtinAuthLastRotation:
                 description: |-
-                  BuiltinAuthLastRotation 은 operator-managed built-in auth 의 마지막 password
-                  rotation 시각이다. 사용자가 `postgres.keiailab.io/rotate-pooler-password=true`
-                  annotation 을 적용해 force rotation 을 트리거할 때마다 갱신된다. spec.pgbouncer.
-                  authSecretRef 가 명시된 user-supplied 경로에서는 사용하지 않는다.
+                  BuiltinAuthLastRotation is the time the operator-managed built-in auth last rotated
+                  its password. It is updated whenever the user triggers a forced rotation by applying
+                  the `postgres.keiailab.io/rotate-pooler-password=true` annotation. It is unused on
+                  the user-supplied path where spec.pgbouncer.authSecretRef is set.
                 format: date-time
                 type: string
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -18694,29 +18713,32 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               configHash:
-                description: ConfigHash 는 현재 PgBouncer config 의 sha256 이다.
+                description: ConfigHash is the sha256 of the current PgBouncer config.
                 type: string
               instances:
-                description: Instances 는 PgBouncer Deployment 가 수렴하려는 replica 수다.
+                description: Instances is the replica count the PgBouncer Deployment
+                  is converging on.
                 format: int32
                 type: integer
               observedGeneration:
-                description: ObservedGeneration 은 마지막 처리 generation 이다.
+                description: ObservedGeneration is the last generation processed by
+                  the reconciler.
                 format: int64
                 type: integer
               paused:
-                description: Paused 는 모든 준비된 PgBouncer Pod 에 마지막으로 수렴된 PAUSE/RESUME
-                  상태다.
+                description: Paused is the PAUSE/RESUME state last converged across
+                  all ready PgBouncer Pods.
                 type: boolean
               phase:
-                description: Phase 는 Pooler reconcile 상태다.
+                description: Phase is the Pooler reconcile state.
                 enum:
                 - Pending
                 - Ready
                 - Failed
                 type: string
               readyReplicas:
-                description: ReadyReplicas 는 observed Deployment 의 readyReplicas 값이다.
+                description: ReadyReplicas is the readyReplicas value observed on
+                  the Deployment.
                 format: int32
                 type: integer
             type: object
@@ -18766,8 +18788,9 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: PostgresCluster 는 K8s-native 자체 분산 PostgreSQL 클러스터의 선언적 표현이다
-          (ADR 0001).
+        description: |-
+          PostgresCluster is the declarative representation of a Kubernetes-native, natively
+          distributed PostgreSQL cluster (ADR 0001).
         properties:
           apiVersion:
             description: |-
@@ -18788,75 +18811,80 @@ spec:
             type: object
           spec:
             description: |-
-              PostgresClusterSpec 는 PostgresCluster CR 의 desired state 다 (RFC 0001 §3).
+              PostgresClusterSpec is the desired state of a PostgresCluster CR (RFC 0001 §3).
 
-              CEL 검증 (kubebuilder v0.15+):
+              CEL validation (kubebuilder v0.15+):
             properties:
               autoSplit:
-                description: AutoSplit 은 자동 샤드 분할 정책.
+                description: AutoSplit is the automatic shard-split policy.
                 properties:
                   enabled:
                     default: false
-                    description: Enabled 는 자동 분할 활성화 여부. P2+ 에서 의미를 갖는다.
+                    description: Enabled controls whether automatic splitting is enabled.
+                      Only meaningful in P2+.
                     type: boolean
                   requireApproval:
                     default: true
                     description: |-
-                      RequireApproval 은 자동 분할 대상 후보를 ShardSplitJob 으로 제출하되 수동
-                      승인 annotation 후에만 실행하도록 강제한다 (production safety).
+                      RequireApproval submits auto-split candidates as ShardSplitJobs but requires a manual
+                      approval annotation before they execute (production safety).
                     type: boolean
                   triggers:
-                    description: Triggers 는 분할 임계치 집합.
+                    description: Triggers is the set of split thresholds.
                     properties:
                       cpuPercent:
-                        description: CPUPercent 는 단일 샤드 평균 CPU 사용률 임계치 (%). 0 이면 미사용.
+                        description: CPUPercent is the per-shard average CPU utilization
+                          threshold (%). 0 disables this trigger.
                         format: int32
                         maximum: 100
                         minimum: 0
                         type: integer
                       durationMinutes:
-                        description: DurationMinutes 는 위 임계치들이 지속되어야 하는 시간 (분). 0
-                          이면 즉시.
+                        description: DurationMinutes is how long the thresholds above
+                          must be sustained (minutes). 0 means immediate.
                         format: int32
                         minimum: 0
                         type: integer
                       p99LatencyMs:
-                        description: P99LatencyMs 는 단일 샤드 P99 latency 임계치 (ms). 0
-                          이면 미사용.
+                        description: P99LatencyMs is the per-shard P99 latency threshold
+                          (ms). 0 disables this trigger.
                         format: int32
                         minimum: 0
                         type: integer
                       sizeThresholdGB:
-                        description: SizeThresholdGB 는 단일 샤드 크기 임계치 (GB). 0 이면 미사용.
+                        description: SizeThresholdGB is the per-shard size threshold
+                          (GB). 0 disables this trigger.
                         format: int32
                         minimum: 0
                         type: integer
                     type: object
                 type: object
               backup:
-                description: Backup 은 백업/PITR 정책.
+                description: Backup is the backup/PITR policy.
                 properties:
                   enabled:
                     default: false
-                    description: Enabled 는 백업 정책 활성화 여부 (사용자 명시 opt-in).
+                    description: Enabled controls whether the backup policy is active
+                      (explicit user opt-in).
                     type: boolean
                   repo:
-                    description: Repo 는 백업 저장소 설정.
+                    description: Repo is the backup repository configuration.
                     properties:
                       bucket:
-                        description: Bucket 은 object storage 버킷 이름.
+                        description: Bucket is the object-storage bucket name.
                         type: string
                       endpoint:
-                        description: Endpoint 는 S3 호환 endpoint URL (선택).
+                        description: Endpoint is the S3-compatible endpoint URL (optional).
                         type: string
                       path:
-                        description: Path 는 filesystem 경로 (Type=filesystem).
+                        description: Path is the filesystem path (used when Type=filesystem).
                         type: string
                       region:
-                        description: Region 은 object storage 리전.
+                        description: Region is the object-storage region.
                         type: string
                       type:
-                        description: Type 은 저장소 종류 (s3 | gcs | azure | filesystem).
+                        description: Type is the repository kind (s3 | gcs | azure
+                          | filesystem).
                         enum:
                         - s3
                         - gcs
@@ -18865,35 +18893,36 @@ spec:
                         type: string
                     type: object
                   retention:
-                    description: Retention 은 백업 보존 정책.
+                    description: Retention is the backup retention policy.
                     properties:
                       full:
-                        description: 'Full 은 full 백업 보존 기간 (duration: "7d", "168h"
-                          등).'
+                        description: Full is the full-backup retention period (duration,
+                          e.g. "7d", "168h").
                         type: string
                       incremental:
-                        description: Incremental 은 incremental 백업 보존 기간.
+                        description: Incremental is the incremental-backup retention
+                          period.
                         type: string
                       walArchive:
-                        description: WALArchive 는 WAL 아카이브 보존 기간.
+                        description: WALArchive is the WAL-archive retention period.
                         type: string
                     type: object
                   schedule:
-                    description: 'Schedule 은 cron expression (예: "0 2 * * *").'
+                    description: Schedule is the cron expression (e.g. "0 2 * * *").
                     type: string
                 type: object
               bootstrap:
                 description: |-
-                  Bootstrap 은 initdb 외 bootstrap 방식을 정의한다. 현재 pg_basebackup 기반
-                  streaming bootstrap 을 지원한다.
+                  Bootstrap defines a non-initdb bootstrap method. The current implementation supports
+                  streaming bootstrap via pg_basebackup.
                 properties:
                   pg_basebackup:
                     description: |-
-                      PgBaseBackup 은 streaming replication protocol 을 통해 외부 source 에서
-                      물리 base backup 을 가져오는 bootstrap 방식이다.
+                      PgBaseBackup is the bootstrap method that takes a physical base backup from an
+                      external source via the streaming replication protocol.
                     properties:
                       source:
-                        description: Source 는 spec.externalClusters[].name 을 참조한다.
+                        description: Source references spec.externalClusters[].name.
                         minLength: 1
                         type: string
                     required:
@@ -18902,42 +18931,43 @@ spec:
                 type: object
               extensions:
                 description: |-
-                  Extensions 는 활성화할 PostgreSQL extension 의 이름 목록이다 (RFC 0006 R1).
-                  비어 있으면 vanilla PG (image base 외 추가 extension 없음). 각 이름은 operator
-                  부트스트랩 시 Registry 에 등록된 ExtensionPlugin 이어야 하며, webhook 이 이를
-                  검증한다.
+                  Extensions is the list of PostgreSQL extensions to enable (RFC 0006 R1).
+                  Empty means vanilla PG (no extensions beyond the image base). Each name must be
+                  an ExtensionPlugin registered in the operator's Registry at bootstrap; the webhook
+                  enforces this.
 
-                  예: ["pgaudit", "pgvector"] — postgres_v1alpha1 image 가 두 extension 의 .so 를
-                  보유한다는 전제. image 가 미보유 시 postgres FATAL — 사용자 책임.
+                  Example: ["pgaudit", "pgvector"] — assuming the postgres_v1alpha1 image carries
+                  the .so files for both extensions. If the image lacks them, PostgreSQL will FATAL —
+                  this is the user's responsibility.
                 items:
                   type: string
                 type: array
               externalClusters:
                 description: |-
-                  ExternalClusters 는 bootstrap/replica source 로 사용할 외부 PostgreSQL
-                  cluster 목록이다.
+                  ExternalClusters is the list of external PostgreSQL clusters used as bootstrap
+                  or replica sources.
                 items:
                   description: |-
-                    ExternalClusterSpec 는 replica cluster/bootstrap source 로 사용할 외부 PostgreSQL
-                    cluster 접속 정보를 정의한다. CloudNativePG 의 externalClusters 표면과 호환되는
-                    최소 streaming path 부터 제공한다.
+                    ExternalClusterSpec defines connection information for an external PostgreSQL cluster
+                    used as a replica cluster source or bootstrap source. It starts with the minimum streaming
+                    path compatible with the CloudNativePG externalClusters surface.
                   properties:
                     connectionParameters:
                       additionalProperties:
                         type: string
                       description: |-
-                        ConnectionParameters 는 PostgreSQL connection string key/value 이다.
-                        지원 key: host, port, user, dbname, sslmode. host 는 필수이고 port 는
-                        미지정 시 5432 로 default 된다.
+                        ConnectionParameters is a PostgreSQL connection string in key/value form.
+                        Supported keys: host, port, user, dbname, sslmode. host is required;
+                        port defaults to 5432 when omitted.
                       type: object
                     name:
-                      description: Name 은 bootstrap/replica.source 에서 참조할 이름이다.
+                      description: Name is the identifier referenced from bootstrap/replica.source.
                       minLength: 1
                       type: string
                     password:
                       description: |-
-                        Password 는 libpq password 인증에 사용할 Secret key 참조다.
-                        CloudNativePG externalClusters[].password 와 같은 형태다.
+                        Password is a Secret key reference used for libpq password authentication.
+                        Mirrors the CloudNativePG externalClusters[].password shape.
                       properties:
                         key:
                           description: The key of the secret to select from.  Must
@@ -18961,8 +18991,8 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     sslCert:
-                      description: SSLCert 는 client certificate 인증에 사용할 certificate
-                        Secret key 참조다.
+                      description: SSLCert is a Secret key reference holding the certificate
+                        used for client-certificate authentication.
                       properties:
                         key:
                           description: The key of the secret to select from.  Must
@@ -18986,8 +19016,8 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     sslKey:
-                      description: SSLKey 는 client certificate 인증에 사용할 private key
-                        Secret key 참조다.
+                      description: SSLKey is a Secret key reference holding the private
+                        key used for client-certificate authentication.
                       properties:
                         key:
                           description: The key of the secret to select from.  Must
@@ -19011,8 +19041,8 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     sslRootCert:
-                      description: SSLRootCert 는 source cluster server certificate
-                        검증에 사용할 CA Secret key 참조다.
+                      description: SSLRootCert is a Secret key reference holding the
+                        CA used to verify the source cluster's server certificate.
                       properties:
                         key:
                           description: The key of the secret to select from.  Must
@@ -19044,31 +19074,31 @@ spec:
                 x-kubernetes-list-type: map
               imageCatalogRef:
                 description: |-
-                  ImageCatalogRef 는 PostgreSQL runtime image 를 ImageCatalog 또는
-                  ClusterImageCatalog 에서 선택한다. CNPG 의 spec.imageCatalogRef 와 같은
-                  필드 형태를 사용하며, 설정 시 PostgresVersion 대신 Major 가 image/bin dir
-                  선택의 단일 진실원이 된다.
+                  ImageCatalogRef selects the PostgreSQL runtime image from an ImageCatalog or
+                  ClusterImageCatalog. The field shape mirrors CNPG's spec.imageCatalogRef; when set,
+                  Major (rather than PostgresVersion) becomes the single source of truth for image
+                  and bin-directory selection.
                 properties:
                   apiGroup:
                     description: |-
-                      APIGroup 은 catalog API group 이다. 빈 값, postgres.keiailab.io, postgresql.cnpg.io 를 허용한다.
-                      postgresql.cnpg.io 는 CNPG manifest 이식 편의를 위한 호환 입력이며, 실제 조회는
-                      keiailab CRD 에 대해 수행한다.
+                      APIGroup is the catalog API group. Empty string, postgres.keiailab.io, and
+                      postgresql.cnpg.io are accepted. postgresql.cnpg.io is accepted for compatibility
+                      when porting CNPG manifests; lookups are still resolved against the keiailab CRDs.
                     type: string
                   kind:
-                    description: Kind 는 ImageCatalog 또는 ClusterImageCatalog 이다.
+                    description: Kind is ImageCatalog or ClusterImageCatalog.
                     enum:
                     - ImageCatalog
                     - ClusterImageCatalog
                     type: string
                   major:
-                    description: Major 는 catalog 안에서 선택할 PostgreSQL major version
-                      이다.
+                    description: Major is the PostgreSQL major version to select within
+                      the catalog.
                     format: int32
                     minimum: 1
                     type: integer
                   name:
-                    description: Name 은 catalog 이름이다.
+                    description: Name is the catalog name.
                     type: string
                 required:
                 - kind
@@ -19076,46 +19106,48 @@ spec:
                 - name
                 type: object
               monitoring:
-                description: Monitoring 은 monitoring 통합 설정.
+                description: Monitoring is the monitoring-integration configuration.
                 properties:
                   prometheusRule:
-                    description: PrometheusRule 은 알람 규칙 자동 배포.
+                    description: PrometheusRule auto-deploys alerting rules.
                     properties:
                       enabled:
                         default: true
-                        description: Enabled 는 PrometheusRule 생성 여부.
+                        description: Enabled controls whether a PrometheusRule is
+                          created.
                         type: boolean
                     type: object
                   serviceMonitor:
-                    description: ServiceMonitor 는 Prometheus operator ServiceMonitor
-                      자동 배포.
+                    description: ServiceMonitor auto-deploys a Prometheus Operator
+                      ServiceMonitor.
                     properties:
                       enabled:
                         default: true
-                        description: Enabled 는 ServiceMonitor 생성 여부.
+                        description: Enabled controls whether a ServiceMonitor is
+                          created.
                         type: boolean
                       interval:
                         default: 30s
-                        description: 'Interval 은 scrape interval (예: "30s").'
+                        description: Interval is the scrape interval (e.g. "30s").
                         type: string
                     type: object
                 type: object
               postgresVersion:
                 default: "18"
-                description: PostgresVersion 은 메이저 버전 문자열. 0.3.0-alpha 는 18 만 GA,
-                  17 호환 유지.
+                description: PostgresVersion is the major-version string. 0.3.0-alpha
+                  makes 18 GA while keeping 17 compatible.
                 enum:
                 - "17"
                 - "18"
                 type: string
               postgresql:
                 description: |-
-                  PostgreSQL 은 PostgreSQL runtime 설정이다. synchronous_standby_names 같은
-                  직접 설정 금지 GUC 는 이 구조화된 표면으로만 생성한다.
+                  PostgreSQL is the PostgreSQL runtime configuration. GUCs that may not be set directly,
+                  such as synchronous_standby_names, are generated only via this structured surface.
                 properties:
                   synchronous:
-                    description: Synchronous 는 physical synchronous replication 설정이다.
-                      nil 이면 disabled.
+                    description: Synchronous is the physical synchronous-replication
+                      configuration. nil disables it.
                     properties:
                       dataDurability:
                         allOf:
@@ -19127,19 +19159,19 @@ spec:
                           - preferred
                         default: required
                         description: |-
-                          DataDurability 는 replica 부족 시 write 를 block 할지(required), Ready replica
-                          수에 맞춰 quorum 을 낮출지(preferred)를 결정한다.
+                          DataDurability controls whether writes block when replicas are insufficient (required)
+                          or the quorum is lowered to match the number of Ready replicas (preferred).
                         type: string
                       method:
-                        description: Method 는 quorum(any) 또는 priority(first) 기반 동기
-                          standby 선택 방식이다.
+                        description: 'Method selects the synchronous-standby strategy:
+                          quorum (any) or priority (first).'
                         enum:
                         - any
                         - first
                         type: string
                       number:
-                        description: Number 는 commit 이 응답을 기다릴 synchronous standby
-                          수다.
+                        description: Number is the count of synchronous standbys a
+                          commit must wait for.
                         format: int32
                         minimum: 1
                         type: integer
@@ -19149,61 +19181,62 @@ spec:
                     type: object
                 type: object
               replica:
-                description: Replica 는 standalone/distributed replica cluster 동작을
-                  정의한다.
+                description: Replica defines standalone/distributed replica-cluster
+                  behavior.
                 properties:
                   enabled:
-                    description: Enabled 는 standalone replica cluster continuous recovery
-                      를 활성화한다.
+                    description: Enabled activates continuous recovery for a standalone
+                      replica cluster.
                     type: boolean
                   primary:
                     description: |-
-                      Primary 는 distributed topology 에서 현재 global primary cluster 이름이다.
-                      0.3.0-alpha 에서는 API 표면만 제공하고 controlled switchover 는 후속 구현이다.
+                      Primary is the name of the current global primary cluster in a distributed topology.
+                      In 0.3.0-alpha only the API surface is provided; controlled switchover is implemented later.
                     type: string
                   promotionToken:
                     description: |-
-                      PromotionToken 은 controlled switchover/promotion 토큰이다.
-                      0.3.0-alpha 에서는 API 표면만 제공한다.
+                      PromotionToken is the token used for controlled switchover/promotion.
+                      In 0.3.0-alpha only the API surface is provided.
                     type: string
                   self:
-                    description: Self 는 resource name 과 다른 topology-local 이름을 쓸 때
-                      지정한다.
+                    description: Self specifies the topology-local name when it differs
+                      from the resource name.
                     type: string
                   source:
-                    description: Source 는 spec.externalClusters[].name 을 참조한다.
+                    description: Source references spec.externalClusters[].name.
                     type: string
                 type: object
               router:
-                description: Router 는 무상태 QueryRouter 풀. shardingMode=native 시에만 의미.
+                description: Router is the stateless QueryRouter pool. Only meaningful
+                  when shardingMode=native.
                 properties:
                   autoscale:
-                    description: Autoscale 은 HPA 설정.
+                    description: Autoscale is the HPA configuration.
                     properties:
                       enabled:
                         default: false
-                        description: Enabled 는 HPA 부착 여부.
+                        description: Enabled controls whether an HPA is attached.
                         type: boolean
                       maxReplicas:
-                        description: MaxReplicas 는 HPA 최대 복제본.
+                        description: MaxReplicas is the HPA maximum replica count.
                         format: int32
                         minimum: 1
                         type: integer
                       minReplicas:
-                        description: MinReplicas 는 HPA 최소 복제본.
+                        description: MinReplicas is the HPA minimum replica count.
                         format: int32
                         minimum: 1
                         type: integer
                       targetActiveConnections:
                         default: 1000
-                        description: TargetActiveConnections 는 HPA active connection
-                          목표.
+                        description: TargetActiveConnections is the HPA active-connection
+                          target.
                         format: int32
                         minimum: 1
                         type: integer
                       targetCPU:
                         default: 70
-                        description: TargetCPU 는 HPA CPU 사용률 목표 (%).
+                        description: TargetCPU is the HPA CPU utilization target (%).
                         format: int32
                         maximum: 100
                         minimum: 1
@@ -19211,17 +19244,19 @@ spec:
                     type: object
                   enabled:
                     default: true
-                    description: Enabled 는 라우터 활성화 여부. shardingMode=native 시 default
-                      true.
+                    description: Enabled controls whether the router is enabled. Defaults
+                      to true when shardingMode=native.
                     type: boolean
                   replicas:
                     default: 2
-                    description: Replicas 는 라우터 Pod 수. HPA 부착 시 minimum 역할.
+                    description: Replicas is the number of router Pods. When an HPA
+                      is attached this acts as the minimum.
                     format: int32
                     minimum: 1
                     type: integer
                   resources:
-                    description: Resources 는 라우터 컨테이너 리소스 요구사항.
+                    description: Resources is the resource requirements for the router
+                      container.
                     properties:
                       claims:
                         description: |-
@@ -19282,16 +19317,17 @@ spec:
                 type: object
               shardingMode:
                 default: none
-                description: ShardingMode 는 단일 샤드 (none) 또는 자체 분산 SQL (native).
+                description: ShardingMode selects single shard (none) or native distributed
+                  SQL (native).
                 enum:
                 - none
                 - native
                 type: string
               shards:
-                description: Shards 는 샤드 토폴로지.
+                description: Shards is the shard topology.
                 properties:
                   affinity:
-                    description: Affinity 는 샤드 Pod 친화성 규칙.
+                    description: Affinity is the shard Pod affinity ruleset.
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -20210,26 +20246,29 @@ spec:
                         type: object
                     type: object
                   initialCount:
-                    description: InitialCount 는 클러스터 초기 샤드 수. P1 GA 는 1 만 보장. 1024
-                      까지 schema 허용.
+                    description: |-
+                      InitialCount is the initial number of shards in the cluster. P1 GA guarantees 1 only;
+                      the schema permits up to 1024.
                     format: int32
                     maximum: 1024
                     minimum: 1
                     type: integer
                   priorityClassName:
-                    description: PriorityClassName 은 샤드 Pod priorityClass 명. modern
-                      HA Layer 3 (evict 우선순위).
+                    description: PriorityClassName is the priorityClass name for shard
+                      Pods. Modern HA Layer 3 (eviction priority).
                     type: string
                   replicas:
                     default: 1
-                    description: Replicas 는 샤드당 비동기 복제본 수 (primary 제외). 0 이면 HA 미구성
-                      (개발용).
+                    description: |-
+                      Replicas is the number of asynchronous replicas per shard (excluding the primary).
+                      0 means no HA (development only).
                     format: int32
                     maximum: 15
                     minimum: 0
                     type: integer
                   resources:
-                    description: Resources 는 샤드 PG 컨테이너 리소스 요구사항.
+                    description: Resources is the resource requirements for the shard
+                      PG container.
                     properties:
                       claims:
                         description: |-
@@ -20288,10 +20327,11 @@ spec:
                         type: object
                     type: object
                   storage:
-                    description: Storage 는 샤드 PVC 사양.
+                    description: Storage is the per-shard PVC specification.
                     properties:
                       accessModes:
-                        description: AccessModes 는 PVC 접근 모드 (빈 배열이면 ReadWriteOnce).
+                        description: AccessModes are the PVC access modes (defaults
+                          to ReadWriteOnce when empty).
                         items:
                           type: string
                         type: array
@@ -20299,18 +20339,19 @@ spec:
                         anyOf:
                         - type: integer
                         - type: string
-                        description: 'Size 는 PVC 요청 크기 (예: "100Gi").'
+                        description: Size is the requested PVC size (e.g. "100Gi").
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                       storageClass:
-                        description: StorageClass 는 PVC StorageClass 이름. 빈 문자열이면 클러스터
-                          디폴트.
+                        description: StorageClass is the PVC StorageClass name. Empty
+                          string uses the cluster default.
                         type: string
                     required:
                     - size
                     type: object
                   tolerations:
-                    description: Tolerations 는 샤드 Pod 노드 toleration.
+                    description: Tolerations is the node toleration set for shard
+                      Pods.
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches
@@ -20350,8 +20391,8 @@ spec:
                       type: object
                     type: array
                   topologySpreadConstraints:
-                    description: TopologySpreadConstraints 는 샤드 Pod multi-node 분산
-                      정책. modern HA Layer 2 (SPOF 차단).
+                    description: TopologySpreadConstraints is the multi-node spread
+                      policy for shard Pods. Modern HA Layer 2 (SPOF avoidance).
                     items:
                       description: TopologySpreadConstraint specifies how to spread
                         matching pods among the given topology.
@@ -20530,36 +20571,38 @@ spec:
                 type: object
               tls:
                 description: |-
-                  TLS 는 PostgreSQL server-side TLS 설정 (Pillar P7 §7).
-                  0.3.0-alpha.5+ Phase 1 facade — CRD field 만 정의. Phase 2 에서 cert-manager
-                  Certificate CR 통합 + Phase 3 에서 reconciler 의 server.crt/server.key emit
-                  만 의미 있음 — true 설정 시 webhook reject (NotImplemented Phase 1).
+                  TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).
+                  0.3.0-alpha.5+ Phase 1 facade — only the CRD field is defined. Phase 2 integrates
+                  the cert-manager Certificate CR; Phase 3 has the reconciler emit server.crt/server.key
+                  and finalize ssl=on in postgresql.conf. In this alpha release only enabled=false
+                  (the default) is meaningful — setting true causes the webhook to reject with
+                  NotImplemented (Phase 1).
                 properties:
                   certSecretName:
                     description: |-
-                      CertSecretName 은 server cert 가 저장될 Secret 이름. 미설정 시
-                      "<cluster>-tls" default. Phase 2 에서 cert-manager Certificate.spec.secretName
-                      으로 사용됨.
+                      CertSecretName is the name of the Secret that stores the server cert. If unset,
+                      defaults to "<cluster>-tls". Used as cert-manager Certificate.spec.secretName in Phase 2.
                     type: string
                   enabled:
                     default: false
-                    description: Enabled 는 server-side TLS 활성 여부. Phase 1 에서는 false
-                      만 동작.
+                    description: Enabled controls whether server-side TLS is active.
+                      Only false works in Phase 1.
                     type: boolean
                   issuerRef:
                     description: |-
-                      IssuerRef 는 cert-manager Issuer 또는 ClusterIssuer 참조.
-                      Phase 2 부터 의미 있음. 미설정 시 self-signed 자체 발급 (Phase 3 default).
+                      IssuerRef is a cert-manager Issuer or ClusterIssuer reference.
+                      Meaningful from Phase 2 onward. If unset, the operator self-issues a self-signed
+                      certificate (Phase 3 default).
                     properties:
                       kind:
                         default: Issuer
-                        description: Kind 는 Issuer 또는 ClusterIssuer.
+                        description: Kind is Issuer or ClusterIssuer.
                         enum:
                         - Issuer
                         - ClusterIssuer
                         type: string
                       name:
-                        description: Name 은 Issuer 이름.
+                        description: Name is the Issuer name.
                         type: string
                     required:
                     - name
@@ -20580,13 +20623,13 @@ spec:
               rule: '!has(self.postgresql) || !has(self.postgresql.synchronous) ||
                 self.shards.replicas >= self.postgresql.synchronous.number'
           status:
-            description: PostgresClusterStatus 는 PostgresCluster CR 의 관찰 상태 (RFC 0001
-              §3.2).
+            description: PostgresClusterStatus is the observed state of a PostgresCluster
+              CR (RFC 0001 §3.2).
             properties:
               conditions:
                 description: |-
-                  Conditions 는 K8s 표준 condition 집합.
-                  권장 type: Ready / Progressing / BackupHealthy / AutoSplitEligible / RouterReady.
+                  Conditions is the standard Kubernetes condition set.
+                  Recommended types: Ready / Progressing / BackupHealthy / AutoSplitEligible / RouterReady.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -20646,8 +20689,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               managedRolesStatus:
-                description: ManagedRolesStatus 는 이 클러스터를 참조하는 PostgresUser CR 들의
-                  집계 상태다.
+                description: ManagedRolesStatus aggregates the state of PostgresUser
+                  CRs that reference this cluster.
                 properties:
                   byStatus:
                     additionalProperties:
@@ -20655,42 +20698,43 @@ spec:
                         type: string
                       type: array
                     description: |-
-                      ByStatus 는 상태별 role 이름 목록이다.
-                      대표 상태: reserved, reconciled, pending-reconciliation.
+                      ByStatus lists role names grouped by their current status.
+                      Typical statuses: reserved, reconciled, pending-reconciliation.
                     type: object
                   cannotReconcile:
                     additionalProperties:
                       items:
                         type: string
                       type: array
-                    description: CannotReconcile 은 operator 가 자동 복구할 수 없는 role 오류를
-                      role 별로 기록한다.
+                    description: CannotReconcile records, per role, errors the operator
+                      cannot recover from automatically.
                     type: object
                   passwordStatus:
                     additionalProperties:
-                      description: ManagedRolePasswordStatus 는 managed role password
-                        반영 상태다.
+                      description: ManagedRolePasswordStatus reports the apply state
+                        of a managed role's password.
                       properties:
                         observedGeneration:
-                          description: ObservedGeneration 은 password 를 반영한 PostgresUser
-                            generation 이다.
+                          description: ObservedGeneration is the PostgresUser generation
+                            that produced this applied password.
                           format: int64
                           type: integer
                         secretResourceVersion:
-                          description: SecretResourceVersion 은 마지막으로 성공 반영한 password
-                            Secret resourceVersion 이다.
+                          description: SecretResourceVersion is the resourceVersion
+                            of the password Secret that was last successfully applied.
                           type: string
                       type: object
-                    description: PasswordStatus 는 password Secret 이 성공 반영된 role 의
-                      Secret revision 을 기록한다.
+                    description: PasswordStatus records the Secret revision of each
+                      role whose password Secret was successfully applied.
                     type: object
                 type: object
               observedGeneration:
-                description: ObservedGeneration 은 reconciler 가 관측한 spec.metadata.generation.
+                description: ObservedGeneration is the spec.metadata.generation observed
+                  by the reconciler.
                 format: int64
                 type: integer
               phase:
-                description: Phase 는 cluster 의 상위 단계.
+                description: Phase is the high-level phase of the cluster.
                 enum:
                 - Provisioning
                 - Ready
@@ -20699,93 +20743,101 @@ spec:
                 - Hibernated
                 type: string
               router:
-                description: Router 는 라우터 풀 관찰 상태 (shardingMode=native 시).
+                description: Router is the observed state of the router pool (present
+                  when shardingMode=native).
                 properties:
                   endpoint:
-                    description: Endpoint 는 라우터 Service endpoint.
+                    description: Endpoint is the router Service endpoint.
                     type: string
                   readyReplicas:
-                    description: ReadyReplicas 는 ready 상태 라우터 Pod 수.
+                    description: ReadyReplicas is the number of router Pods in the
+                      Ready state.
                     format: int32
                     type: integer
                   replicas:
-                    description: Replicas 는 desired 라우터 Pod 수.
+                    description: Replicas is the desired number of router Pods.
                     format: int32
                     type: integer
                 type: object
               shards:
-                description: Shards 는 샤드별 관찰 상태 배열 (ordinal 오름차순).
+                description: Shards is the per-shard observed state, ordered by ascending
+                  ordinal.
                 items:
-                  description: ShardStatus 는 단일 샤드의 관찰 상태.
+                  description: ShardStatus is the observed state of a single shard.
                   properties:
                     lastSplit:
-                      description: LastSplit 은 마지막 분할 완료 시각. 분할 이력 없음 = nil.
+                      description: LastSplit is the timestamp of the last completed
+                        split. nil if no split has occurred.
                       format: date-time
                       type: string
                     name:
-                      description: 'Name 은 샤드 식별자 (예: "shard-0").'
+                      description: Name is the shard identifier (e.g. "shard-0").
                       type: string
                     ordinal:
-                      description: Ordinal 은 샤드 순서 (0-based).
+                      description: Ordinal is the 0-based shard ordinal.
                       format: int32
                       type: integer
                     primary:
-                      description: Primary 는 현재 primary endpoint.
+                      description: Primary is the current primary endpoint.
                       properties:
                         endpoint:
-                          description: Endpoint 는 호스트:포트 형태의 접속 endpoint.
+                          description: Endpoint is the connection endpoint in host:port
+                            form.
                           type: string
                         lagBytes:
-                          description: LagBytes 는 replica 의 WAL lag (bytes). primary
-                            는 0 또는 미설정.
+                          description: LagBytes is the replica's WAL lag in bytes.
+                            For the primary this is 0 or unset.
                           format: int64
                           type: integer
                         message:
-                          description: Message 는 endpoint 상태의 human-readable 상세 메시지다.
+                          description: Message is the human-readable detail of the
+                            endpoint state.
                           type: string
                         pod:
-                          description: Pod 는 K8s Pod 이름.
+                          description: Pod is the Kubernetes Pod name.
                           type: string
                         ready:
-                          description: Ready 는 readiness 통과 여부.
+                          description: Ready reports whether readiness has passed.
                           type: boolean
                         reason:
-                          description: Reason 은 endpoint 가 Ready=false 또는 degraded
-                            인 machine-readable 원인이다.
+                          description: Reason is the machine-readable cause when the
+                            endpoint is Ready=false or degraded.
                           type: string
                       type: object
                     replicas:
-                      description: Replicas 는 현재 replica endpoint 목록.
+                      description: Replicas is the list of current replica endpoints.
                       items:
-                        description: ShardEndpoint 는 샤드 멤버 (primary 또는 replica) 1
-                          개의 관찰 상태.
+                        description: ShardEndpoint is the observed state of a single
+                          shard member (primary or replica).
                         properties:
                           endpoint:
-                            description: Endpoint 는 호스트:포트 형태의 접속 endpoint.
+                            description: Endpoint is the connection endpoint in host:port
+                              form.
                             type: string
                           lagBytes:
-                            description: LagBytes 는 replica 의 WAL lag (bytes). primary
-                              는 0 또는 미설정.
+                            description: LagBytes is the replica's WAL lag in bytes.
+                              For the primary this is 0 or unset.
                             format: int64
                             type: integer
                           message:
-                            description: Message 는 endpoint 상태의 human-readable 상세
-                              메시지다.
+                            description: Message is the human-readable detail of the
+                              endpoint state.
                             type: string
                           pod:
-                            description: Pod 는 K8s Pod 이름.
+                            description: Pod is the Kubernetes Pod name.
                             type: string
                           ready:
-                            description: Ready 는 readiness 통과 여부.
+                            description: Ready reports whether readiness has passed.
                             type: boolean
                           reason:
-                            description: Reason 은 endpoint 가 Ready=false 또는 degraded
-                              인 machine-readable 원인이다.
+                            description: Reason is the machine-readable cause when
+                              the endpoint is Ready=false or degraded.
                             type: string
                         type: object
                       type: array
                     sizeBytes:
-                      description: SizeBytes 는 샤드 데이터 크기 (bytes). 0 이면 미관측.
+                      description: SizeBytes is the shard's data size in bytes. 0
+                        means not yet observed.
                       format: int64
                       type: integer
                   required:
@@ -20859,14 +20911,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: PostgresDatabaseSpec 은 CNPG Database CRD 의 핵심 운영 표면을 본 operator
-              모델로 이식한다.
+            description: PostgresDatabaseSpec ports the core operational surface of
+              the CNPG Database CRD to this operator's model.
             properties:
               cluster:
-                description: Cluster 는 database 를 생성할 PostgresCluster 이다.
+                description: Cluster is the PostgresCluster in which the database
+                  is created.
                 properties:
                   name:
-                    description: Name 은 PostgresCluster.metadata.name 이다.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -20874,110 +20927,118 @@ spec:
                 type: object
               databaseReclaimPolicy:
                 default: retain
-                description: DatabaseReclaimPolicy 는 CR 삭제 시 database 처리 정책이다. 빈 값이면
-                  retain.
+                description: DatabaseReclaimPolicy controls how the database is handled
+                  when the CR is deleted. Empty defaults to retain.
                 enum:
                 - retain
                 - delete
                 type: string
               ensure:
                 default: present
-                description: Ensure 는 database 존재 상태다. 빈 값이면 present.
+                description: Ensure is the desired database existence state. Empty
+                  defaults to present.
                 enum:
                 - present
                 - absent
                 type: string
               extensions:
-                description: Extensions 는 target database 안에서 선언적으로 관리할 extension
-                  목록이다.
+                description: Extensions is the list of extensions declaratively managed
+                  inside the target database.
                 items:
-                  description: DatabaseExtensionSpec 은 target database 안에서 관리할 extension
-                    이다.
+                  description: DatabaseExtensionSpec is an extension managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 extension 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired extension existence state.
+                        Empty defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name 은 PostgreSQL extension 이름이다.
+                      description: Name is the PostgreSQL extension name.
                       minLength: 1
                       type: string
                     schema:
-                      description: Schema 는 extension 을 배치할 schema 다.
+                      description: Schema is the schema in which the extension is
+                        placed.
                       type: string
                     version:
-                      description: Version 은 설치 또는 업그레이드할 extension version 이다.
+                      description: Version is the extension version to install or
+                        upgrade to.
                       type: string
                   required:
                   - name
                   type: object
                 type: array
               fdws:
-                description: FDWs 는 target database 안에서 선언적으로 관리할 foreign data wrapper
-                  목록이다.
+                description: FDWs is the list of foreign data wrappers declaratively
+                  managed inside the target database.
                 items:
-                  description: DatabaseFDWSpec 은 target database 안에서 관리할 foreign data
-                    wrapper 이다.
+                  description: DatabaseFDWSpec is a foreign data wrapper managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 FDW 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired FDW existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     handler:
-                      description: Handler 는 FDW handler function 이름이다. "-" 는 NO HANDLER
-                        를 의미한다.
+                      description: Handler is the FDW handler function name. "-" means
+                        NO HANDLER.
                       type: string
                     name:
-                      description: Name 은 foreign data wrapper 이름이다.
+                      description: Name is the foreign data wrapper name.
                       minLength: 1
                       type: string
                     options:
-                      description: Options 는 FDW option 목록이다.
+                      description: Options is the list of FDW options.
                       items:
-                        description: DatabaseOptionSpec 은 FDW/server option 하나의 선언
-                          상태다.
+                        description: DatabaseOptionSpec is the declared state of a
+                          single FDW/server option.
                         properties:
                           ensure:
                             default: present
-                            description: Ensure 는 option 존재 상태다. 빈 값이면 present.
+                            description: Ensure is the desired option existence state.
+                              Empty defaults to present.
                             enum:
                             - present
                             - absent
                             type: string
                           name:
-                            description: Name 은 option 이름이다.
+                            description: Name is the option name.
                             minLength: 1
                             type: string
                           value:
-                            description: Value 는 option 값이다. ensure=absent 에서는 생략할
-                              수 있다.
+                            description: Value is the option value. May be omitted
+                              when ensure=absent.
                             type: string
                         required:
                         - name
                         type: object
                       type: array
                     owner:
-                      description: Owner 는 FDW owner role 이다.
+                      description: Owner is the FDW owner role.
                       type: string
                     usage:
-                      description: Usage 는 FDW USAGE 권한 목록이다.
+                      description: Usage is the list of FDW USAGE privilege entries.
                       items:
-                        description: DatabaseUsageSpec 은 FDW/server 에 대한 role USAGE
-                          권한 reconcile 항목이다.
+                        description: DatabaseUsageSpec is a reconcile entry for granting
+                          or revoking role USAGE on an FDW/server.
                         properties:
                           name:
-                            description: Name 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Name is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -20987,44 +21048,45 @@ spec:
                         type: object
                       type: array
                     validator:
-                      description: Validator 는 FDW validator function 이름이다. "-" 는
-                        NO VALIDATOR 를 의미한다.
+                      description: Validator is the FDW validator function name. "-"
+                        means NO VALIDATOR.
                       type: string
                   required:
                   - name
                   type: object
                 type: array
               name:
-                description: Name 은 PostgreSQL database 이름이다.
+                description: Name is the PostgreSQL database name.
                 minLength: 1
                 type: string
               owner:
-                description: Owner 는 database owner role 이다.
+                description: Owner is the database owner role.
                 minLength: 1
                 type: string
               privileges:
-                description: Privileges 는 database 객체 자체에 대한 role privilege grant/revoke
-                  목록이다.
+                description: Privileges is the list of role privilege grants/revokes
+                  on the database object itself.
                 items:
-                  description: DatabaseGrantSpec 은 database 또는 schema privilege grant/revoke
-                    항목이다.
+                  description: DatabaseGrantSpec is a database- or schema-level privilege
+                    grant/revoke entry.
                   properties:
                     privileges:
                       description: |-
-                        Privileges 는 대상 객체에 적용할 PostgreSQL privilege 목록이다.
-                        database 대상: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES
-                        schema 대상: USAGE, CREATE, ALL PRIVILEGES
+                        Privileges is the list of PostgreSQL privileges to apply to the target object.
+                        For databases: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES.
+                        For schemas: USAGE, CREATE, ALL PRIVILEGES.
                       items:
                         type: string
                       minItems: 1
                       type: array
                     role:
-                      description: Role 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                      description: Role is the PostgreSQL role to grant or revoke
+                        privileges from.
                       minLength: 1
                       type: string
                     type:
                       default: grant
-                      description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                      description: Type is grant or revoke. Empty defaults to grant.
                       enum:
                       - grant
                       - revoke
@@ -21035,48 +21097,52 @@ spec:
                   type: object
                 type: array
               schemas:
-                description: Schemas 는 target database 안에서 선언적으로 관리할 schema 목록이다.
+                description: Schemas is the list of schemas declaratively managed
+                  inside the target database.
                 items:
-                  description: DatabaseSchemaSpec 은 target database 안에서 관리할 schema
-                    이다.
+                  description: DatabaseSchemaSpec is a schema managed inside the target
+                    database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 schema 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired schema existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     name:
-                      description: Name 은 PostgreSQL schema 이름이다.
+                      description: Name is the PostgreSQL schema name.
                       minLength: 1
                       type: string
                     owner:
-                      description: Owner 는 schema owner role 이다.
+                      description: Owner is the schema owner role.
                       type: string
                     privileges:
-                      description: Privileges 는 이 schema 에 대한 role privilege grant/revoke
-                        목록이다.
+                      description: Privileges is the list of role privilege grants/revokes
+                        on this schema.
                       items:
-                        description: DatabaseGrantSpec 은 database 또는 schema privilege
-                          grant/revoke 항목이다.
+                        description: DatabaseGrantSpec is a database- or schema-level
+                          privilege grant/revoke entry.
                         properties:
                           privileges:
                             description: |-
-                              Privileges 는 대상 객체에 적용할 PostgreSQL privilege 목록이다.
-                              database 대상: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES
-                              schema 대상: USAGE, CREATE, ALL PRIVILEGES
+                              Privileges is the list of PostgreSQL privileges to apply to the target object.
+                              For databases: CONNECT, CREATE, TEMPORARY, TEMP, ALL PRIVILEGES.
+                              For schemas: USAGE, CREATE, ALL PRIVILEGES.
                             items:
                               type: string
                             minItems: 1
                             type: array
                           role:
-                            description: Role 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Role is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -21091,65 +21157,70 @@ spec:
                   type: object
                 type: array
               servers:
-                description: Servers 는 target database 안에서 선언적으로 관리할 foreign server
-                  목록이다.
+                description: Servers is the list of foreign servers declaratively
+                  managed inside the target database.
                 items:
-                  description: DatabaseServerSpec 은 target database 안에서 관리할 foreign
-                    server 이다.
+                  description: DatabaseServerSpec is a foreign server managed inside
+                    the target database.
                   properties:
                     ensure:
                       default: present
-                      description: Ensure 는 server 존재 상태다. 빈 값이면 present.
+                      description: Ensure is the desired server existence state. Empty
+                        defaults to present.
                       enum:
                       - present
                       - absent
                       type: string
                     fdw:
-                      description: FDW 는 이 server 가 사용할 foreign data wrapper 이름이다.
+                      description: FDW is the foreign data wrapper name this server
+                        uses.
                       minLength: 1
                       type: string
                     name:
-                      description: Name 은 foreign server 이름이다.
+                      description: Name is the foreign server name.
                       minLength: 1
                       type: string
                     options:
-                      description: Options 는 server option 목록이다.
+                      description: Options is the list of server options.
                       items:
-                        description: DatabaseOptionSpec 은 FDW/server option 하나의 선언
-                          상태다.
+                        description: DatabaseOptionSpec is the declared state of a
+                          single FDW/server option.
                         properties:
                           ensure:
                             default: present
-                            description: Ensure 는 option 존재 상태다. 빈 값이면 present.
+                            description: Ensure is the desired option existence state.
+                              Empty defaults to present.
                             enum:
                             - present
                             - absent
                             type: string
                           name:
-                            description: Name 은 option 이름이다.
+                            description: Name is the option name.
                             minLength: 1
                             type: string
                           value:
-                            description: Value 는 option 값이다. ensure=absent 에서는 생략할
-                              수 있다.
+                            description: Value is the option value. May be omitted
+                              when ensure=absent.
                             type: string
                         required:
                         - name
                         type: object
                       type: array
                     usage:
-                      description: Usage 는 server USAGE 권한 목록이다.
+                      description: Usage is the list of server USAGE privilege entries.
                       items:
-                        description: DatabaseUsageSpec 은 FDW/server 에 대한 role USAGE
-                          권한 reconcile 항목이다.
+                        description: DatabaseUsageSpec is a reconcile entry for granting
+                          or revoking role USAGE on an FDW/server.
                         properties:
                           name:
-                            description: Name 은 권한을 부여하거나 회수할 PostgreSQL role 이름이다.
+                            description: Name is the PostgreSQL role to grant or revoke
+                              privileges from.
                             minLength: 1
                             type: string
                           type:
                             default: grant
-                            description: Type 은 grant 또는 revoke 다. 빈 값이면 grant.
+                            description: Type is grant or revoke. Empty defaults to
+                              grant.
                             enum:
                             - grant
                             - revoke
@@ -21164,7 +21235,7 @@ spec:
                   type: object
                 type: array
               tablespace:
-                description: Tablespace 는 database 의 기본 tablespace 이다.
+                description: Tablespace is the default tablespace for the database.
                 type: string
             required:
             - cluster
@@ -21176,14 +21247,15 @@ spec:
               rule: self.name != 'postgres' && self.name != 'template0' && self.name
                 != 'template1'
           status:
-            description: PostgresDatabaseStatus 는 database reconcile 관찰 상태다.
+            description: PostgresDatabaseStatus is the observed reconcile state of
+              the database.
             properties:
               applied:
-                description: Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로
-                  반영됐는지 여부다.
+                description: Applied reports whether the latest observedGeneration
+                  was successfully applied to PostgreSQL.
                 type: boolean
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -21243,10 +21315,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               message:
-                description: Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+                description: Message is a summary of the last reconcile or the failure
+                  cause.
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 마지막 처리 generation 이다.
+                description: ObservedGeneration is the last generation processed by
+                  the reconciler.
                 format: int64
                 type: integer
             type: object
@@ -21315,65 +21389,69 @@ spec:
           metadata:
             type: object
           spec:
-            description: PostgresUserSpec 은 CNPG managed.roles 의 핵심 운영 표면을 별도 CRD
-              로 제공한다.
+            description: PostgresUserSpec exposes the core operational surface of
+              CNPG's managed.roles as a separate CRD.
             properties:
               bypassrls:
-                description: BypassRLS 는 role 이 row-level security 를 우회할 수 있는지 여부다.
+                description: BypassRLS controls whether the role can bypass row-level
+                  security.
                 type: boolean
               cluster:
-                description: Cluster 는 role 을 생성할 PostgresCluster 이다.
+                description: Cluster is the PostgresCluster in which the role is created.
                 properties:
                   name:
-                    description: Name 은 PostgresCluster.metadata.name 이다.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
                 - name
                 type: object
               connectionLimit:
-                description: ConnectionLimit 은 role connection limit 이다. nil 이면 변경하지
-                  않고, -1 은 제한 없음을 뜻한다.
+                description: ConnectionLimit is the role's connection limit. nil leaves
+                  it unchanged; -1 means unlimited.
                 format: int32
                 minimum: -1
                 type: integer
               createdb:
-                description: CreateDB 는 role 이 CREATEDB 권한을 갖는지 여부다.
+                description: CreateDB controls whether the role has the CREATEDB attribute.
                 type: boolean
               createrole:
-                description: CreateRole 은 role 이 CREATEROLE 권한을 갖는지 여부다.
+                description: CreateRole controls whether the role has the CREATEROLE
+                  attribute.
                 type: boolean
               disablePassword:
-                description: DisablePassword 는 password 를 NULL 로 설정해 password login
-                  을 비활성화한다.
+                description: DisablePassword sets the role password to NULL, disabling
+                  password login.
                 type: boolean
               ensure:
                 default: present
-                description: Ensure 는 role 존재 상태다. 빈 값이면 present.
+                description: Ensure is the desired role existence state. Empty defaults
+                  to present.
                 enum:
                 - present
                 - absent
                 type: string
               inRoles:
-                description: InRoles 는 이 role 이 member 로 들어갈 parent role 목록이다.
+                description: InRoles is the list of parent roles that this role becomes
+                  a member of.
                 items:
                   type: string
                 type: array
               inherit:
-                description: Inherit 는 role privilege inheritance 여부다. nil 이면 PostgreSQL
-                  기본값인 true 로 reconcile 한다.
+                description: Inherit controls role privilege inheritance. nil reconciles
+                  to PostgreSQL's default of true.
                 type: boolean
               login:
-                description: Login 은 role 이 LOGIN 권한을 갖는지 여부다.
+                description: Login controls whether the role has the LOGIN attribute.
                 type: boolean
               name:
-                description: Name 은 PostgreSQL role 이름이다.
+                description: Name is the PostgreSQL role name.
                 minLength: 1
                 type: string
               passwordSecretRef:
                 description: |-
-                  PasswordSecretRef 는 data.username/data.password 값을 PostgreSQL role password 로 반영할 Secret 이다.
-                  data.username 은 spec.name 과 일치해야 한다.
+                  PasswordSecretRef is the Secret whose data.username/data.password values are applied as
+                  the PostgreSQL role password. data.username must match spec.name.
                 properties:
                   name:
                     default: ""
@@ -21387,14 +21465,17 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               replication:
-                description: Replication 은 role 이 REPLICATION 권한을 갖는지 여부다.
+                description: Replication controls whether the role has the REPLICATION
+                  attribute.
                 type: boolean
               superuser:
-                description: Superuser 는 role 이 SUPERUSER 권한을 갖는지 여부다.
+                description: Superuser controls whether the role has the SUPERUSER
+                  attribute.
                 type: boolean
               validUntil:
-                description: ValidUntil 은 role password 만료 시각이다. PostgreSQL 이 허용하는
-                  timestamp 또는 infinity 를 사용한다.
+                description: |-
+                  ValidUntil is the expiry timestamp of the role password. Use any value PostgreSQL accepts
+                  as a timestamp, or "infinity".
                 type: string
             required:
             - cluster
@@ -21406,14 +21487,15 @@ spec:
             - message: passwordSecretRef and disablePassword cannot both be set
               rule: '!(has(self.passwordSecretRef) && self.disablePassword)'
           status:
-            description: PostgresUserStatus 는 role reconcile 관찰 상태다.
+            description: PostgresUserStatus is the observed reconcile state of the
+              role.
             properties:
               applied:
-                description: Applied 는 마지막 observedGeneration 이 PostgreSQL 에 성공적으로
-                  반영됐는지 여부다.
+                description: Applied reports whether the latest observedGeneration
+                  was successfully applied to PostgreSQL.
                 type: boolean
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -21473,15 +21555,17 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               message:
-                description: Message 는 마지막 reconcile 요약 또는 실패 원인이다.
+                description: Message is a summary of the last reconcile or the failure
+                  cause.
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 마지막 처리 generation 이다.
+                description: ObservedGeneration is the last generation processed by
+                  the reconciler.
                 format: int64
                 type: integer
               passwordSecretResourceVersion:
-                description: PasswordSecretResourceVersion 은 마지막으로 성공 반영한 password
-                  Secret resourceVersion 이다.
+                description: PasswordSecretResourceVersion is the resourceVersion
+                  of the password Secret that was last successfully applied.
                 type: string
             type: object
         type: object
@@ -21530,7 +21614,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ScheduledBackup 은 cron schedule 에 따라 atomic BackupJob 을 생성한다.
+        description: ScheduledBackup creates atomic BackupJobs according to a cron
+          schedule.
         properties:
           apiVersion:
             description: |-
@@ -21550,22 +21635,23 @@ spec:
           metadata:
             type: object
           spec:
-            description: ScheduledBackupSpec 은 cron 기반 정기 백업 정책이다.
+            description: ScheduledBackupSpec is the cron-based scheduled-backup policy.
             properties:
               backupOwnerReference:
                 default: self
-                description: BackupOwnerReference 는 생성된 BackupJob 의 ownerReference
-                  정책이다.
+                description: BackupOwnerReference is the ownerReference policy applied
+                  to BackupJobs that are created.
                 enum:
                 - none
                 - self
                 - cluster
                 type: string
               cluster:
-                description: Cluster 는 백업 대상 PostgresCluster 참조 (같은 namespace).
+                description: Cluster references the PostgresCluster to back up (same
+                  namespace).
                 properties:
                   name:
-                    description: Name은 PostgresCluster.metadata.name.
+                    description: Name is the PostgresCluster.metadata.name.
                     minLength: 1
                     type: string
                 required:
@@ -21574,14 +21660,15 @@ spec:
               concurrencyPolicy:
                 default: Forbid
                 description: |-
-                  ConcurrencyPolicy 는 이전 BackupJob 이 Running/Pending 일 때 새 실행을 만들지
-                  결정한다.
+                  ConcurrencyPolicy decides whether to create a new run while the previous BackupJob is
+                  Running/Pending.
                 enum:
                 - Allow
                 - Forbid
                 type: string
               executionMode:
-                description: ExecutionMode 는 생성되는 BackupJob 에 복사되는 실행 모드다.
+                description: ExecutionMode is the execution mode copied to each created
+                  BackupJob.
                 enum:
                 - sidecar
                 - job
@@ -21590,13 +21677,13 @@ spec:
               immediate:
                 default: false
                 description: |-
-                  Immediate=true 이면 ScheduledBackup 생성 후 첫 reconcile 에서 즉시 BackupJob
-                  1건을 만든 뒤, 이후에는 Schedule 기준으로 동작한다.
+                  Immediate=true creates one BackupJob in the first reconcile after the ScheduledBackup is
+                  created; subsequent runs follow Schedule.
                 type: boolean
               jobTemplate:
                 description: |-
-                  JobTemplate 은 ExecutionMode="job"일 때 생성되는 BackupJob 에 복사할 runner
-                  batch/v1 Job 템플릿이다.
+                  JobTemplate is the runner batch/v1 Job template copied to each created BackupJob when
+                  ExecutionMode="job".
                 properties:
                   metadata:
                     description: |-
@@ -30602,46 +30689,51 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Labels 는 생성되는 BackupJob 의 spec.labels 에 복사된다.
+                description: Labels are copied to spec.labels of each created BackupJob.
                 type: object
               repo:
-                description: Repo 는 다중 저장소 환경에서 어느 repo 를 쓸지 식별한다.
+                description: Repo identifies which repository to use in multi-repo
+                  deployments.
                 minLength: 1
                 type: string
               retention:
-                description: Retention 은 생성되는 BackupJob 에 복사되는 보존 정책이다.
+                description: Retention is the retention policy copied to each created
+                  BackupJob.
                 properties:
                   keepFull:
-                    description: KeepFull은 보존할 full 백업 개수. 0이면 무제한 (plugin 기본).
+                    description: KeepFull is the number of full backups to retain.
+                      0 means unlimited (plugin default).
                     format: int32
                     minimum: 0
                     type: integer
                   keepIncremental:
-                    description: KeepIncremental은 보존할 incremental/differential 백업
-                      개수.
+                    description: KeepIncremental is the number of incremental/differential
+                      backups to retain.
                     format: int32
                     minimum: 0
                     type: integer
                 type: object
               schedule:
                 description: |-
-                  Schedule 은 초 필드를 포함한 6-field cron expression 이다.
-                  형식: "second minute hour day-of-month month day-of-week".
-                  예: "0 0 2 * * *" = 매일 02:00:00.
+                  Schedule is a 6-field cron expression that includes a seconds field.
+                  Format: "second minute hour day-of-month month day-of-week".
+                  Example: "0 0 2 * * *" — every day at 02:00:00.
                 minLength: 1
                 type: string
               suspend:
                 default: false
-                description: Suspend=true 이면 새 BackupJob 생성을 중단한다. 기존 BackupJob 은
-                  건드리지 않는다.
+                description: Suspend=true stops the creation of new BackupJobs. Existing
+                  BackupJobs are left alone.
                 type: boolean
               tool:
-                description: Tool 은 사용할 백업 도구 이름. BackupPlugin.Name() 과 일치해야 한다.
+                description: Tool is the name of the backup tool to use; must match
+                  BackupPlugin.Name().
                 minLength: 1
                 type: string
               type:
                 default: full
-                description: Type 은 정기 백업 종류다. restore 는 atomic BackupJob 에서만 허용한다.
+                description: Type is the scheduled backup kind. The restore kind is
+                  only allowed on an atomic BackupJob.
                 enum:
                 - full
                 - incremental
@@ -30654,10 +30746,11 @@ spec:
             - tool
             type: object
           status:
-            description: ScheduledBackupStatus 는 정기 백업 컨트롤러의 관찰 상태다.
+            description: ScheduledBackupStatus is the observed state of the scheduled-backup
+              controller.
             properties:
               conditions:
-                description: Conditions 는 K8s 표준 상태다.
+                description: Conditions is the standard Kubernetes condition set.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -30717,19 +30810,21 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               lastBackupJobName:
-                description: LastBackupJobName 은 마지막으로 생성한 BackupJob 이름이다.
+                description: LastBackupJobName is the name of the most recently created
+                  BackupJob.
                 type: string
               lastScheduleTime:
-                description: LastScheduleTime 은 마지막으로 BackupJob 생성을 시도한 스케줄 시각이다.
+                description: LastScheduleTime is the schedule time at which BackupJob
+                  creation was last attempted.
                 format: date-time
                 type: string
               nextScheduleTime:
-                description: NextScheduleTime 은 다음 생성 예정 시각이다.
+                description: NextScheduleTime is the next scheduled creation time.
                 format: date-time
                 type: string
               observedGeneration:
-                description: ObservedGeneration 은 reconciler 가 마지막 처리한 spec generation
-                  이다.
+                description: ObservedGeneration is the spec generation last processed
+                  by the reconciler.
                 format: int64
                 type: integer
             type: object

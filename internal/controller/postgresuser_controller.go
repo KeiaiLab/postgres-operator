@@ -25,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -51,6 +52,7 @@ const (
 	PostgresUserReasonInvalidSpec         = "InvalidSpec"
 	PostgresUserReasonPasswordSecretError = "PasswordSecretError"
 	postgresUserPrimaryRequeueWait        = 15 * time.Second
+	postgresUserFinalizer                 = "postgres.keiailab.io/postgresuser-finalizer"
 	defaultPostgresUserEnsure             = postgresv1alpha1.DatabaseEnsurePresent
 	postgresUserReservedNamePostgres      = "postgres"
 	postgresUserReservedPrefixPG          = "pg_"
@@ -58,6 +60,7 @@ const (
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresusers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresusers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresusers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
@@ -73,9 +76,24 @@ func (r *PostgresUserReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
+	if !user.DeletionTimestamp.IsZero() {
+		return r.reconcilePostgresUserDelete(ctx, &user)
+	}
+
 	if invalid := validatePostgresUserSpec(&user); invalid != "" {
 		markPostgresUserStatus(&user, false, PostgresUserReasonInvalidSpec, invalid)
 		return ctrl.Result{}, r.statusUpdate(ctx, &user)
+	}
+
+	// Attach the finalizer when the user opted into reclaimPolicy=delete so
+	// `DROP ROLE` runs before CR garbage-collection.
+	if defaultedDatabaseReclaimPolicy(user.Spec.UserReclaimPolicy) == postgresv1alpha1.DatabaseReclaimDelete &&
+		controllerutil.AddFinalizer(&user, postgresUserFinalizer) {
+		if err := r.Update(ctx, &user); err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("PostgresUser finalizer added (continuing reconcile in same pass)",
+			"reclaimPolicy", "delete")
 	}
 
 	var cluster postgresv1alpha1.PostgresCluster
@@ -133,6 +151,58 @@ func (r *PostgresUserReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		"spec.name", user.Spec.Name,
 		"passwordSecretRV", passwordSecretResourceVersion)
 	return ctrl.Result{}, r.statusUpdate(ctx, &user)
+}
+
+// reconcilePostgresUserDelete handles CR deletion. When userReclaimPolicy=delete
+// and the finalizer is present, run `DROP ROLE` against the cluster's ready
+// primary before removing the finalizer (mirrors PostgresDatabase). If the
+// reclaim policy is retain (or the cluster is already gone), just strip the
+// finalizer so the CR can be garbage-collected.
+func (r *PostgresUserReconciler) reconcilePostgresUserDelete(
+	ctx context.Context,
+	user *postgresv1alpha1.PostgresUser,
+) (ctrl.Result, error) {
+	logger := log.FromContext(ctx).WithValues("postgresuser", client.ObjectKeyFromObject(user))
+	if !controllerutil.ContainsFinalizer(user, postgresUserFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	if defaultedDatabaseReclaimPolicy(user.Spec.UserReclaimPolicy) != postgresv1alpha1.DatabaseReclaimDelete {
+		controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+		return ctrl.Result{}, r.Update(ctx, user)
+	}
+
+	var cluster postgresv1alpha1.PostgresCluster
+	clusterKey := client.ObjectKey{Namespace: user.Namespace, Name: user.Spec.Cluster.Name}
+	if err := r.Get(ctx, clusterKey, &cluster); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		logger.Info("PostgresUser delete skipped because referenced PostgresCluster is gone",
+			"cluster", user.Spec.Cluster.Name)
+		controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+		return ctrl.Result{}, r.Update(ctx, user)
+	}
+
+	target, ok := backupSidecarTarget(&cluster)
+	if !ok {
+		logger.Info("PostgresUser delete waiting for ready primary Pod",
+			"cluster", user.Spec.Cluster.Name)
+		return ctrl.Result{RequeueAfter: postgresUserPrimaryRequeueWait}, nil
+	}
+
+	if r.SQLExecutor == nil {
+		return ctrl.Result{}, fmt.Errorf("postgresuser SQL executor is not configured")
+	}
+
+	dropUser := user.DeepCopy()
+	dropUser.Spec.Ensure = postgresv1alpha1.DatabaseEnsureAbsent
+	if _, err := r.SQLExecutor.Exec(ctx, target, postgresUserReconcileCommand(dropUser, "")); err != nil {
+		logger.Error(err, "PostgresUser SQL DROP ROLE failed")
+		return ctrl.Result{}, err
+	}
+
+	controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+	return ctrl.Result{}, r.Update(ctx, user)
 }
 
 func validatePostgresUserSpec(user *postgresv1alpha1.PostgresUser) string {

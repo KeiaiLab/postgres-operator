@@ -136,6 +136,7 @@ rules:
   - poolers/finalizers
   - postgresclusters/finalizers
   - postgresdatabases/finalizers
+  - postgresusers/finalizers
   - scheduledbackups/finalizers
   verbs:
   - update

@@ -30,7 +30,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ImageCatalog 는 namespace 단위 PostgreSQL image catalog 다.
+        description: ImageCatalog is a namespace-scoped PostgreSQL image catalog.
         properties:
           apiVersion:
             description: |-
@@ -50,36 +50,36 @@ spec:
           metadata:
             type: object
           spec:
-            description: ImageCatalogSpec 은 namespaced/cluster-wide catalog 가 공유하는
-              spec 이다.
+            description: ImageCatalogSpec is the spec shared by namespaced and cluster-wide
+              catalogs.
             properties:
               images:
-                description: Images 는 PostgreSQL major version 별 image 목록이다.
+                description: Images is the list of images per PostgreSQL major version.
                 items:
-                  description: ImageCatalogEntry 는 PostgreSQL major version 하나에 대응하는
-                    operand image 다.
+                  description: ImageCatalogEntry is the operand image for a single
+                    PostgreSQL major version.
                   properties:
                     extensions:
                       description: |-
-                        Extensions 는 이 이미지와 함께 사용할 수 있는 extension image 후보 목록이다.
-                        0.3.0-alpha 에서는 저장/검증 표면만 제공하고, 실제 volume-extension mount 는
-                        후속 단계에서 연결한다.
+                        Extensions is the list of extension image candidates available with this image.
+                        In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+                        volume-extension mount path is wired up in a later phase.
                       items:
-                        description: ImageCatalogExtension 은 catalog entry 에 연결된 extension
-                          image metadata 다.
+                        description: ImageCatalogExtension is the metadata for an
+                          extension image attached to a catalog entry.
                         properties:
                           image:
-                            description: Image 는 extension image reference 다.
+                            description: Image is the extension image reference.
                             properties:
                               reference:
-                                description: Reference 는 OCI image reference 다.
+                                description: Reference is the OCI image reference.
                                 minLength: 1
                                 type: string
                             required:
                             - reference
                             type: object
                           name:
-                            description: Name 은 extension 식별자다.
+                            description: Name is the extension identifier.
                             minLength: 1
                             type: string
                         required:
@@ -89,13 +89,13 @@ spec:
                       type: array
                     image:
                       description: |-
-                        Image 는 해당 major 에 사용할 immutable image reference 다. production catalog 는
-                        digest pin 을 권장한다.
+                        Image is the immutable image reference used for this major version. Production catalogs
+                        should pin by digest.
                       minLength: 1
                       type: string
                     major:
-                      description: Major 는 PostgreSQL major version 이다. catalog 안에서
-                        유일해야 한다.
+                      description: Major is the PostgreSQL major version. It must
+                        be unique within the catalog.
                       format: int32
                       minimum: 1
                       type: integer
