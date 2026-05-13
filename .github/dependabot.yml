@@ -1,0 +1,98 @@
+# Dependabot config — landed on canonical filename .github/dependabot.yml.
+# Earlier .github/dependabot-github-actions.yml used a non-standard filename
+# that GitHub silently ignored; its grouping/labelling intent is preserved here.
+version: 2
+updates:
+  # ─── GitHub Actions ───────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 10
+    target-branch: main
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci(deps)"
+      include: scope
+    groups:
+      core-actions:
+        patterns:
+          - "actions/*"
+      docker-actions:
+        patterns:
+          - "docker/*"
+      security-actions:
+        patterns:
+          - "aquasecurity/*"
+          - "golang/govulncheck-action"
+          - "github/codeql-action"
+      release-actions:
+        patterns:
+          - "softprops/action-gh-release"
+      helm-actions:
+        patterns:
+          - "helm/*"
+          - "azure/setup-helm"
+
+  # ─── Go modules ───────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 10
+    target-branch: main
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "deps"
+      include: scope
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      otel:
+        patterns:
+          - "go.opentelemetry.io/*"
+      redis:
+        patterns:
+          - "github.com/redis/*"
+          - "github.com/valkey-io/*"
+
+  # ─── Dockerfile base images ───────────────────────────────────────
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: UTC
+    target-branch: main
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "ci(deps)"
+      include: scope
+
+  # ─── Helm chart sub-charts (none currently — placeholder) ─────────
+  - package-ecosystem: helm
+    directory: /charts/postgres-operator
+    schedule:
+      interval: weekly
+      timezone: UTC
+    target-branch: main
+    labels:
+      - dependencies
+      - helm
+    commit-message:
+      prefix: "chart(deps)"
+      include: scope
