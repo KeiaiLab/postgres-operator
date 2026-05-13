@@ -20,7 +20,7 @@
 ARG PG_MAJOR=18
 
 # ---- Stage 1: instance binary 빌드 ----
-FROM golang:1.25-bookworm AS instance-builder
+FROM golang:1.26-bookworm AS instance-builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /workspace
