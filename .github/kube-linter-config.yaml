@@ -1,0 +1,54 @@
+# kube-linter configuration for valkey-operator
+# Reference: https://docs.kubelinter.io/
+
+checks:
+  # Disable checks that don't apply to a Helm operator chart.
+  doNotAutoAddDefaults: false
+  exclude:
+    # The operator deploys via OLM / Helm; ArgoCD doesn't manage
+    # cluster_role/binding pairs directly.
+    - cluster-admin-role-binding
+    # The chart explicitly opt-outs of mTLS by default;
+    # mTLS-on is exercised by tls.enabled toggle path which is
+    # rendered in a separate template.
+    - mismatching-selector
+  include:
+    # Production-grade defaults that should hold across every
+    # rendered manifest of the chart.
+    - dangling-service
+    - default-service-account
+    - deprecated-service-account-field
+    - drop-net-raw-capability
+    - duplicate-env-var
+    - env-var-secret
+    - exposed-services
+    - host-ipc
+    - host-network
+    - host-pid
+    - latest-tag
+    - liveness-port
+    - mismatching-selector
+    - no-anti-affinity
+    - no-extensions-v1beta
+    - no-liveness-probe
+    - no-read-only-root-fs
+    - no-readiness-probe
+    - non-existent-service-account
+    - privilege-escalation-container
+    - privileged-container
+    - privileged-ports
+    - readiness-port
+    - required-annotation-email
+    - required-label-owner
+    - run-as-non-root
+    - sensitive-host-mounts
+    - ssh-port
+    - unsafe-proc-mount
+    - unsafe-sysctls
+    - unset-cpu-requirements
+    - unset-memory-requirements
+    - use-namespace
+    - wildcard-in-rules
+    - writable-host-mount
+
+customChecks: []

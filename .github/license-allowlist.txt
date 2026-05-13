@@ -1,0 +1,25 @@
+# Permissive SPDX identifiers compatible with this project's
+# Apache-2.0 grant. Every transitive Go dependency's license must
+# resolve to one of these — anything else fails the
+# `go-licenses scan` workflow (see .github/workflows/go-licenses.yml).
+#
+# Copyleft families (GPL / AGPL / LGPL / SSPL / EPL with copyleft
+# clauses) are deliberately omitted. If a dependency requires one of
+# those, open an ADR documenting the redistribution implications
+# before allowlisting it here.
+
+Apache-2.0
+MIT
+BSD-2-Clause
+BSD-3-Clause
+ISC
+MPL-2.0
+Zlib
+Unlicense
+0BSD
+CC0-1.0
+# go-licenses reports public-domain code from the standard library
+# and a handful of vendor packages with the "public domain" SPDX tag.
+public-domain
+# BSD-3-Clause-Modification — minor BSD-3 variant used by golang.org/x.
+BSD-3-Clause-Modification

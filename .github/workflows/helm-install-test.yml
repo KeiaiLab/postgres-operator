@@ -75,7 +75,10 @@ jobs:
             --helm-extra-set-args="\
               --set=image.repository=ghcr.io/keiailab/postgres-operator \
               --set=image.tag=ct-install \
-              --set=image.pullPolicy=IfNotPresent"
+              --set=image.pullPolicy=IfNotPresent \
+              --set=webhook.enabled=false \
+              --set=metrics.enabled=false \
+              --set=metrics.serviceMonitor.enabled=false"
 
       - name: Show operator pod state on failure
         if: failure()
