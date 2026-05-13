@@ -1,4 +1,11 @@
-{{- if .Values.metrics.prometheusRule.enabled -}}
+{{- /*
+PrometheusRule — bitnami postgresql-ha chart parity + controller-runtime
+operator health alerts (8 alerts). Chart 사용자가 monitoring 활성 시 자동 렌더.
+
+*prometheus-operator CRD 미설치* 환경에서는 helm install 시 거절 —
+opt-out: monitoring.prometheusRule.enabled=false.
+*/}}
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled -}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -6,124 +13,79 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "postgres-operator.labels" . | nindent 4 }}
-    app.kubernetes.io/component: monitoring
-    {{- with .Values.metrics.prometheusRule.labels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-  {{- with .Values.metrics.prometheusRule.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
 spec:
   groups:
-    - name: {{ .Values.metrics.prometheusRule.groupName | quote }}
+    - name: postgres-operator.rules
+      interval: 30s
       rules:
-        - alert: PostgresOperatorMetricsDown
-          expr: |
-            absent(up{namespace="{{ .Release.Namespace }}", service="{{ include "postgres-operator.metricsServiceName" . }}"}) == 1
-            or up{namespace="{{ .Release.Namespace }}", service="{{ include "postgres-operator.metricsServiceName" . }}"} == 0
-          for: {{ .Values.metrics.prometheusRule.for.operatorDown | quote }}
+        - alert: PostgresOperatorReconcileFailureRate
+          expr: rate(controller_runtime_reconcile_errors_total{controller=~"postgrescluster|backupjob"}[5m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            component: postgres-operator
+          annotations:
+            summary: "Postgres Operator reconcile failure rate elevated"
+            description: "controller-runtime reconcile errors > 0.1/s 지속."
+            runbook_url: https://github.com/keiailab/postgres-operator/blob/main/docs/operations/runbook.md
+        - alert: PostgresOperatorLeaderElectionLost
+          expr: leader_election_master_status{name="postgres-operator-controller-manager"} == 0
+          for: 5m
           labels:
             severity: critical
+            component: postgres-operator
           annotations:
-            summary: postgres-operator metrics scrape 가 중단됨
-            description: metrics Service 또는 manager /metrics endpoint 를 확인해야 한다.
-        - alert: PostgresOperatorReconcileErrors
-          expr: |
-            sum by (namespace, name) (
-              increase(postgrescluster_reconcile_errors_total[{{ .Values.metrics.prometheusRule.windows.reconcileErrors }}])
-            ) > 0
-          for: {{ .Values.metrics.prometheusRule.for.reconcileErrors | quote }}
+            summary: "Postgres Operator leader election lost"
+        - alert: PostgresClusterReplicationLagHigh
+          expr: pg_replication_lag_seconds > 60
+          for: 10m
           labels:
             severity: warning
+            component: postgres
           annotations:
-            summary: postgres-operator reconcile error 증가
-            description: PostgresCluster reconcile component 실패가 발생했다.
-        - alert: PostgresOperatorReconcileP95High
-          expr: |
-            histogram_quantile(
-              0.95,
-              sum by (le, namespace, name) (
-                rate(postgrescluster_reconcile_duration_seconds_bucket[{{ .Values.metrics.prometheusRule.windows.reconcileLatency }}])
-              )
-            ) > {{ .Values.metrics.prometheusRule.thresholds.reconcileP95Seconds }}
-          for: {{ .Values.metrics.prometheusRule.for.reconcileLatency | quote }}
+            summary: "PostgresCluster {{`{{ $labels.cluster }}`}} replication lag > 60s"
+            description: "Streaming replication lag 초과 — replica 가 primary 따라가지 못하는 상태."
+        - alert: PostgresClusterConnectionsHigh
+          expr: pg_stat_activity_count / pg_settings_max_connections > 0.8
+          for: 5m
           labels:
             severity: warning
+            component: postgres
           annotations:
-            summary: postgres-operator reconcile p95 latency 높음
-            description: Kubernetes API 지연, PVC resize, StatefulSet rollout 병목을 확인해야 한다.
-        - alert: PostgresBackupJobFailed
-          expr: |
-            postgres_operator_backupjob_phase{phase="Failed"} == 1
-          for: {{ .Values.metrics.prometheusRule.for.backupFailure | quote }}
+            summary: "PostgresCluster {{`{{ $labels.cluster }}`}} connections > 80% of max_connections"
+            description: "Connection pool 의 80% 초과 — connection leak 또는 PgBouncer 도입 검토."
+        - alert: PostgresClusterPrimaryDown
+          expr: pg_up{role="primary"} == 0
+          for: 2m
           labels:
             severity: critical
+            component: postgres
           annotations:
-            summary: BackupJob 실패
-            description: BackupJob status condition 과 runner Job 또는 sidecar exec 로그를 확인해야 한다.
-        - alert: PostgresPoolerFailed
-          expr: |
-            postgres_operator_pooler_phase{phase="Failed"} == 1
-          for: {{ .Values.metrics.prometheusRule.for.poolerFailure | quote }}
-          labels:
-            severity: critical
-          annotations:
-            summary: Pooler 실패
-            description: Pooler status condition, PgBouncer Deployment, auth Secret, exporter sidecar 상태를 확인해야 한다.
-        - alert: PostgresPoolerExporterCollectionFailed
-          expr: |
-            max by (namespace, pod) (
-              cnpg_pgbouncer_last_collection_error
-            ) == 1
-          for: {{ .Values.metrics.prometheusRule.for.poolerExporterCollectionFailure | quote }}
+            summary: "PostgresCluster {{`{{ $labels.cluster }}`}} primary down"
+            description: "Primary Pod liveness 실패. failover 필요 (Repmgr / pg_auto_failover)."
+        - alert: PostgresClusterBackupFailed
+          expr: kube_job_status_failed{job_name=~"postgres-backup-.*"} > 0
+          for: 5m
           labels:
             severity: warning
+            component: postgres-operator
           annotations:
-            summary: PgBouncer exporter metric 수집 실패
-            description: exporter sidecar /metrics 는 응답하지만 PgBouncer SHOW 기반 metric collection 이 실패했다. exporter 로그, PgBouncer admin 연결, auth 설정을 확인해야 한다.
-        - alert: PostgresPoolerClientWaiting
-          expr: |
-            sum by (namespace, pod, database, user) (
-              cnpg_pgbouncer_pools_cl_waiting
-            ) > {{ .Values.metrics.prometheusRule.thresholds.poolerClientWaiting }}
-          for: {{ .Values.metrics.prometheusRule.for.poolerClientWaiting | quote }}
+            summary: "Postgres Backup Job {{`{{ $labels.job_name }}`}} failed"
+        - alert: PostgresClusterLocksHigh
+          expr: pg_locks_count > 1000
+          for: 10m
           labels:
             severity: warning
+            component: postgres
           annotations:
-            summary: PgBouncer pool 에 대기 client 발생
-            description: server connection 을 받지 못한 client 가 지속된다. pool size, PostgreSQL backend 부하, application connection 폭증을 확인해야 한다.
-        - alert: PostgresPoolerClientMaxWaitHigh
-          expr: |
-            max by (namespace, pod, database, user) (
-              cnpg_pgbouncer_pools_maxwait
-            ) > {{ .Values.metrics.prometheusRule.thresholds.poolerClientMaxWaitSeconds }}
-          for: {{ .Values.metrics.prometheusRule.for.poolerClientMaxWait | quote }}
-          labels:
-            severity: critical
-          annotations:
-            summary: PgBouncer client 대기 시간이 높음
-            description: 가장 오래 기다린 client 대기 시간이 임계값을 넘었다. pool_size, max_db_connections, primary/replica 성능, application query latency 를 확인해야 한다.
-        - alert: PostgresReplicationLagHigh
-          expr: |
-            postgres_operator_postgrescluster_replication_lag_bytes{role="replica"} > {{ .Values.metrics.prometheusRule.thresholds.replicationLagBytes }}
-          for: {{ .Values.metrics.prometheusRule.for.replicationLag | quote }}
+            summary: "PostgresCluster {{`{{ $labels.cluster }}`}} lock count > 1000"
+            description: "Lock contention 또는 deadlock 가능성 — pg_stat_activity 확인."
+        - alert: PostgresOperatorWorkqueueDepthHigh
+          expr: workqueue_depth{name=~"postgrescluster.*"} > 50
+          for: 10m
           labels:
             severity: warning
+            component: postgres-operator
           annotations:
-            summary: PostgreSQL replica WAL lag 높음
-            description: PostgresCluster status shard replica lagBytes, pg_stat_replication, standby Pod 로그를 확인해야 한다.
-        - alert: PostgresDataVolumeLow
-          expr: |
-            (
-              kubelet_volume_stats_available_bytes{persistentvolumeclaim=~"data-.*"}
-              /
-              kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~"data-.*"}
-            ) < {{ .Values.metrics.prometheusRule.thresholds.dataVolumeFreeRatio }}
-          for: {{ .Values.metrics.prometheusRule.for.dataVolumeLow | quote }}
-          labels:
-            severity: warning
-          annotations:
-            summary: PostgreSQL data PVC 여유 공간 부족
-            description: data-* PVC 사용량과 StorageClass online expansion 가능 여부를 확인해야 한다.
-{{- end }}
+            summary: "Postgres Operator workqueue depth > 50"
+{{- end -}}
