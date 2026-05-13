@@ -1,0 +1,46 @@
+name: Stale
+
+# Keep issue and PR backlogs honest. Items with no activity for 60
+# days are marked stale; if still inactive 14 days later they are
+# closed. Security advisories and pinned items are exempt.
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+        with:
+          days-before-stale: 60
+          days-before-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: 'security,pinned,roadmap,help-wanted,good-first-issue'
+          exempt-pr-labels:    'security,pinned,wip,help-wanted'
+          stale-issue-message: |
+            This issue has had no activity for 60 days and is being
+            marked stale. If it is still relevant, please leave a
+            comment or update the description; otherwise it will be
+            closed in 14 days.
+          stale-pr-message: |
+            This PR has had no activity for 60 days and is being
+            marked stale. If you intend to continue, please push an
+            update or comment; otherwise it will be closed in 14 days.
+          close-issue-message: |
+            Closing for inactivity. Feel free to reopen with new
+            information or open a fresh issue if the problem persists.
+          close-pr-message: |
+            Closing for inactivity. Please open a new PR if you would
+            like to continue this work.
+          # Keep the action's API usage modest — operator runs daily.
+          operations-per-run: 100
