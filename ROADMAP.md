@@ -147,8 +147,8 @@ cluster via GitOps.
 - [~] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`.
 - [~] Sharding plugin interface — `internal/plugin/sharding/api.go`.
 - [ ] **`ShardRange` CRD** — new `api/v1alpha1/shardrange_types.go`.
-  - [ ] Hash-range / list / range policy branching.
-  - [ ] Metadata store (Postgres system catalog or sidecar).
+  - [~] Hash-range / list / range policy branching — `docs/sharding/SHARDING.md` §G3 (spec doc, impl pending) (PR open)
+  - [~] Metadata store — `docs/sharding/SHARDING.md` §G3 decision (Option A: PG catalog) (PR open)
 - [ ] **`pg-router` service PoC** — new `cmd/pg-router/`.
   - [ ] SQL parser (libpg_query or homegrown).
   - [ ] Shard-placement lookup.
