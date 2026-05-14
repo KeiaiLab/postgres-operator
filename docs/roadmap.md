@@ -77,7 +77,7 @@ cluster via GitOps.
   - [x] Post-Ready primary-failure status surface — `status.phase=Degraded` + `FailoverReady=False` + promotion-candidate message.
   - [~] Replica rejoin (`pg_basebackup` or `pg_rewind`) — first-boot `pg_basebackup` + existing-PGDATA old-primary marker generalization + current-primary endpoint main env + `pg_rewind` command-runner + HBA normal-connection auth + fresh `pg_basebackup` fallback all done. Live chaos / rewind drill verification still pending.
   - [~] Synchronous replication — `spec.postgresql.synchronous.{method,number,dataDurability}` + CEL `number<=shards.replicas` + `ANY/FIRST N (...)` rendering + `required/preferred` quorum policy + standby `application_name` wiring + ConfigMap-hash rolling reconcile all done. Live commit / RPO drill still pending.
-  - [ ] HA-election distributed lock (K8s Lease).
+  - [x] HA-election distributed lock (K8s Lease) — `cmd/main.go:170-171` `LeaderElection: true` + `LeaderElectionID: "bdce7c33.keiailab.io"`; controller-runtime manages a `coordination.k8s.io/Lease` (only the elected manager runs reconcilers, including failover decisions). Verify: `grep -nE 'LeaderElection(ID)?' cmd/main.go`.
 - [ ] **Backup / restore controller implementation** — bolster `internal/controller/backupjob_controller.go`.
   - [x] `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed).
   - [x] `ScheduledBackup` CRD / controller — 6-field cron schedule → atomic `BackupJob` creation; `suspend` / `immediate` / `ownerReference` / `concurrency` guards.

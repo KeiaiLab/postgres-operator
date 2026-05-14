@@ -80,7 +80,7 @@ cluster via GitOps.
   - [x] Post-Ready primary-failure status surface — `status.phase=Degraded` + `FailoverReady=False` + promotion-candidate message.
   - [~] Replica rejoin (`pg_basebackup` or `pg_rewind`) — first-boot `pg_basebackup` + existing-PGDATA old-primary marker generalization + current-primary endpoint main env + `pg_rewind` command-runner + HBA normal-connection auth + fresh `pg_basebackup` fallback all done. Live chaos / rewind drill verification still pending.
   - [~] Synchronous replication — `spec.postgresql.synchronous.{method,number,dataDurability}` + CEL `number<=shards.replicas` + `ANY/FIRST N (...)` rendering + `required/preferred` quorum policy + standby `application_name` wiring + ConfigMap-hash rolling reconcile all done. Live commit / RPO drill still pending.
-  - [ ] HA election distributed lock (K8s Lease).
+  - [x] HA election distributed lock (K8s Lease) — `cmd/main.go:170-171` `LeaderElection: true` + `LeaderElectionID: "bdce7c33.keiailab.io"`; controller-runtime manages a `coordination.k8s.io/Lease` so only the elected manager runs reconcilers (failover decisions included), preventing operator-side split-brain when replicas > 1. Verify: `grep -nE 'LeaderElection(ID)?' cmd/main.go`.
 - [ ] **Backup / restore controller implementation** — bolster `internal/controller/backupjob_controller.go`.
   - [x] `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed) — `internal/controller/backupjob_controller.go` reconcile switch + 8 unit tests.
   - [x] `ScheduledBackup` CRD / controller — 6-field cron schedule → atomic `BackupJob` creation; `suspend` / `immediate` / `ownerReference` / `concurrency` guards; 5 unit tests.
@@ -210,6 +210,7 @@ cluster via GitOps.
 
 | Date | Change |
 |---|---|
+| 2026-05-15 | G1 §Failover `HA election distributed lock (K8s Lease)` marker corrected `[ ]`→`[x]` — controller-runtime `LeaderElection: true` + `LeaderElectionID: "bdce7c33.keiailab.io"` in `cmd/main.go:170-171` already provides a `coordination.k8s.io/Lease` that serialises reconcilers across operator replicas. ROADMAP fact accuracy fix (standards/roadmap.md §7/§8 anti-pattern "marker mismatch with code"). |
 | 2026-05-12 | CNPG backup/restore gap closed: added `ScheduledBackup` CRD/controller, `BackupJob` creation on cron firing, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin registration, and the sidecar pod-exec path. |
 | 2026-05-12 | CNPG observability gap closed: added Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus metric. |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed) implemented + 8 unit tests — `[x]` (ralph-loop iter#3). |
