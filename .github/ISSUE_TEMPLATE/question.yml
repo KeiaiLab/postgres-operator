@@ -1,0 +1,197 @@
+name: Question
+about: Ask a question about the postgres-operator
+title: '[QUESTION] '
+labels: ['question']
+assignees: ''
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out!
+        Please ensure you've checked the documentation and existing issues before asking.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have read the [README](https://github.com/keiailab/postgres-operator#readme) documentation
+          required: true
+        - label: I have read the [Contributing Guide](https://github.com/keiailab/postgres-operator/blob/main/CONTRIBUTING.md)
+          required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Question Context
+      description: Provide context about what you're trying to achieve
+      placeholder: |
+        I'm trying to deploy a PostgresCluster with TLS encryption and a Pooler in front.
+        I'm running Kubernetes 1.30 on a bare-metal cluster and using the operator v0.3.0-alpha.18.
+      render: markdown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kubernetes_version
+    attributes:
+      label: Kubernetes Version
+      description: Which Kubernetes version are you using?
+      options:
+        - '1.26'
+        - '1.27'
+        - '1.28'
+        - '1.29'
+        - '1.30'
+        - '1.31'
+        - 'Other'
+
+  - type: dropdown
+    id: postgresql_version
+    attributes:
+      label: PostgreSQL Version
+      description: Which PostgreSQL major version are you deploying?
+      options:
+        - '18'
+        - '17'
+        - '16'
+        - 'Other'
+
+  - type: dropdown
+    id: operator_version
+    attributes:
+      label: postgres-operator Version
+      description: Which version of the postgres-operator are you using?
+      options:
+        - 'v0.3.0-alpha.18'
+        - 'v0.3.0-alpha.17'
+        - 'v0.3.0-alpha.16'
+        - 'Other'
+
+  - type: textarea
+    id: what_tried
+    attributes:
+      label: What Have You Tried?
+      description: Describe what you've already tried to solve your problem
+      placeholder: |
+        1. I created a PostgresCluster with `spec.postgresql.tls.enabled=true`.
+        2. I created a ClusterIssuer with cert-manager and referenced it via `spec.tls.certManager.issuerRef`.
+        3. The TLS Certificate is issued, but the primary pod fails the readiness probe.
+        4. The operator log shows: "certificate verification failed (peer certificate signature is invalid)".
+
+        **Commands I've run:**
+        ```bash
+        kubectl get postgrescluster argos-postgres -o yaml
+        kubectl logs -n database argos-postgres-shard-0-0
+        kubectl describe certificate argos-postgres-tls
+        ```
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration Details
+      description: Provide relevant configuration details (YAML, settings, environment variables)
+      placeholder: |
+        **PostgresCluster CRD:**
+        ```yaml
+        apiVersion: postgres.keiailab.com/v1alpha1
+        kind: PostgresCluster
+        metadata:
+          name: argos-postgres
+        spec:
+          imageCatalogRef:
+            apiGroup: postgres.keiailab.com
+            kind: ClusterImageCatalog
+            name: pg
+            major: "18"
+          shards:
+            replicas: 3
+          tls:
+            enabled: true
+            certManager:
+              issuerRef:
+                name: cluster-ca
+                kind: ClusterIssuer
+        ```
+
+        **Helm values (if applicable):**
+        ```yaml
+        operator:
+          replicas: 1
+        metrics:
+          serviceMonitor:
+            enabled: true
+        ```
+      render: yaml
+
+  - type: textarea
+    id: specific_question
+    attributes:
+      label: Your Question
+      description: Ask your specific question clearly and concisely
+      placeholder: |
+        How should I configure the PostgresCluster to mount the cert-manager-issued TLS certificate
+        into the primary pod, and does the operator translate `spec.tls.certManager.issuerRef`
+        into the necessary `Secret` references automatically?
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_or_behavior
+    attributes:
+      label: Error Messages or Unexpected Behavior (if applicable)
+      description: If you're encountering an error or unexpected behavior, describe it here
+      placeholder: |
+        **Error message:**
+        ```
+        FATAL: could not load server certificate file "/etc/postgresql/tls/tls.crt": No such file or directory
+        ```
+
+        **Pod status:**
+        ```
+        NAME                              READY   STATUS             RESTARTS   AGE
+        argos-postgres-shard-0-0          0/1     CrashLoopBackOff   3          5m
+        ```
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs (if applicable)
+      description: Provide relevant logs from the operator or PostgreSQL pods
+      placeholder: |
+        **Operator logs:**
+        ```bash
+        kubectl logs -n postgres-operator-system deployment/postgres-operator
+        ```
+
+        **PostgreSQL pod logs:**
+        ```bash
+        kubectl logs -n database argos-postgres-shard-0-0
+        ```
+      render: shell
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Add any other information that might help answer your question
+      placeholder: |
+        - I'm following the TLS configuration described in `docs/operator-guide/deployment.md`.
+        - I have self-signed certificates working in a local kind cluster.
+        - cert-manager is at v1.16 and the issuer reports `Ready=True`.
+      render: markdown
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **Note:** Questions are community-supported and response times may vary.
+        For broader discussion and runbooks, see [GitHub Discussions](https://github.com/keiailab/postgres-operator/discussions)
+        and `docs/runbooks/` (ha / backup / restore / upgrade / security / migration).
