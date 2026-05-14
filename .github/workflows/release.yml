@@ -256,3 +256,57 @@ jobs:
             assets/postgres-operator-${{ needs.preflight.outputs.tag }}.spdx.json
             assets/postgres-operator-${{ needs.preflight.outputs.tag }}.spdx.json.sig
             assets/postgres-operator-${{ needs.preflight.outputs.tag }}.spdx.json.pem
+
+  # ADR-0014 community-operators sync automation (RFC 0002 §7 예외 ③ 확장, mongodb ADR-0027 + valkey ADR-0047 sister).
+  sync-community-operators:
+    needs: [preflight, github-release]
+    runs-on: ubuntu-latest
+    if: success() && !contains(needs.preflight.outputs.tag, 'beta') && !contains(needs.preflight.outputs.tag, 'rc') && !contains(needs.preflight.outputs.tag, 'alpha')
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release repo
+        uses: actions/checkout@v4
+        with:
+          repository: keiailab/postgres-operator
+          ref: ${{ needs.preflight.outputs.tag }}
+          path: source
+      - name: Checkout community-operators fork
+        uses: actions/checkout@v4
+        with:
+          repository: eightynine01/community-operators
+          token: ${{ secrets.COMMUNITY_OPERATORS_PAT }}
+          path: community-operators
+          fetch-depth: 0
+      - name: Sync fork main with upstream
+        working-directory: community-operators
+        run: |
+          git remote add upstream https://github.com/k8s-operatorhub/community-operators.git
+          git fetch upstream main
+          git reset --hard upstream/main
+          git push origin main --force
+      - name: Stage bundle for new version
+        working-directory: community-operators
+        run: |
+          V="${{ needs.preflight.outputs.version }}"
+          mkdir -p "operators/postgres-operator/$V"
+          cp -r ../source/bundle/manifests "operators/postgres-operator/$V/"
+          cp -r ../source/bundle/metadata "operators/postgres-operator/$V/"
+          cp ../source/bundle.Dockerfile "operators/postgres-operator/$V/"
+      - name: Commit + push fork branch + open upstream PR
+        working-directory: community-operators
+        env:
+          GH_TOKEN: ${{ secrets.COMMUNITY_OPERATORS_PAT }}
+        run: |
+          V="${{ needs.preflight.outputs.version }}"
+          BR="operator-postgres-operator-$V"
+          git config user.name "keiailab-bot"
+          git config user.email "phil@keiailab.com"
+          git checkout -b "$BR"
+          git add "operators/postgres-operator/"
+          git commit -s -m "operator postgres-operator ($V)"
+          git push -u origin "$BR"
+          gh pr create --repo k8s-operatorhub/community-operators \
+            --base main --head "eightynine01:$BR" \
+            --title "operator postgres-operator ($V)" \
+            --body "Auto-sync from release tag ${{ needs.preflight.outputs.tag }}. Refs ADR-0014."
