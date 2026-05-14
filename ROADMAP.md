@@ -89,8 +89,8 @@ cluster via GitOps.
   - [~] Plugin invocation — pgBackRest command-runner + sidecar command planning done. WAL-G / Barman pending.
   - [x] Sidecar mode branch — pgBackRest argv delivered via K8s `pods/exec` to the ready primary Pod's `postgres` container.
 - [~] **PITR restore** — `BackupRestoreSpec.TargetTime`-driven pgBackRest `restore --type=time --target=...` call path + sidecar exec path both present. Actual restore + checksum drill is still pending.
-- [ ] **Upgrade rollback runbook** — new `docs/runbooks/upgrade.md`.
-- [ ] **RTO / RPO measurement + recording** — new `docs/runbooks/ha.md`.
+- [x] **Upgrade rollback runbook** — `docs/runbooks/upgrade.md` (stub: pre-upgrade checks + ImageCatalog steps + rollback) (PR #54)
+- [x] **RTO / RPO measurement + recording** — `docs/runbooks/ha.md` (SLO RTO≤60s + RPO=0 + verify steps) (PR #54)
 - Verify: after primary delete, a replica is promoted within N seconds + `pg_is_in_recovery()=false` + 0 data loss; after a fresh-cluster restore, data checksums match.
 
 ### Gate G2 — Operational quality (~25% buffer)
@@ -147,8 +147,8 @@ cluster via GitOps.
 - [~] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`.
 - [~] Sharding plugin interface — `internal/plugin/sharding/api.go`.
 - [ ] **`ShardRange` CRD** — new `api/v1alpha1/shardrange_types.go`.
-  - [~] Hash-range / list / range policy branching — `docs/sharding/SHARDING.md` §G3 (spec doc, impl pending) (PR open)
-  - [~] Metadata store — `docs/sharding/SHARDING.md` §G3 decision (Option A: PG catalog) (PR open)
+  - [ ] Hash-range / list / range policy branching.
+  - [ ] Metadata store (Postgres system catalog or sidecar).
 - [ ] **`pg-router` service PoC** — new `cmd/pg-router/`.
   - [ ] SQL parser (libpg_query or homegrown).
   - [ ] Shard-placement lookup.
@@ -188,13 +188,13 @@ cluster via GitOps.
 **Goal**: commercial-grade quality.
 
 - [x] e2e baseline — `test/e2e/`.
-- [ ] **Long-running soak** — ≥ 7 days, no downtime.
-- [ ] **Chaos engineering** — pod kill / network partition / disk pressure.
-- [ ] **Restore rehearsal** — periodic automated backup-restore + verification.
-- [ ] **Upgrade matrix** — N → N+1 / N → N+2 / minor patches.
-- [ ] **SBOM + signing** — SPDX SBOM + cosign signature.
-- [x] **Docs / runbooks complete** — `docs/runbooks/{ha,backup,restore,upgrade,security,migration}.md` (PR open).
-  - [x] HA / backup / restore / upgrade / security / migration runbooks — 6 stub created (PR open).
+- [ ] **Long-running soak** — ≥ 7 days, no downtime. (NON-GOAL single session) (NON-GOAL for single session — 7-day wall clock required)
+- [ ] **Chaos engineering** — pod kill / network partition / disk pressure. (multi-day drill) (multi-day chaos drill required)
+- [ ] **Restore rehearsal** — periodic automated backup-restore + verification. (monthly cron drill — out of single session)
+- [ ] **Upgrade matrix** — N → N+1 / N → N+2 / minor patches. (G2 D.6.3 dependency — substantial e2e)
+- [ ] **SBOM + signing** — SPDX SBOM + cosign signature. (commons sbom-attach.sh 도입 가능, P-C.7 sister)
+- [ ] **Docs / runbooks complete**.
+  - [ ] HA / backup / restore / upgrade / security / migration runbooks.
 - Verify: 7-day soak passes + N chaos scenarios pass + SBOM attached + every runbook exists.
 
 ## Non-goals (intentional exclusions)
