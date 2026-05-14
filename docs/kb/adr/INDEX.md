@@ -24,6 +24,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0011](0011-rfc-0018-pkg-status-partial-adoption.md) | Partial RFC-0018 adoption — `pkg/status` (`Ready` type only) + asymmetric `pkg/finalizer` preserved (PR-A7 first cut) | Accepted | 2026-05-09 |
 | [ADR-0012](0012-pkg-version-matrix-commons-delegation.md) | Delegate `pkg/version Matrix[Combo]` to commons (Plan §2 D12, PR-B3 — `go.mod` commons v0.7.0 bump) | Accepted | 2026-05-09 |
 | [ADR-0013](0013-operatorhub-bundle-scaffold.md) | OperatorHub.io bundle scaffold cross-cut — operator-sdk 1.42 + kustomize, 2 owned CRDs, Makefile `bundle` / `bundle-build` (PR-B9, valkey ADR-0037 port) | Accepted | 2026-05-10 |
+| [ADR-0015](0015-restore-github-actions-for-oss-ci.md) | RFC-0002 일탈 — 14 workflow OSS CI 유지 (valkey ADR-0045 + mongodb ADR-0028 sister). external contributor surface + OpenSSF Scorecard + required_status_checks 근거 | Accepted | 2026-05-14 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
