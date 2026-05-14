@@ -193,8 +193,8 @@ cluster via GitOps.
 - [ ] **Restore rehearsal** — periodic automated backup-restore + verification.
 - [ ] **Upgrade matrix** — N → N+1 / N → N+2 / minor patches.
 - [ ] **SBOM + signing** — SPDX SBOM + cosign signature.
-- [ ] **Docs / runbooks complete**.
-  - [ ] HA / backup / restore / upgrade / security / migration runbooks.
+- [x] **Docs / runbooks complete** — `docs/runbooks/{ha,backup,restore,upgrade,security,migration}.md` (PR open).
+  - [x] HA / backup / restore / upgrade / security / migration runbooks — 6 stub created (PR open).
 - Verify: 7-day soak passes + N chaos scenarios pass + SBOM attached + every runbook exists.
 
 ## Non-goals (intentional exclusions)
