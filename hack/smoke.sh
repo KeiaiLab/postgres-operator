@@ -239,6 +239,20 @@ else
 fi
 kubectl cluster-info --context "kind-${CLUSTER_NAME}"
 
+# 이후 kubectl 호출은 모두 active context 를 사용한다. 외부 active context
+# (예: 다른 kind cluster, 원격 클러스터) 가 설정돼 있으면 manifest 가 잘못된
+# cluster 에 적용되고, 이미지는 kind-${CLUSTER_NAME} 에만 load 되어 있어
+# Pod 가 ImagePullBackOff 가 된다. 이를 막기 위해 명시적으로 context 전환.
+PREVIOUS_CONTEXT="$(kubectl config current-context 2>/dev/null || true)"
+kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
+
+restore_context() {
+    if [[ -n "${PREVIOUS_CONTEXT:-}" && "$PREVIOUS_CONTEXT" != "kind-${CLUSTER_NAME}" ]]; then
+        kubectl config use-context "$PREVIOUS_CONTEXT" >/dev/null 2>&1 || true
+    fi
+}
+trap 'restore_context; cleanup' EXIT
+
 # 2. images — local build + kind load
 log "Building operator image $OPERATOR_IMG"
 docker build -t "$OPERATOR_IMG" .
