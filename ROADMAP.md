@@ -146,8 +146,8 @@ cluster via GitOps.
 - [x] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`. Constants + Spec round-trip guarded by `TestShardingMode` (`api/v1alpha1/postgrescluster_types_test.go`); enum validation is enforced at the apiserver via the `+kubebuilder:validation:Enum=none;native` marker. RFC 0001 §3.1 / RFC 0002.
 - [x] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`. Field round-trip + `DeepCopy` slice independence + `Replicas=0` (HA-off dev) guarded by `TestShardsSpec` (`api/v1alpha1/postgrescluster_types_test.go`). RFC 0001 §3.1.
 - [x] Sharding plugin interface — `internal/plugin/sharding/api.go`. Compile-time interface freeze + `Registry` register/get/Names round-trip + `Capabilities` advertisement + `ErrUnsupported` sentinel guarded by `TestShardingPlugin` umbrella (`internal/plugin/sharding/api_test.go`). RFC 0001~0005 / RFC 0004 (router architecture).
-- [ ] **`ShardRange` CRD** — new `api/v1alpha1/shardrange_types.go`.
-  - [ ] Hash-range / list / range policy branching.
+- [x] **`ShardRange` CRD** — `api/v1alpha1/shardrange_types.go` + `config/crd/bases/postgres.keiailab.io_shardranges.yaml` (RFC 0002, offline yaml parse PASS, `make manifests` 통과).
+  - [~] Hash-range / list / range policy branching (vindex enum 정의 완료, reconciler 미구현 — 후속 sub-task).
   - [ ] Metadata store (Postgres system catalog or sidecar).
 - [ ] **`pg-router` service PoC** — new `cmd/pg-router/`.
   - [ ] SQL parser (libpg_query or homegrown).

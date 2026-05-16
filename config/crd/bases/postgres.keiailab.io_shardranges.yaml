@@ -1,0 +1,248 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: shardranges.postgres.keiailab.io
+spec:
+  group: postgres.keiailab.io
+  names:
+    categories:
+    - postgres
+    - sharding
+    - all
+    kind: ShardRange
+    listKind: ShardRangeList
+    plural: shardranges
+    shortNames:
+    - shr
+    singular: shardrange
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cluster
+      name: Cluster
+      type: string
+    - jsonPath: .spec.keyspace
+      name: Keyspace
+      type: string
+    - jsonPath: .spec.vindex.type
+      name: Vindex
+      type: string
+    - jsonPath: .status.totalRanges
+      name: Ranges
+      type: integer
+    - jsonPath: .status.generation
+      name: Generation
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ShardRange은 분산 라우팅을 위한 키스페이스 + 키범위 → 샤드 매핑의 SSOT 이다 (RFC 0002).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ShardRangeSpec은 ShardRange CRD 의 사용자 의도이다 (RFC 0002 §3.1).
+            properties:
+              cluster:
+                description: Cluster은 본 ShardRange 가 속한 PostgresCluster 의 이름이다 (동일
+                  네임스페이스).
+                minLength: 1
+                type: string
+              keyspace:
+                description: Keyspace은 논리적 파티션 단위 (분산 테이블 그룹) 이름이다.
+                pattern: ^[a-z][a-z0-9_]{0,62}$
+                type: string
+              ranges:
+                description: Ranges은 키 범위 → 샤드 매핑 목록이다. reconciler 가 overlap / gap
+                  검증한다.
+                items:
+                  description: ShardRangeEntry는 [lo, hi] 키 범위와 대상 샤드의 매핑 1건이다.
+                  properties:
+                    hi:
+                      description: Hi는 범위 상한이다.
+                      type: string
+                    lo:
+                      description: Lo는 범위 하한이다. hash vindex 의 경우 16진수 문자열, range 의
+                        경우 임의 정렬가능 값이다.
+                      type: string
+                    shard:
+                      description: Shard는 PostgresCluster.status.shards[].name 과 일치하는
+                        대상 샤드 이름이다.
+                      minLength: 1
+                      type: string
+                  required:
+                  - hi
+                  - lo
+                  - shard
+                  type: object
+                maxItems: 1024
+                minItems: 1
+                type: array
+              vindex:
+                description: Vindex은 키 → 샤드 매핑 함수 정의이다.
+                properties:
+                  column:
+                    description: Column은 해시 / range 계산에 사용하는 컬럼명이다. lookup 타입에서는 생략
+                      가능하다.
+                    type: string
+                  function:
+                    description: Function은 해시 함수이다. type=hash 또는 type=consistent-hash
+                      일 때 필요.
+                    enum:
+                    - murmur3
+                    - fnv
+                    - crc32
+                    type: string
+                  lookupRef:
+                    description: LookupRef은 lookup 타입에서 사용하는 외부 매핑 CRD 참조이다.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  type:
+                    description: Type은 vindex 종류이다 (RFC 0002 §3.2).
+                    enum:
+                    - hash
+                    - range
+                    - consistent-hash
+                    - lookup
+                    type: string
+                  virtualNodes:
+                    description: VirtualNodes은 consistent-hash 타입에서 사용하는 가상 노드 수이다.
+                    format: int32
+                    maximum: 65536
+                    minimum: 64
+                    type: integer
+                required:
+                - type
+                type: object
+            required:
+            - cluster
+            - keyspace
+            - ranges
+            - vindex
+            type: object
+            x-kubernetes-validations:
+            - message: hash vindex requires column + function
+              rule: self.vindex.type != 'hash' || (has(self.vindex.column) && has(self.vindex.function))
+            - message: lookup vindex requires lookupRef
+              rule: self.vindex.type != 'lookup' || has(self.vindex.lookupRef)
+          status:
+            description: ShardRangeStatus은 reconciler 가 관찰한 ShardRange 상태이다.
+            properties:
+              conditions:
+                description: Conditions은 표준 Kubernetes condition 집합이다 (Valid, ShardsExist
+                  등).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              generation:
+                description: Generation은 spec 변경 시마다 +1 되는 단조 증가 카운터이다. 라우터 캐시 무효화
+                  신호.
+                format: int64
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration은 reconciler 가 마지막으로 처리한 metadata.generation
+                  이다.
+                format: int64
+                type: integer
+              rangesByShard:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: RangesByShard은 샤드별 range 항목 수의 분포이다.
+                type: object
+              totalRanges:
+                description: TotalRanges은 spec.ranges 항목 수이다.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
