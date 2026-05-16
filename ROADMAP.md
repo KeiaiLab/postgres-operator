@@ -180,7 +180,7 @@ cluster via GitOps.
 - [~] **Scatter-gather** query path — skeleton (`internal/router/scatter.go` + `ErrNotImplemented` sentinel, Executor interface freeze). 실 wire-protocol forwarding + merge 는 P3+. Refs: RFC-0004 §2.2 Scenario 2 + ADR-0015.
 - [~] **2PC / saga** distributed-transaction choice — ADR-0015 결정 (2PC primary + saga deferred) + `internal/tx/` skeleton. 실 구현은 D.2.2 Lease election 통합 후.
 - [x] **Isolation matrix** documented — which isolation levels hold under which conditions. Evidence: `docs/sql/isolation-matrix.md` (D.10.3).
-- [ ] **Benchmarks** — sysbench / pgbench variants.
+- [~] **Benchmarks** — sysbench / pgbench variants (`test/bench/pgbench.sh` + `sysbench.sh` + `docs/perf/baseline.md` skeleton; pending live measurement).
 - Verify: per-isolation-level anomaly / no-anomaly table + benchmark numbers.
 
 ### Gate G6 — 1.0.0 GA (~15% buffer)

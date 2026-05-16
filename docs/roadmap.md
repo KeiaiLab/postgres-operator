@@ -165,7 +165,7 @@ cluster via GitOps.
 - [ ] **Scatter-gather** query path.
 - [ ] **2PC / saga** distributed-transaction choice.
 - [ ] **Isolation matrix** documented.
-- [ ] **Benchmarks** — sysbench / pgbench variants.
+- [~] **Benchmarks** — sysbench / pgbench variants (`test/bench/` + `docs/perf/baseline.md` skeleton; pending live measurement).
 
 ### Gate G6 — 1.0.0 GA (~15% buffer)
 
