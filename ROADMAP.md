@@ -143,9 +143,9 @@ cluster via GitOps.
 
 **Goal**: implement sharding metadata in-house, without Citus.
 
-- [~] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`.
-- [~] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`.
-- [~] Sharding plugin interface — `internal/plugin/sharding/api.go`.
+- [x] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`. Constants + Spec round-trip guarded by `TestShardingMode` (`api/v1alpha1/postgrescluster_types_test.go`); enum validation is enforced at the apiserver via the `+kubebuilder:validation:Enum=none;native` marker. RFC 0001 §3.1 / RFC 0002.
+- [x] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`. Field round-trip + `DeepCopy` slice independence + `Replicas=0` (HA-off dev) guarded by `TestShardsSpec` (`api/v1alpha1/postgrescluster_types_test.go`). RFC 0001 §3.1.
+- [x] Sharding plugin interface — `internal/plugin/sharding/api.go`. Compile-time interface freeze + `Registry` register/get/Names round-trip + `Capabilities` advertisement + `ErrUnsupported` sentinel guarded by `TestShardingPlugin` umbrella (`internal/plugin/sharding/api_test.go`). RFC 0001~0005 / RFC 0004 (router architecture).
 - [ ] **`ShardRange` CRD** — new `api/v1alpha1/shardrange_types.go`.
   - [ ] Hash-range / list / range policy branching.
   - [ ] Metadata store (Postgres system catalog or sidecar).
@@ -210,6 +210,7 @@ cluster via GitOps.
 
 | Date | Change |
 |---|---|
+| 2026-05-16 | G3 §Sharding foundation: flipped `ShardingMode` / `ShardsSpec` / `Sharding plugin interface` `[~]` → `[x]` with unit-test coverage (`TestShardingMode`, `TestShardsSpec`, `TestShardingPlugin`). Plans `2026-05-14-4-operators-100pct/P-D` §D.7. |
 | 2026-05-12 | CNPG backup/restore gap closed: added `ScheduledBackup` CRD/controller, `BackupJob` creation on cron firing, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin registration, and the sidecar pod-exec path. |
 | 2026-05-12 | CNPG observability gap closed: added Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus metric. |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed) implemented + 8 unit tests — `[x]` (ralph-loop iter#3). |
