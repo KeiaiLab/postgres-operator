@@ -177,7 +177,7 @@ cluster via GitOps.
 
 **Goal**: clearly bound cross-shard query / transaction support.
 
-- [ ] **Scatter-gather** query path.
+- [~] **Scatter-gather** query path — skeleton (`internal/router/scatter.go` + `ErrNotImplemented` sentinel, Executor interface freeze). 실 wire-protocol forwarding + merge 는 P3+. Refs: RFC-0004 §2.2 Scenario 2 + ADR-0015.
 - [ ] **2PC / saga** distributed-transaction choice.
 - [ ] **Isolation matrix** documented — which isolation levels hold under which conditions.
 - [ ] **Benchmarks** — sysbench / pgbench variants.
