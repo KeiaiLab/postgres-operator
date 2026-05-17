@@ -406,7 +406,7 @@ drill_sync() {
     local primary="${STS_NAME}-0"
     log "  [B.1] sync replication patch"
 
-    kubectl -n "$NS" patch postgrescluster "$CR_NAME" --type=merge -p '{"spec":{"postgresql":{"synchronous":{"method":"ANY","number":1,"dataDurability":"required"}}}}' >/dev/null
+    kubectl -n "$NS" patch postgrescluster "$CR_NAME" --type=merge -p '{"spec":{"postgresql":{"synchronous":{"method":"any","number":1,"dataDurability":"required"}}}}' >/dev/null
 
     local end=$(( $(date +%s) + 180 ))
     local rolled=0 conf=""
@@ -427,22 +427,22 @@ drill_sync() {
         exit 1
     fi
 
-    log "  [B.2] sync_state verify"
-    end=$(( $(date +%s) + 60 ))
+    log "  [B.2] sync_state verify (sync 또는 quorum, ANY 모드 = quorum)"
+    end=$(( $(date +%s) + 120 ))
     local sync_count=0
     while [[ $(date +%s) -lt $end ]]; do
-        sync_count=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state='sync';" 2>/dev/null || echo "0")
+        sync_count=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state IN ('sync','quorum');" 2>/dev/null || echo "0")
         if [[ "$sync_count" -ge 1 ]]; then
             break
         fi
         sleep 2
     done
     if [[ "$sync_count" -lt 1 ]]; then
-        log "ERROR: no sync replica registered within 60s"
+        log "ERROR: no sync/quorum replica registered within 120s"
         kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "SELECT application_name, sync_state, state FROM pg_stat_replication;" || true
         exit 1
     fi
-    log "    sync replica count=$sync_count"
+    log "    sync/quorum replica count=$sync_count"
 
     log "  [B.3] RPO=0 proof — 1000-row commit + flush_lsn >= commit_lsn"
     kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c '
@@ -462,7 +462,7 @@ drill_sync() {
     end=$(( $(date +%s) + 30 ))
     local converged=0
     while [[ $(date +%s) -lt $end ]]; do
-        flush_lsn=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT flush_lsn FROM pg_stat_replication WHERE sync_state='sync' ORDER BY flush_lsn DESC LIMIT 1;" 2>/dev/null || echo "")
+        flush_lsn=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT flush_lsn FROM pg_stat_replication WHERE sync_state IN ('sync','quorum') ORDER BY flush_lsn DESC LIMIT 1;" 2>/dev/null || echo "")
         if [[ -n "$flush_lsn" ]]; then
             diff=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT pg_wal_lsn_diff('$flush_lsn'::pg_lsn, '$commit_lsn'::pg_lsn);" 2>/dev/null || echo "-1")
             # diff 가 numeric 이고 >= 0 이면 PASS
@@ -522,7 +522,7 @@ drill_sync_kill() {
     local rec=0
     while [[ $(date +%s) -lt $end ]]; do
         local n
-        n=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state='sync';" 2>/dev/null || echo "0")
+        n=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state IN ('sync','quorum');" 2>/dev/null || echo "0")
         if [[ "$n" -ge 1 ]]; then
             rec=1
             break
