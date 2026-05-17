@@ -83,6 +83,12 @@ chmod +x "$TMP_DIR/kind" "$TMP_DIR/docker" "$TMP_DIR/kubectl"
     declare -F wait_for_sts_replicas >/dev/null
     declare -F wait_for_hibernation_condition >/dev/null
     declare -F wait_for_pooler_config_hash_change >/dev/null
+    # T30 G1 rejoin/sync drill 함수 5종 declaration verify
+    declare -F drill_rejoin >/dev/null
+    declare -F drill_rejoin_basebackup >/dev/null
+    declare -F drill_rejoin_rewind >/dev/null
+    declare -F drill_sync >/dev/null
+    declare -F drill_sync_kill >/dev/null
 
     CLUSTER_NAME=unit load_image_into_kind ghcr.io/test/image:tag
     wait_for_sts_replicas default demo-shard-0 0 1

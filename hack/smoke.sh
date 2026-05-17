@@ -12,6 +12,10 @@
 #   SMOKE_FAILOVER=1 SHARD_REPLICAS=1 ./hack/smoke.sh
 #   SMOKE_HIBERNATION=1 ./hack/smoke.sh
 #   SMOKE_POOLER=1 ./hack/smoke.sh
+#   SMOKE_REJOIN=1 SMOKE_FAILOVER=1 SHARD_REPLICAS=2 ./hack/smoke.sh
+#   SMOKE_REJOIN=1 SMOKE_REJOIN_MODE=basebackup SMOKE_FAILOVER=1 SHARD_REPLICAS=2 ./hack/smoke.sh
+#   SMOKE_SYNC=1 SHARD_REPLICAS=2 ./hack/smoke.sh
+#   SMOKE_SYNC=1 SMOKE_SYNC_KILL=1 SHARD_REPLICAS=2 ./hack/smoke.sh
 #
 # 향후 시나리오 (TASKS T27 ⑤+, 미구현):
 #   (없음 — T27 ①~④ 모두 완료)
@@ -31,7 +35,9 @@
 #   12. SMOKE_IMAGECATALOG=1 이면 ImageCatalog/ClusterImageCatalog CR schema + lookup 검증
 #   13. replicas>=1 이면 streaming standby 를 pg_stat_replication 으로 확인
 #   14. SMOKE_FAILOVER=1 이면 primary Pod 삭제 후 standby promote RTO 측정
-#   15. cleanup (--keep 미지정 시 cluster 삭제)
+#   15. SMOKE_REJOIN=1 이면 old primary PVC delete 후 rejoin (basebackup / pg_rewind) drill
+#   16. SMOKE_SYNC=1 이면 synchronous_standby_names 활성 후 RPO=0 검증 drill
+#   17. cleanup (--keep 미지정 시 cluster 삭제)
 
 set -euo pipefail
 
@@ -48,6 +54,11 @@ PG_MAJOR="${PG_MAJOR:-$POSTGRES_VERSION}"
 PG_IMG="${PG_IMG:-ghcr.io/keiailab/pg:${PG_MAJOR}}"
 PGBOUNCER_IMG="${PGBOUNCER_IMG:-ghcr.io/cloudnative-pg/pgbouncer:1.24.1}"
 SHARD_REPLICAS="${SHARD_REPLICAS:-${POSTGRES_REPLICAS:-${REPLICAS:-0}}}"
+# T30 G1 라이브 drill env (default off, opt-in)
+SMOKE_REJOIN="${SMOKE_REJOIN:-0}"
+SMOKE_REJOIN_MODE="${SMOKE_REJOIN_MODE:-auto}"   # auto | basebackup | rewind
+SMOKE_SYNC="${SMOKE_SYNC:-0}"
+SMOKE_SYNC_KILL="${SMOKE_SYNC_KILL:-0}"
 DESIRED_MEMBERS=$(( SHARD_REPLICAS + 1 ))
 # install.yaml 이 config/manager/kustomization.yaml 의 newTag 를 사용하고, 그 값은
 # charts/postgres-operator/Chart.yaml 의 appVersion 과 동기화돼 있다 (Makefile §3 IMAGE_TAG).
@@ -222,6 +233,309 @@ pooler_pod_names() {
     local pooler="$2"
     kubectl -n "$namespace" get pods -l "postgres.keiailab.io/pooler=$pooler" \
         -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort
+}
+
+# =====================================================================
+# T30 G1 라이브 drill — replica rejoin + synchronous replication RPO=0
+# =====================================================================
+# 각 함수는 [14/15] failover 단계 이후 step 호출 분기에서 invoke.
+# 환경: kind kubectl + REPLICAS>=2 + (rejoin 만) SMOKE_FAILOVER=1.
+
+drill_rejoin() {
+    local mode="${SMOKE_REJOIN_MODE:-auto}"
+    local old_pod="${STS_NAME}-0"
+    local new_pod="${STS_NAME}-1"
+
+    local new_rec
+    new_rec=$(kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_is_in_recovery();' 2>/dev/null || echo "")
+    if [[ "$new_rec" != "f" ]]; then
+        log "ERROR: drill_rejoin sees $new_pod still in_recovery=$new_rec"
+        exit 1
+    fi
+
+    if [[ "$mode" == "basebackup" || "$mode" == "auto" ]]; then
+        drill_rejoin_basebackup "$old_pod" "$new_pod"
+    fi
+
+    if [[ "$mode" == "rewind" || "$mode" == "auto" ]]; then
+        drill_rejoin_rewind "$old_pod" "$new_pod"
+    fi
+
+    log "  PASS: rejoin drill (mode=$mode)"
+}
+
+drill_rejoin_basebackup() {
+    local old_pod="$1"
+    local new_pod="$2"
+    log "  [A.1] basebackup fresh rejoin"
+
+    kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c '
+        CREATE TABLE IF NOT EXISTS rejoin_drill_basebackup (id int);
+        TRUNCATE rejoin_drill_basebackup;
+        INSERT INTO rejoin_drill_basebackup SELECT generate_series(1,100);
+    ' >/dev/null
+    kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_switch_wal();' >/dev/null
+
+    local pvc
+    pvc=$(kubectl -n "$NS" get pvc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -E "(^|-)${old_pod}\$" | head -1)
+    if [[ -z "$pvc" ]]; then
+        pvc="data-${old_pod}"
+    fi
+    log "    deleting PVC=$pvc + Pod=$old_pod"
+    kubectl -n "$NS" delete pod "$old_pod" --wait=false --grace-period=0 --force 2>/dev/null || true
+    if ! kubectl -n "$NS" delete pvc "$pvc" --wait=true --timeout=60s 2>/dev/null; then
+        log "ERROR: PVC=$pvc delete timeout — guessed name may be wrong"
+        kubectl -n "$NS" get pvc | head -20
+        exit 1
+    fi
+
+    log "    waiting $old_pod Ready (max 180s)"
+    if ! kubectl -n "$NS" wait pod "$old_pod" --for=condition=Ready --timeout=180s 2>/dev/null; then
+        log "ERROR: $old_pod did not become Ready within 180s"
+        kubectl -n "$NS" describe pod "$old_pod" | tail -40
+        kubectl -n "$NS" logs "$old_pod" -c postgres --tail=80 2>/dev/null || true
+        exit 1
+    fi
+
+    local lag_end=$(( $(date +%s) + 60 ))
+    local rejoined=0
+    local seen=0
+    while [[ $(date +%s) -lt $lag_end ]]; do
+        seen=$(kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication;" 2>/dev/null || echo "0")
+        if [[ "$seen" -ge 1 ]]; then
+            rejoined=1
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$rejoined" != "1" ]]; then
+        log "ERROR: $old_pod did not appear in pg_stat_replication within 60s"
+        kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c 'SELECT * FROM pg_stat_replication;' || true
+        exit 1
+    fi
+
+    local old_rec cnt
+    old_rec=$(kubectl -n "$NS" exec "$old_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_is_in_recovery();' 2>/dev/null || echo "")
+    if [[ "$old_rec" != "t" ]]; then
+        log "ERROR: $old_pod after basebackup pg_is_in_recovery=$old_rec, want t"
+        exit 1
+    fi
+    cnt=$(kubectl -n "$NS" exec "$old_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT count(*) FROM rejoin_drill_basebackup;' 2>/dev/null || echo "0")
+    if [[ "$cnt" != "100" ]]; then
+        log "ERROR: $old_pod basebackup row count=$cnt, want 100"
+        exit 1
+    fi
+
+    log "    PASS: basebackup rejoin (rows=100, in_recovery=t)"
+}
+
+drill_rejoin_rewind() {
+    local old_pod="$1"   # 이 시점에 old_pod 는 standby
+    local new_pod="$2"
+    log "  [A.2] pg_rewind rejoin (divergent write)"
+
+    kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c '
+        CREATE TABLE IF NOT EXISTS rejoin_drill_rewind (id serial PRIMARY KEY, src text);
+        TRUNCATE rejoin_drill_rewind;
+    ' >/dev/null
+    kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "
+        INSERT INTO rejoin_drill_rewind (src) VALUES ('divergent-on-new-before-kill');
+        SELECT pg_switch_wal();
+    " >/dev/null
+    sleep 1
+
+    log "    killing $new_pod (divergent primary) — old standby promotes"
+    kubectl -n "$NS" delete pod "$new_pod" --wait=false --grace-period=0 --force 2>/dev/null || true
+
+    local end=$(( $(date +%s) + 60 ))
+    local promoted=0
+    while [[ $(date +%s) -lt $end ]]; do
+        local rec
+        rec=$(kubectl -n "$NS" exec "$old_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c 'SELECT pg_is_in_recovery();' 2>/dev/null || echo "")
+        if [[ "$rec" == "f" ]]; then
+            promoted=1
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$promoted" != "1" ]]; then
+        log "ERROR: $old_pod did not promote within 60s for rewind drill"
+        exit 1
+    fi
+    log "    $old_pod promoted; recording post-promotion row"
+
+    kubectl -n "$NS" exec "$old_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "
+        INSERT INTO rejoin_drill_rewind (src) VALUES ('post-promotion-on-old');
+        SELECT pg_switch_wal();
+    " >/dev/null
+
+    log "    waiting $new_pod Ready after rewind path (max 180s)"
+    if ! kubectl -n "$NS" wait pod "$new_pod" --for=condition=Ready --timeout=180s 2>/dev/null; then
+        log "ERROR: $new_pod did not Ready after pg_rewind path within 180s"
+        kubectl -n "$NS" describe pod "$new_pod" | tail -40
+        kubectl -n "$NS" logs "$new_pod" --all-containers=true --tail=120 2>/dev/null || true
+        exit 1
+    fi
+
+    local rewind_found
+    rewind_found=$(kubectl -n "$NS" logs "$new_pod" --all-containers=true --tail=400 2>/dev/null | grep -c "pg_rewind" || true)
+    if [[ "$rewind_found" -lt 1 ]]; then
+        log "    WARN: pg_rewind log marker not found — basebackup fallback may have run"
+    else
+        log "    pg_rewind log marker count=$rewind_found"
+    fi
+
+    local rows
+    rows=$(kubectl -n "$NS" exec "$new_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT src FROM rejoin_drill_rewind ORDER BY id;" 2>/dev/null || echo "")
+    if ! echo "$rows" | grep -q "post-promotion-on-old"; then
+        log "ERROR: $new_pod missing post-promotion row after rewind; rows=$rows"
+        exit 1
+    fi
+
+    local seen
+    seen=$(kubectl -n "$NS" exec "$old_pod" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication;" 2>/dev/null || echo "0")
+    if [[ "$seen" -lt 1 ]]; then
+        log "ERROR: $new_pod not streaming after rewind"
+        exit 1
+    fi
+
+    log "    PASS: pg_rewind rejoin (post-promotion row visible, streaming=ok)"
+}
+
+drill_sync() {
+    local primary="${STS_NAME}-0"
+    log "  [B.1] sync replication patch"
+
+    kubectl -n "$NS" patch postgrescluster "$CR_NAME" --type=merge -p '{"spec":{"postgresql":{"synchronous":{"method":"ANY","number":1,"dataDurability":"required"}}}}' >/dev/null
+
+    local end=$(( $(date +%s) + 180 ))
+    local rolled=0 conf=""
+    log "    waiting synchronous_standby_names (max 180s)"
+    while [[ $(date +%s) -lt $end ]]; do
+        conf=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SHOW synchronous_standby_names;" 2>/dev/null || echo "")
+        # PG 의 "비활성" 값은 빈 문자열
+        if [[ -n "$conf" && "$conf" != "" && "$conf" != " " ]]; then
+            rolled=1
+            log "    synchronous_standby_names='$conf'"
+            break
+        fi
+        sleep 3
+    done
+    if [[ "$rolled" != "1" ]]; then
+        log "ERROR: synchronous_standby_names not set within 180s"
+        kubectl -n "$NS" get postgrescluster "$CR_NAME" -o yaml | grep -A8 synchronous || true
+        exit 1
+    fi
+
+    log "  [B.2] sync_state verify"
+    end=$(( $(date +%s) + 60 ))
+    local sync_count=0
+    while [[ $(date +%s) -lt $end ]]; do
+        sync_count=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state='sync';" 2>/dev/null || echo "0")
+        if [[ "$sync_count" -ge 1 ]]; then
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$sync_count" -lt 1 ]]; then
+        log "ERROR: no sync replica registered within 60s"
+        kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "SELECT application_name, sync_state, state FROM pg_stat_replication;" || true
+        exit 1
+    fi
+    log "    sync replica count=$sync_count"
+
+    log "  [B.3] RPO=0 proof — 1000-row commit + flush_lsn >= commit_lsn"
+    kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c '
+        CREATE TABLE IF NOT EXISTS sync_drill (id serial PRIMARY KEY, ts timestamptz DEFAULT now());
+        TRUNCATE sync_drill;
+        INSERT INTO sync_drill (ts) SELECT now() FROM generate_series(1,1000);
+    ' >/dev/null
+
+    local commit_lsn flush_lsn diff
+    commit_lsn=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT pg_current_wal_lsn();" 2>/dev/null || echo "")
+    if [[ -z "$commit_lsn" ]]; then
+        log "ERROR: commit_lsn 캡처 실패"
+        exit 1
+    fi
+    log "    commit_lsn=$commit_lsn"
+
+    end=$(( $(date +%s) + 30 ))
+    local converged=0
+    while [[ $(date +%s) -lt $end ]]; do
+        flush_lsn=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT flush_lsn FROM pg_stat_replication WHERE sync_state='sync' ORDER BY flush_lsn DESC LIMIT 1;" 2>/dev/null || echo "")
+        if [[ -n "$flush_lsn" ]]; then
+            diff=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT pg_wal_lsn_diff('$flush_lsn'::pg_lsn, '$commit_lsn'::pg_lsn);" 2>/dev/null || echo "-1")
+            # diff 가 numeric 이고 >= 0 이면 PASS
+            if [[ "${diff%%.*}" -ge 0 ]] 2>/dev/null; then
+                converged=1
+                break
+            fi
+        fi
+        sleep 1
+    done
+    if [[ "$converged" != "1" ]]; then
+        log "ERROR: flush_lsn=$flush_lsn did not reach commit_lsn=$commit_lsn within 30s"
+        kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "SELECT application_name, sync_state, write_lsn, flush_lsn, apply_lsn FROM pg_stat_replication;" || true
+        exit 1
+    fi
+    log "    PASS: RPO=0 (flush_lsn=$flush_lsn >= commit_lsn=$commit_lsn)"
+
+    if [[ "${SMOKE_SYNC_KILL:-0}" == "1" ]]; then
+        drill_sync_kill "$primary"
+    else
+        log "  [B.4] skip sync kill — SMOKE_SYNC_KILL=0"
+    fi
+
+    log "  [B.5] revert sync config"
+    kubectl -n "$NS" patch postgrescluster "$CR_NAME" --type=json -p='[{"op":"remove","path":"/spec/postgresql/synchronous"}]' >/dev/null 2>&1 || true
+
+    log "  PASS: sync drill"
+}
+
+drill_sync_kill() {
+    local primary="$1"
+    local standby="${STS_NAME}-1"
+    log "  [B.4] sync standby kill — primary write 차단 verify"
+
+    kubectl -n "$NS" delete pod "$standby" --wait=false --grace-period=0 --force 2>/dev/null || true
+    sleep 3
+
+    local rc=0
+    kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "
+        SET statement_timeout = '10s';
+        INSERT INTO sync_drill (ts) VALUES (now());
+    " >/dev/null 2>&1 || rc=$?
+
+    if [[ "$rc" == "0" ]]; then
+        log "ERROR: write 가 sync 차단 없이 commit 됨 — sync replication regression"
+        exit 1
+    fi
+    log "    write 차단 (rc=$rc)"
+
+    log "    waiting $standby Ready (max 120s)"
+    if ! kubectl -n "$NS" wait pod "$standby" --for=condition=Ready --timeout=120s 2>/dev/null; then
+        log "ERROR: $standby did not return within 120s"
+        exit 1
+    fi
+
+    local end=$(( $(date +%s) + 60 ))
+    local rec=0
+    while [[ $(date +%s) -lt $end ]]; do
+        local n
+        n=$(kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -At -c "SELECT count(*) FROM pg_stat_replication WHERE sync_state='sync';" 2>/dev/null || echo "0")
+        if [[ "$n" -ge 1 ]]; then
+            rec=1
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$rec" != "1" ]]; then
+        log "ERROR: sync_state=sync not restored within 60s"
+        exit 1
+    fi
+
+    kubectl -n "$NS" exec "$primary" -c postgres -- psql -h /var/run/postgresql -U postgres -d postgres -c "INSERT INTO sync_drill (ts) VALUES (now());" >/dev/null
+    log "    PASS: sync 복귀 후 write 재개"
 }
 
 if [[ "${SMOKE_SOURCE_ONLY:-0}" == "1" ]]; then
@@ -848,7 +1162,7 @@ fi
 #    primary kill → standby 가 새 primary 로 promote 되는 시간. RTO 목표 < 30s.
 #    SMOKE_FAILOVER=1 환경변수 설정 시에만 실행 (default skip — 데이터 plane 변경 영향).
 if [[ "${REPLICAS:-1}" -ge 2 ]] && [[ "${SMOKE_FAILOVER:-0}" == "1" ]]; then
-    log "[14/15] Failover RTO measurement (SMOKE_FAILOVER=1)"
+    log "[14/17] Failover RTO measurement (SMOKE_FAILOVER=1)"
     KILL_TS=$(date +%s)
     kubectl -n "$NS" delete pod "$POD" --wait=false || true
     log "  primary killed at $(format_utc_ts "$KILL_TS") — waiting for new primary"
@@ -902,5 +1216,31 @@ if [[ "${REPLICAS:-1}" -ge 2 ]] && [[ "${SMOKE_FAILOVER:-0}" == "1" ]]; then
     fi
     log "  PASS: CR status reflects ${STS_NAME}-1 and restarted old primary is standby"
 else
-    log "[14/15] skip failover RTO — SMOKE_FAILOVER=${SMOKE_FAILOVER:-unset} (set SMOKE_FAILOVER=1 to enable)"
+    log "[14/17] skip failover RTO — SMOKE_FAILOVER=${SMOKE_FAILOVER:-unset} (set SMOKE_FAILOVER=1 to enable)"
+fi
+
+# 15. SMOKE_REJOIN=1 이면 rejoin drill 실행 (T30 G1)
+if [[ "${SMOKE_REJOIN:-0}" == "1" ]]; then
+    if [[ "${SMOKE_FAILOVER:-0}" != "1" ]]; then
+        log "[15/17] skip rejoin drill — SMOKE_REJOIN=1 requires SMOKE_FAILOVER=1 (failover establishes old primary)"
+    elif [[ "${REPLICAS:-1}" -lt 2 ]]; then
+        log "[15/17] skip rejoin drill — REPLICAS=${REPLICAS:-1} < 2"
+    else
+        log "[15/17] Rejoin drill (SMOKE_REJOIN=1, mode=${SMOKE_REJOIN_MODE})"
+        drill_rejoin
+    fi
+else
+    log "[15/17] skip rejoin drill — SMOKE_REJOIN=${SMOKE_REJOIN:-unset}"
+fi
+
+# 16. SMOKE_SYNC=1 이면 sync replication RPO=0 drill 실행 (T30 G1)
+if [[ "${SMOKE_SYNC:-0}" == "1" ]]; then
+    if [[ "${REPLICAS:-1}" -lt 2 ]]; then
+        log "[16/17] skip sync drill — REPLICAS=${REPLICAS:-1} < 2"
+    else
+        log "[16/17] Sync replication drill (SMOKE_SYNC=1, kill=${SMOKE_SYNC_KILL})"
+        drill_sync
+    fi
+else
+    log "[16/17] skip sync drill — SMOKE_SYNC=${SMOKE_SYNC:-unset}"
 fi

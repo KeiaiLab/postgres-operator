@@ -35,6 +35,7 @@
 | T29 Pooler TLS auto-issuance | Complete 100% | cert-manager `Certificate` CR auto-issuance via `spec.pgbouncer.autoTLS` (stages 1+2 spec + controller). **Stage 3** cert-manager kind drill → 6/6 PASS. **Stage 4 self-signed fallback** (`spec.pgbouncer.autoTLS.selfSigned: true`) — operator generates in-process RSA-2048 + x509 self-signed cert (1-year validity, 30-day renewal skew), writes the same `tls.crt`/`tls.key`/`ca.crt` Secret layout cert-manager produces, so no end-user manifest change is needed when migrating between environments. **Stage 5 rotation observability** — `Pooler.Status.AutoTLSClientCertNotAfter` / `AutoTLSServerCertNotAfter` and `priority=1` printer columns. T29 complete. |
 
 | T30 HA bootstrap fence race | Complete 100% | Final fix shipped: (i) `IsStandby(dataDir)` short-circuit, (ii) `promotedAtLeastOnce` guard, (iii) **standby-pod election downgrade** — pods that boot with `standby.signal` on disk take Follower election, never contest the lease, and (iv) `handleStoppedLeading` is now side-effect-free. Failover is exclusively operator-driven (`executeClusterPromotion`). Live PG18 SHARD_REPLICAS=1 5/5 PASS + streaming, PG17 SHARD_REPLICAS=1 5/5 PASS + streaming, SHARD_REPLICAS=0 both PG18 / PG17 5/5 regression-free. |
+| T31 G1 rejoin/sync 라이브 drill 자동화 | Code-complete, live PASS pending | `hack/smoke.sh` 에 `SMOKE_REJOIN` (basebackup + pg_rewind) + `SMOKE_SYNC` (RPO=0 + opt-in kill) 두 환경변수 단계 추가. `bash -n` + `SMOKE_SOURCE_ONLY=1` + `smoke_shell_test.sh` 함수 declaration unit 모두 PASS. 라이브 `SHARD_REPLICAS=2 SMOKE_FAILOVER=1 SMOKE_REJOIN=1 SMOKE_SYNC=1 ./hack/smoke.sh` 실행 후 ROADMAP G1 `[~]→[x]` 마감 commit 별도 PR. spec/plan = `docs/superpowers/{specs,plans}/2026-05-17-g1-rejoin-sync-drill-*.md`. |
 
 ## Local 4-layer gate
 
@@ -101,6 +102,21 @@ kubectl annotate pooler <name> postgres.keiailab.io/rotate-pooler-password=true 
 # The operator runs ALTER ROLE, updates the userlist.txt Secret in place,
 # strips the annotation, and records status.builtinAuthLastRotation.
 ```
+
+### To finish T31 (G1 rejoin/sync 라이브 drill)
+
+```bash
+# 전체 시나리오 (failover RTO + rejoin basebackup+rewind + sync RPO=0)
+SHARD_REPLICAS=2 SMOKE_FAILOVER=1 SMOKE_REJOIN=1 SMOKE_SYNC=1 ./hack/smoke.sh
+
+# 부분: rejoin only / sync only / sync kill
+SHARD_REPLICAS=2 SMOKE_FAILOVER=1 SMOKE_REJOIN=1 SMOKE_REJOIN_MODE=basebackup ./hack/smoke.sh
+SHARD_REPLICAS=2 SMOKE_SYNC=1 ./hack/smoke.sh
+SHARD_REPLICAS=2 SMOKE_SYNC=1 SMOKE_SYNC_KILL=1 ./hack/smoke.sh
+```
+
+라이브 PASS 후 ROADMAP G1 의 `Replica rejoin` + `Synchronous replication`
+`[~]→[x]` 마감 + Refs 컬럼에 commit hash 인용.
 
 ## Reference
 
