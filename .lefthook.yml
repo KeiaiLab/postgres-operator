@@ -60,6 +60,14 @@ pre-push:
           echo "❌ Multi-arch PLATFORMS 잔존 — RFC 0002 §2 위반 (amd64-only 강제)"
           exit 1
         fi
+    version-sync:
+      # 5-way version SSOT 정합 (CITATION + Chart version/appVersion + kustomize
+      # newTag + dist/install.yaml image tag). standards/enforcement.md §3.1.4
+      # (`version-ssot-drift` rule) + standards/checklist.md PR row 정합.
+      # 트리거 사고: 2026-05-20 RCA — CITATION.cff `v0.3.0-alpha.15` ↔ Chart
+      # `0.3.0-alpha.18` 3 release silent drift.
+      # 우회: VERSION_SYNC_SKIP=1 환경변수.
+      run: bash scripts/check-version-sync.sh
     go-mod-tidy:
       # go.mod direct/indirect drift 차단 (cycle 46 발견). go mod tidy 후 변경
       # 발생하면 push 차단 — 의존성 그래프 정확성 보장 (security audit false
