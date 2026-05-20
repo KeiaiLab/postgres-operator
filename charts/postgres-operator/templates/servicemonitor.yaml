@@ -32,5 +32,5 @@ spec:
       bearerTokenFile: {{ .Values.metrics.serviceMonitor.bearerTokenFile | quote }}
       {{- end }}
       tlsConfig:
-        insecureSkipVerify: {{ default true .Values.metrics.serviceMonitor.tlsConfig.insecureSkipVerify }}
+        insecureSkipVerify: {{ ne .Values.metrics.serviceMonitor.tlsConfig.insecureSkipVerify false }}
 {{- end }}
