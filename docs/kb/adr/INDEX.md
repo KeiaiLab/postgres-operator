@@ -26,6 +26,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0013](0013-operatorhub-bundle-scaffold.md) | OperatorHub.io bundle scaffold cross-cut — operator-sdk 1.42 + kustomize, 2 owned CRDs, Makefile `bundle` / `bundle-build` (PR-B9, valkey ADR-0037 port) | Accepted | 2026-05-10 |
 | [ADR-0014](0014-community-operators-sync-automation.md) | community-operators sync automation | Accepted | 2026-05-10 |
 | [ADR-0015](0015-distributed-tx.md) | 분산 트랜잭션 — 2PC primary + saga deferred (G5 §D.10.2, RFC-0005 정합) | Accepted | 2026-05-16 |
+| [ADR-0016](0016-former-adr-0015-force-reset-history.md) | 옛 ADR-0015 (RFC-0002 OSS CI 일탈) force-reset history codify — Option A: Accepted / Option B: Withdrawn (사용자 confirmation 대기) | Proposed | 2026-05-20 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
