@@ -28,6 +28,45 @@ pre-commit:
       glob: "charts/**/*.yaml"
       # chart 변경 시 helm lint 강제 — RFC 0002 L1.
       run: command -v helm >/dev/null 2>&1 && helm lint charts/postgres-operator || echo "helm not installed, skipping"
+    adr-phantom-check:
+      # standards/adr.md §9.5 — HANDOFF.md staged 시 ADR-XXXX reference 의
+      # 실 file 존재 검증 (docs/kb/adr/ + docs/adr/ 양 path union).
+      # governance-report `adr_phantom_count` (layer 4) 와 sister.
+      # cycle 25 P10 root cause fix (양 path 인정).
+      glob: "HANDOFF.md"
+      run: |
+        if ! echo "{staged_files}" | grep -qE '(^|/)HANDOFF\.md$'; then exit 0; fi
+        refs=$(grep -oE 'ADR-[0-9]{4}' HANDOFF.md 2>/dev/null | sort -u || true)
+        if [ -z "$refs" ]; then exit 0; fi
+        missing=""
+        for ref in $refs; do
+          num=$(echo "$ref" | sed 's/ADR-//')
+          # bash glob 결과를 ls + head 로 검사 (양 path union).
+          if ! ls docs/kb/adr/${num}-*.md 2>/dev/null | grep -q . && ! ls docs/adr/${num}-*.md 2>/dev/null | grep -q .; then
+            missing="$missing $ref"
+          fi
+        done
+        if [ -n "$missing" ]; then
+          echo "❌ phantom ADR reference 발견 (HANDOFF.md staged + 해당 ADR file 부재):"
+          echo " $missing"
+          echo "fix: 해당 ADR file 작성 (docs/kb/adr/) 또는 reference 정정"
+          exit 1
+        fi
+    orphan-plan-files-block:
+      # standards/workflow.md §2 종료 의식 + enforcement.md §3.1.2 sister.
+      # repo 루트의 임시 plan/scratch file commit 차단.
+      # exemption: HANDOFF/TASKS/ROADMAP/README/CHANGELOG/CLAUDE/AGENTS (legitimate).
+      # 우회: ORPHAN_OK=1 git commit ...
+      run: |
+        if [ "${ORPHAN_OK:-0}" = "1" ]; then exit 0; fi
+        orphans=$(ls PLAN.md TODO.md TODO_*.md SCRATCH.md SCRATCH_*.md tmp_*.md scratch_*.md draft_*.md NOTES.md 2>/dev/null || true)
+        if [ -n "$orphans" ]; then
+          echo "❌ orphan plan/scratch file 발견 (repo root):"
+          echo "$orphans"
+          echo "(legitimate: HANDOFF.md / TASKS.md / ROADMAP.md / README.md / CHANGELOG.md / CLAUDE.md / AGENTS.md)"
+          echo "우회: ORPHAN_OK=1 git commit ..."
+          exit 1
+        fi
 
 pre-push:
   parallel: false
