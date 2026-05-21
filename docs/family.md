@@ -29,7 +29,7 @@ All four projects converge on the same operational primitives:
 
 ## What we do NOT do
 
-- ❌ **Embed or wrap upstream operators** (PGO, CloudNativePG, MongoDB Community Operator, Sentinel) — license-clean, no copyleft obligations
+- ❌ **Embed or wrap external database operators** — license-clean, no copyleft obligations
 - ❌ **GitHub Actions for release gates** — local 4-layer + GitLab CI L5 (see RFC-0002, RFC-0043)
 - ❌ **Time-based roadmap deadlines** — feature checklist + completion percentages (see `standards/roadmap.md §1.1`)
 - ❌ **Bitnami chart / image** — registry deprecation risk, Broadcom acquisition (see ADR-0136 / ADR-0057)

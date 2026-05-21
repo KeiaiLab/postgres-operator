@@ -1,6 +1,6 @@
 - External PostgreSQL → PostgresCluster CR (`externalClusters.bootstrap.pg_basebackup`)
 - StatefulSet → PostgresCluster CR
-- 다른 operator (PGO / CNPG) → keiailab postgres-operator
+- 외부 PostgreSQL operator → keiailab postgres-operator
 - Sharding 도입 (G3+): non-sharded → ShardingMode=native
 
 ## External → PostgresCluster

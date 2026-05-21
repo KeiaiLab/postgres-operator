@@ -47,8 +47,9 @@ gh repo fork k8s-operatorhub/community-operators --clone --remote
 cd community-operators
 
 # 2. Create the new version directory (the directory must match the
-#    bundle's package name; `postgres-operator` is taken by zalando, so
-#    we register under `keiailab-postgres-operator`).
+#    bundle's package name; the unqualified `postgres-operator` slot is
+#    already taken in community-operators, so we register under
+#    `keiailab-postgres-operator`).
 mkdir -p operators/keiailab-postgres-operator/0.3.0-alpha.18
 cp -r /path/to/postgres-operator/bundle/* \
       operators/keiailab-postgres-operator/0.3.0-alpha.18/

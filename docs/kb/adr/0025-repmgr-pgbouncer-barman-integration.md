@@ -56,7 +56,7 @@ keiailab/postgres-operator (v0.3.0-alpha) 는 *self-built distributed SQL* (ADR-
 ## Alternatives Considered
 
 - **A1. Repmgr fork**: AGPL/BUSL 의존성 영구 제거 (ADR-0003) — Rejected.
-- **A2. CrunchyData PGO 통합**: 외부 operator 의존 — Rejected.
+- **A2. 외부 상용 PostgreSQL operator 통합**: 외부 operator 의존 — Rejected.
 - **A3. 본 ADR**: 자체 구현 + bitnami parity — **Accepted**.
 
 ## References

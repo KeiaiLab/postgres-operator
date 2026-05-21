@@ -10,16 +10,11 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
-  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"/></a>
+  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go Version"/></a>
   <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-18%2B-336791?logo=postgresql" alt="PostgreSQL"/></a>
   <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes" alt="Kubernetes"/></a>
   <a href="https://github.com/keiailab/postgres-operator/pkgs/container/postgres-operator"><img src="https://img.shields.io/badge/ghcr.io-keiailab%2Fpostgres--operator-blue?logo=github" alt="Container Image"/></a>
   <a href="https://keiailab.github.io/postgres-operator"><img src="https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/keiailab/postgres-operator/main/charts/postgres-operator/Chart.yaml&label=helm%20v" alt="Helm Chart"/></a>
-  <a href="https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/keiailab-postgres-operator" alt="Artifact Hub"/></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/keiailab/postgres-operator"><img src="https://api.scorecard.dev/projects/github.com/keiailab/postgres-operator/badge" alt="OpenSSF Scorecard"/></a>
-  <a href="https://github.com/keiailab/postgres-operator/discussions"><img src="https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github" alt="GitHub Discussions"/></a>
-  <a href="https://github.com/keiailab/operator-commons/blob/main/docs/quality/audit-history.md"><img src="https://img.shields.io/badge/keiailab-v3.x--stable-success?style=flat-square" alt="keiailab v3.x-stable"/></a>
-  <a href="https://github.com/keiailab/operator-commons/blob/main/scripts/audit-production-grade.sh"><img src="https://img.shields.io/badge/audit-100%25-success?style=flat-square" alt="audit"/></a>
 </p>
 
 <p align="center">
@@ -33,7 +28,7 @@
 
 ## 정체성
 
-본 operator 는 PostgreSQL 위에 *자체 구축 distributed SQL 레이어* 를 만든다. PGO / Citus / Vitess / CloudNativePG / Patroni / CockroachDB 의 공개 설계와 운영 관용구를 참조하지만, 이들 시스템을 *runtime 의존* 으로 embed 또는 wrap 하지 않는다. 코드 / CRD / reconciler / instance manager / router 모두 Apache-2.0 호환 조건 하에 본 저장소 안에서 직접 구현.
+본 operator 는 upstream PostgreSQL 위에 *자체 구축 distributed SQL 레이어* 를 만든다. 외부 PostgreSQL operator runtime 을 embed 또는 wrap 하지 않으며, 코드 / CRD / reconciler / instance manager / router 모두 Apache-2.0 호환 조건 하에 본 저장소 안에서 직접 구현된다.
 
 차별점:
 
@@ -42,7 +37,7 @@
 - **K8s-native auto-sharding 로드맵** — `ShardRange` CRD = source of truth, KEDA 트리거 auto-split, 7-step online resharding (cutover SLA target p99 < 500 ms).
 - **Single-endpoint 로드맵** — application 은 `pg-router` Deployment 에 PostgreSQL wire protocol 로 연결, sharding 인지 불필요.
 
-PGO 급 = *품질 기준*, PGO fork / embed 아님. Citus 급 distribution 도 Citus extension 출하 의미 아님 — Citus 가 검증한 문제 공간을 PostgreSQL 호환 새 서비스로 *재구현*. Plugin SDK 는 v0.x archive 에서 retired. 현 방향 = 좁게 정의된 internal module + 명시 CRD.
+Plugin SDK 는 v0.x archive 에서 retired. 현 방향 = 좁게 정의된 internal module + 명시 CRD.
 
 ADR 0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 이 본 결정의 keystone.
 
@@ -81,10 +76,10 @@ helm chart 와 OperatorHub bundle 은 **8 owned CRD** 출하. CRD 상태는 argo
 | `PostgresCluster` | Shard-aware 토폴로지 (primary + standby + native sharding 로드맵) | ✅ 배포 가능 |
 | `BackupJob` | 원자적 backup/restore Job (pgBackRest plugin) | ⚠️ controller 부분 |
 | `ScheduledBackup` | Cron 기반 BackupJob 생성 (6-field schedule) | ⚠️ controller 부분 |
-| `Pooler` | PgBouncer 연결 풀 (CNPG 호환 표면) | ⚠️ controller 부분 |
+| `Pooler` | PgBouncer 연결 풀 레이어 | ⚠️ controller 부분 |
 | `PostgresDatabase` | 선언적 database/schema/extension/FDW (ready-primary psql) | ⚠️ controller 부분 |
 | `PostgresUser` | 선언적 role + password + membership (ready-primary psql) | ⚠️ controller 부분 |
-| `ImageCatalog` | Namespace 범위 PostgreSQL runtime image 카탈로그 (CNPG 호환) | ⚠️ rollout path |
+| `ImageCatalog` | Namespace 범위 PostgreSQL runtime image 카탈로그 | ⚠️ rollout path |
 | `ClusterImageCatalog` | Cluster 범위 공유 PostgreSQL runtime image 카탈로그 | ⚠️ rollout path |
 
 Helm chart 추가: PrometheusRule + Grafana dashboard (Pooler overview + Cluster overview), restricted PSA SecurityContext, deny-by-default NetworkPolicy, cert-manager TLS 통합, OpenTelemetry-ready hook.
@@ -118,7 +113,7 @@ phase 세부 (sub-task / SLO / ADR/RFC 참조): [`docs/roadmap.md`](docs/roadmap
 
 ```bash
 # 1. operator + 8 CRD 설치 (helm chart 또는 OperatorHub bundle)
-helm install pgo charts/postgres-operator
+helm install postgres-operator charts/postgres-operator
 
 # 2. quickstart PostgresCluster 적용
 kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
@@ -135,7 +130,7 @@ kubectl apply -f config/samples/postgres_v1alpha1_pooler.yaml
 kubectl apply -f config/samples/postgres_v1alpha1_scheduledbackup.yaml
 
 # 6. 모니터링 활성화 (prometheus-operator 필요)
-helm upgrade pgo charts/postgres-operator \
+helm upgrade postgres-operator charts/postgres-operator \
   --reuse-values \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.prometheusRule.enabled=true \
@@ -146,7 +141,7 @@ helm upgrade pgo charts/postgres-operator \
 
 ## Production readiness
 
-**현재 상태 (0.3.0-alpha.18, 2026-05-12)**: argos Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/argos-postgres` 가 `Ready=True`. CloudNativePG cross-validation: [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md).
+**현재 상태 (0.3.0-alpha.18, 2026-05-12)**: argos Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/argos-postgres` 가 `Ready=True`.
 
 GA 거리:
 - **P1** — production-ready single-shard 는 HA Lease 분산 lock controller + BackupJob/ScheduledBackup live drill + PITR checksum drill + chaos-mesh failover suite 필요. sub-task tracking: `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`.
@@ -169,7 +164,7 @@ kubectl delete pooler --all -A
 kubectl delete scheduledbackup --all -A
 
 # 2. chart 제거
-helm uninstall pgo
+helm uninstall postgres-operator
 
 # 3. CRD 제거 (선택; helm 은 cluster 상태 보존 위해 CRD 기본 유지)
 kubectl delete crd postgresclusters.postgres.keiailab.com \
@@ -199,7 +194,7 @@ GitHub Actions 는 OSS 표준 suite (CI / scorecard / CodeQL / DCO / dependency-
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — 단일 페이지 아키텍처 설명 (8 CRD surface + self-built distributed SQL + G0-G6 상태 + ADR cross-link)
 - `docs/kb/adr/` — Architecture Decision Record (현재: 0001–0014; archive: `_archive/v0.x/`)
 - `docs/rfcs/` — RFC draft (현재: 0001–0007)
-- `docs/operator-guide/` — Deployment / pooler-monitoring / cross-validation-cnpg / community-operators-onboarding / HA
+- `docs/operator-guide/` — Deployment / pooler-monitoring / community-operators-onboarding / HA
 - `docs/runbooks/` — 운영 절차: ha / backup / restore / upgrade / security / migration (각 SLO target + verify command 보유)
 - `docs/sharding/` — Sharding 아키텍처 spec (G3-G5)
 - `docs/api-reference/` — CRD reference (자동 생성, 계획)

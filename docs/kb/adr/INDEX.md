@@ -40,29 +40,28 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 
 ## Archived (v0.x — decisions from before the redesign)
 
-The v0.x cycle aimed at a "PGO-class full-stack + first-class Citus +
-Plugin SDK" outcome. After the 2026-04-30 keystone redesign (new
-ADR-0001), the v0.x ADRs are preserved *for historical reference only*.
-New code / new decisions are *not* required to follow the conclusions of
-this archive. The current principle is "external designs may be
-referenced, embedding / wrapping external systems is forbidden, and we
-implement as new services." That said, some archived ADRs (e.g. v0.x
-ADR-0008 cascade delete, v0.x ADR-0009 no-github-actions-rfc-0002)
-remain *consistent with current operational policy* — see the Notes
-column.
+The v0.x cycle aimed at a production-grade PostgreSQL operator with a
+third-party sharding extension and a Plugin SDK. After the 2026-04-30
+keystone redesign (new ADR-0001), the v0.x ADRs are preserved *for
+historical reference only*. New code / new decisions are *not* required
+to follow the conclusions of this archive. The current principle is
+"embedding / wrapping external systems is forbidden, and we implement as
+new services." That said, some archived ADRs (e.g. v0.x ADR-0008 cascade
+delete, v0.x ADR-0009 no-github-actions-rfc-0002) remain *consistent
+with current operational policy* — see the Notes column.
 
-| Number | Title | Notes |
+| Archived slot | Topic | Notes |
 |--------|-------|-------|
-| [v0.x ADR-0001](_archive/v0.x/0001-stateless-query-router-on-citus.md) | Mission restated: PGO-class full-stack + first-class Citus + Plugin SDK | Superseded by active ADR-0001 |
-| [v0.x ADR-0002](_archive/v0.x/0002-no-patroni-instance-manager.md) | No Patroni; instance manager + K8s API as DCS | Active — instance-manager pattern retained |
-| [v0.x ADR-0003](_archive/v0.x/0003-queryrouter-stateless-design.md) | Stateless QueryRouter design | Active — `pg-router` follows the same principle |
-| [v0.x ADR-0004](_archive/v0.x/0004-build-not-fork-or-layer.md) | Build from scratch (both PGO fork and soft-layer rejected) | Active — keystone policy of this repo |
-| [v0.x ADR-0005](_archive/v0.x/0005-plugin-sdk-interface-model.md) | Plugin SDK interface model (in-process + gRPC) | Superseded — Plugin SDK retired (active ADR-0001) |
-| [v0.x ADR-0006](_archive/v0.x/0006-security-defaults-rationale.md) | Dataplane PodSecurityContext defaults | Active — Pod security defaults retained |
-| [v0.x ADR-0007](_archive/v0.x/0007-helm-chart-promoted-to-p1.md) | Move the Helm chart from P14 to the P1 track | Superseded by active ADR-0002 (single chart + flags) |
-| [v0.x ADR-0008](_archive/v0.x/0008-finalizer-avoidance-policy.md) | Finalizer-avoidance policy (cascade delete via OwnerReference) | Active — cascade-delete pattern in operation |
-| [v0.x ADR-0009](_archive/v0.x/0009-no-github-actions-rfc-0002.md) | Retire GitHub Actions + adopt the local 4-layer gate | Active — this repo's instance of the org-wide RFC 0002 policy |
-| [v0.x ADR-0010](_archive/v0.x/0010-license-and-sharding-strategy.md) | License + sharding strategy (Citus AGPL isolation, vanilla PG default) | Superseded by active ADR-0001 (0 lines of Citus dependency) |
+| v0.x ADR-0001 | Earlier mission statement (now retired) | Superseded by active ADR-0001 |
+| v0.x ADR-0002 | Self-built instance manager + K8s API as DCS | Active — instance-manager pattern retained |
+| v0.x ADR-0003 | Stateless QueryRouter design | Active — `pg-router` follows the same principle |
+| v0.x ADR-0004 | Build from scratch (no fork or soft-layer) | Active — keystone policy of this repo |
+| v0.x ADR-0005 | Plugin SDK interface model (in-process + gRPC) | Superseded — Plugin SDK retired (active ADR-0001) |
+| v0.x ADR-0006 | Dataplane PodSecurityContext defaults | Active — Pod security defaults retained |
+| v0.x ADR-0007 | Move the Helm chart from P14 to the P1 track | Superseded by active ADR-0002 (single chart + flags) |
+| v0.x ADR-0008 | Finalizer-avoidance policy (cascade delete via OwnerReference) | Active — cascade-delete pattern in operation |
+| v0.x ADR-0009 | Retire GitHub Actions + adopt the local 4-layer gate | Active — this repo's instance of the org-wide RFC 0002 policy |
+| v0.x ADR-0010 | Earlier license + sharding strategy (AGPL third-party extension isolation, vanilla PG default) | Superseded by active ADR-0001 (0 lines of third-party extension dependency) |
 
 ## Authoring guide
 

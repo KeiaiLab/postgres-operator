@@ -3,15 +3,15 @@ title: "keiailab/postgres-operator"
 description: "Apache-2.0 PostgreSQL Kubernetes Operator — independent new implementation with no embedded external backend"
 ---
 
-This operator is an independent new implementation that builds a *self-built distributed SQL layer* on top of vanilla PostgreSQL 18+ in a K8s native fashion (ADR 0001 keystone). The designs of external systems such as PGO, Citus, Vitess, and CloudNativePG may be referenced, but those systems are not embedded into the product or repackaged as wrappers. External backend dependencies (AGPL/BUSL/CSL/SSPL) are permanently forbidden (ADR 0003).
+This operator is an independent new implementation that builds a *self-built distributed SQL layer* on top of vanilla PostgreSQL 18+ in a K8s native fashion (ADR 0001 keystone). No external PostgreSQL operator runtime is embedded into the product or repackaged as a wrapper. External backend dependencies (AGPL/BUSL/CSL/SSPL) are permanently forbidden (ADR 0003).
 
 If you want to bring up a cluster in 5 minutes, head to the [Quickstart](/tutorials/quickstart). If you are curious about the *why* behind the design decisions, read [ADR 0001](/adr/0001-self-built-distributed-sql) first.
 
 ## Key features
 
 - **Declarative PostgresCluster**: the operator creates the StatefulSet, Service, instance RBAC, and network policy.
-- **K8s lease-based HA roadmap** (RFC 0003): no Patroni. Uses the K8s API as the DCS.
-- **Self-managed ShardRange metadata roadmap** (RFC 0002): the K8s CRD is the source of truth — no external KV layer or Citus `pg_dist_node` required.
+- **K8s lease-based HA roadmap** (RFC 0003): no third-party HA agent. Uses the K8s API as the DCS.
+- **Self-managed ShardRange metadata roadmap** (RFC 0002): the K8s CRD is the source of truth — no external KV layer or third-party distributed-node catalog required.
 - **Stateless QueryRouter roadmap** (RFC 0004): horizontal scaling via HPA, PgBouncer integration, lossless Pod restart targeted.
 - **Distributed transactions roadmap** (RFC 0005): self-built 2PC + saga — independent of backend extensions.
 

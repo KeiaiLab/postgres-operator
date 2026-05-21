@@ -13,7 +13,7 @@
 
 ## 概述
 
-- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — 以 *自建* 代码 (非 PGO / Citus 的 fork 或 wrapper) 实现 PGO 级运营质量 + Citus 级分布式。
+- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — 以 *自建* 代码实现 production-grade 运营质量与 distributed SQL。非外部 PostgreSQL operator 的 fork 或 wrapper。
 - **范围**: K8s 上的 vanilla PostgreSQL 18+,single-shard HA → sharding → online resharding → distributed SQL → GA。
 - **稳定性等级**: v0.3.0-alpha.16 (G0 100% / G1 81% / G2 72% / G3 37% / G4-G5 0% / G6 12%)
 - **License**: Apache-2.0 (依赖: 仅 BSD/Apache/MIT/PG-License — SaaS 暴露时 copyleft 义务为 0)
@@ -52,7 +52,7 @@ operator manager
   - Rebalancer / Backup / Autoscaler glue
 ```
 
-ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 是 keystone — *不内嵌 PGO / Citus*。
+ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 是 keystone — *不内嵌任何外部 operator*。
 
 ## RBAC 范围
 
@@ -135,9 +135,9 @@ Notable:
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (`pkg/version` 决定 v18 最低)
-- ❌ PGO fork 或 PGO runtime embedding (Apache-2.0 边界)
-- ❌ Citus extension 出货 (将问题领域 *重新实现*)
-- ❌ Patroni / Stolon runtime 依赖 (自建 instance manager)
+- ❌ 重新打包外部 PostgreSQL operator (Apache-2.0 边界)
+- ❌ 出货外部 sharding extension (将问题领域 *重新实现*)
+- ❌ 外部 HA agent runtime 依赖 (自建 instance manager)
 - ❌ Copyleft 依赖 (license-clean Apache-2.0 only)
 - ❌ Plugin SDK (在 v0.x archive 已 retired — 用显式 CRD 替代)
 

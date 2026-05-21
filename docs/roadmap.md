@@ -8,10 +8,9 @@ description: "postgres-operator Gate-based roadmap (sub-task checklist)"
 This ROADMAP tracks progress through verifiable Gates and sub-task
 checklists — *not* date commitments. `postgres-operator` is an
 *independent new implementation* that does not embed an external
-PostgreSQL operator or distributed-SQL backend. Phrases like
-"PGO-class" / "Citus-class" describe a *quality bar / problem domain*,
-not a claim to fork those products or to bundle them as a runtime
-dependency.
+PostgreSQL operator or distributed-SQL backend. We target a
+production-grade quality bar without forking or bundling any external
+operator runtime.
 
 ## Checkbox semantics
 
@@ -28,8 +27,8 @@ e2e file.
 
 | Principle | Meaning |
 |---|---|
-| PGO-class quality | HA / backup / restore / upgrade / observability / security UX is benchmarked at commercial production levels. No PGO code is used. |
-| Citus-class problem coverage | Shard placement / routing / rebalance / distributed-transaction problems are analyzed; the Citus extension itself is not bundled. |
+| Production-grade quality | HA / backup / restore / upgrade / observability / security UX is benchmarked at commercial production levels, implemented in-house. |
+| Distributed-SQL problem coverage | Shard placement / routing / rebalance / distributed-transaction problems are addressed by the in-house design; no external sharding extension is bundled. |
 | Plugin SDK message retired | The v0.x archive's broad Plugin-SDK positioning is retired. Only narrow, necessary extension points are designed. |
 | Apache-2.0 clean-room | Only allowed-license dependencies are used; code from forbidden-license projects is never copied, translated, or ported. |
 | GitOps first | argos production deployment must be reproducible through the GitOps path + the Helm chart dependency graph. |
@@ -92,7 +91,7 @@ cluster via GitOps.
 
 ### Gate G2 — Operational quality (~25% buffer)
 
-**Goal**: cover the PGO-class operational surface.
+**Goal**: cover the production-grade operational surface.
 
 - [x] `/metrics` baseline exposure (port 8443) — `internal/controller/metrics.go`, `cmd/main.go`.
 - [x] TLS path setup (certificate mount + `ssl=on`) — `internal/controller/builders.go:renderPostgresConf()`, `tls.go`.
@@ -102,7 +101,7 @@ cluster via GitOps.
 - [~] cert-manager integration — mount path only; issuance mechanism still TBD (T29).
 - [~] **Automatic PrometheusRule generation** — Helm metrics Service / ServiceMonitor / PrometheusRule rendering + real `postgres_operator_backupjob_phase` metric driving BackupJob failure alerts.
   - [x] Replication-lag warning — instance status `LagBytes` → `postgres_operator_postgrescluster_replication_lag_bytes` + Helm `PostgresReplicationLagHigh`.
-  - [x] Pooler failure / saturation warnings — `postgres_operator_pooler_phase{phase="Failed"}` + render verification of CNPG `cnpg_pgbouncer_*` exporter-metric-driven collection-failure / client-waiting / max-wait alerts.
+  - [x] Pooler failure / saturation warnings — `postgres_operator_pooler_phase{phase="Failed"}` + render verification of PgBouncer exporter-metric-driven collection-failure / client-waiting / max-wait alerts.
   - [x] Disk pressure — `kubelet_volume_stats_*` data-PVC alert.
   - [x] Backup failure — `postgres_operator_backupjob_phase{phase="Failed"}`.
 - [~] **Grafana dashboards** — Helm dashboard ConfigMap rendering done (`postgres-operator-cluster-overview.json`, `postgres-operator-pooler.json`); live Grafana import / panel verification still pending.
@@ -110,14 +109,14 @@ cluster via GitOps.
   - [x] CRD `Pooler.spec.{cluster, instances, type, pgbouncer.poolMode, pgbouncer.parameters}` added.
   - [x] Separate PgBouncer Deployment / Service / ConfigMap created + `userlist.txt` Secret fail-closed validation.
   - [x] Default PgBouncer readiness / liveness / startup probes + exporter `/metrics` readiness / liveness probes.
-  - [x] CNPG-compatible PgBouncer parameter allowlist + operator-owned-key fail-closed validation.
+  - [x] PgBouncer parameter allowlist + operator-owned-key fail-closed validation.
   - [x] Automatic topology spread + PodDisruptionBudget when `instances > 1`.
   - [x] Stronger rolling-update defaults — `maxUnavailable=0`, `maxSurge=1`, `minReadySeconds=5`.
-  - [x] CNPG Pooler parity — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
+  - [x] Pooler parity surface — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
   - [x] `pg_hba` → PgBouncer `pg_hba.conf` rendering + operator-owned validation of `auth_type=hba` / `auth_hba_file`.
   - [x] User-supplied server / client TLS Secret rendering + Secret/key fail-closed validation.
   - [x] `type=ro` full ready-replica host-list rendering + `server_round_robin=1` + `server_login_retry=2` defaults.
-  - [~] PgBouncer exporter — explicit sidecar + `metrics` ServicePort + PodMonitor selector label/sample + PrometheusRule alert render verification on CNPG metric prefixes; live Prometheus scrape / Grafana verification still pending.
+  - [~] PgBouncer exporter — explicit sidecar + `metrics` ServicePort + PodMonitor selector label/sample + PrometheusRule alert render verification on PgBouncer metric prefixes; live Prometheus scrape / Grafana verification still pending.
   - [x] **Built-in auth user automation** (T27 ⑤).
   - [x] **Built-in auth password rotation** (T27 ⑥).
   - [ ] Built-in TLS auto-issuance (T29).
@@ -132,13 +131,13 @@ cluster via GitOps.
 - [ ] **Security defaults hardening** — restricted PSA, NetworkPolicy on by default.
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog image → StatefulSet init/main container image + image-hash annotation rollout-drift tracking + catalog watch / envtest done. Extension-image volume mount, official digest catalog supply, and live rollout measurement still pending.
 - [~] **Replica clusters / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` surface, streaming standalone replica bootstrap, ordinal-0 external `pg_basebackup`, `standby.signal`/`primary_conninfo`, password passfile + TLS client/root cert conninfo, persistent-follower election that blocks local promotion, and fail-closed status all verified. WAL-archive / object-store hybrid, distributed-topology demotion/promotion-token, and live cross-cluster drill still pending.
-- [~] **Declarative hibernation** — CNPG-compatible `cnpg.io/hibernation=on/off` annotation, shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, condition `cnpg.io/hibernation`, all envtest-verified. The `SMOKE_HIBERNATION=1` path exercises PVC-marker-row preservation and a rehydration SQL round-trip drill; live kind verification still pending.
+- [~] **Declarative hibernation** — hibernation annotation `cnpg.io/hibernation=on/off` (retained for ecosystem-tool compatibility), shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, hibernation condition, all envtest-verified. The `SMOKE_HIBERNATION=1` path exercises PVC-marker-row preservation and a rehydration SQL round-trip drill; live kind verification still pending.
 - [ ] **Release smoke test** — `hack/release-smoke-test.sh` 12/12 (mongodb pattern).
 - Verify: PrometheusRule / Grafana dashboard rendering, `psql` access through the Pooler Service, live PgBouncer exporter scrape, and an upgrade rolling restart succeed.
 
 ### Gate G3 — Self-built sharding foundation (~0% buffer)
 
-**Goal**: implement sharding metadata in-house, without Citus.
+**Goal**: implement sharding metadata in-house, without any external sharding runtime.
 
 - [~] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`.
 - [~] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`.
@@ -181,8 +180,8 @@ cluster via GitOps.
 
 ## Non-goals (intentional exclusions)
 
-- ❌ Repackaging an external PostgreSQL operator (forking PGO / CNPG / Patroni).
-- ❌ Citus's first-class built-in features (Citus is a *design reference*, not a runtime dependency).
+- ❌ Repackaging or forking an external PostgreSQL operator.
+- ❌ Embedding a third-party sharding extension as a first-class runtime dependency.
 - ❌ A general-purpose Plugin SDK product story (retired from the v0.x archive).
 - ❌ **GitHub Actions as a required release gate** — see RFC 0002 (org-wide). Delegated to the local 4-layer gate.
 - ❌ **Date-based roadmap deadlines** — see the org-wide `workflow.md`.

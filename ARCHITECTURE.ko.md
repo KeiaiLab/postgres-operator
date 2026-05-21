@@ -13,7 +13,7 @@
 
 ## 개요
 
-- **목적**: Apache-2.0 PostgreSQL Kubernetes Operator — *자체 구축* 코드 (PGO/Citus fork 또는 wrapper 아님) 로 PGO 급 운영 품질 + Citus 급 분산을 목표.
+- **목적**: Apache-2.0 PostgreSQL Kubernetes Operator — *자체 구축* 코드로 production-grade 운영 품질 + distributed SQL 제공. 외부 PostgreSQL operator fork 또는 wrapper 아님.
 - **범위**: K8s 위의 vanilla PostgreSQL 18+, single-shard HA → sharding → online resharding → distributed SQL → GA.
 - **안정성 단계**: v0.3.0-alpha.16 (G0 100% / G1 81% / G2 72% / G3 37% / G4-G5 0% / G6 12%)
 - **License**: Apache-2.0 (의존성: BSD/Apache/MIT/PG-License 만 — SaaS 노출 시 copyleft 의무 0)
@@ -52,7 +52,7 @@ operator manager
   - Rebalancer / Backup / Autoscaler glue
 ```
 
-ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 이 keystone — *PGO/Citus embedding 없음*.
+ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) 이 keystone — *외부 operator embedding 없음*.
 
 ## RBAC 범위
 
@@ -135,9 +135,9 @@ Notable:
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (`pkg/version` 결정상 v18 최소)
-- ❌ PGO fork 또는 PGO runtime embedding (Apache-2.0 경계)
-- ❌ Citus extension 출하 (문제 공간을 *재구현*)
-- ❌ Patroni / Stolon runtime 의존 (자체 instance manager)
+- ❌ 외부 PostgreSQL operator 재패키징 (Apache-2.0 경계)
+- ❌ 외부 sharding extension 동봉 (문제 공간을 *재구현*)
+- ❌ 외부 HA agent runtime 의존 (자체 instance manager)
 - ❌ Copyleft 의존성 (license-clean Apache-2.0 만)
 - ❌ Plugin SDK (v0.x archive 에서 retired — 명시 CRD 로 대체)
 
