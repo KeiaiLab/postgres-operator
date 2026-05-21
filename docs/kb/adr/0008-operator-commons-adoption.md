@@ -18,8 +18,8 @@ container level*:
 - `RunAsNonRoot` not set — relied on Pod-level inherit.
 - `SeccompProfile` not set — relied on Pod-level inherit.
 
-The archived `_archive/v0.x/0006-security-defaults-rationale.md` policy is
-not *active*, so this ADR establishes the new policy.
+The prior v0.x security-defaults rationale is no longer *active* (history
+preserved in git), so this ADR establishes the new policy.
 
 ## Decision
 
@@ -88,6 +88,5 @@ explicitly applied.
 
 - operator-commons v0.1.2 (github.com/keiailab/operator-commons)
 - iteration 8 plan: ~/.claude/plans/iridescent-squishing-locket.md
-- archived: docs/kb/adr/_archive/v0.x/0006-security-defaults-rationale.md
 
 <!-- live-verified: 2026-05-09 -->

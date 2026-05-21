@@ -4,7 +4,7 @@
 - Date: 2026-05-02
 - Authors: @phil
 - Target: Phase P1 (~v0.4.0)
-- Supersedes: `_archive/v0.x/0001-*` ~ `0005-*` (the previous external-extension-backed model is abandoned)
+- Supersedes: prior v0.x RFCs 0001–0005 (the previous external-extension-backed model is abandoned; history preserved in git)
 
 ## §1 Summary
 
@@ -297,8 +297,8 @@ make test-e2e PILLAR=p1                            # single-shard scenario
 ## §8 References
 
 - Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.2
-- Archive: `docs/rfcs/_archive/v0.x/0001-vanilla-default.md` (old single-backend decision)
-- Archive: `docs/rfcs/_archive/v0.x/0005-sharding-plugin-interface.md` (old dual-backend abstraction)
+- Prior v0.x RFC-0001 (old single-backend `vanilla-default` decision) — history preserved in git.
+- Prior v0.x RFC-0005 (old dual-backend `sharding-plugin-interface` abstraction) — history preserved in git.
 - Kubebuilder CEL validation: https://book.kubebuilder.io/reference/markers/crd-validation.html
 - Operator Capability Levels: https://operatorframework.io/operator-capabilities/ (Auto Pilot reach goal)
 - ADR 0001: `docs/kb/adr/0001-self-built-distributed-sql.md`

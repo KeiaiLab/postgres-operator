@@ -3,7 +3,7 @@
 - **Status**: Accepted (2026-05-11 — retrospective document for completed implementation artifacts)
 - **Date**: 2026-05-11
 - **Authors**: @keiailab/maintainers (republished — the previous 0003 slot was reassigned to shardsplitjob; this RFC is the canonical slot)
-- **Refs**: archived self-built-instance-manager decision under `docs/kb/adr/_archive/v0.x/`, operations guide [`docs/operator-guide/ha-election.md`](../operator-guide/ha-election.md)
+- **Refs**: prior v0.x self-built-instance-manager decision (history preserved in git), operations guide [`docs/operator-guide/ha-election.md`](../operator-guide/ha-election.md)
 - **Supersedes**: the portion that previously lived as a temporary SSOT in `docs/operator-guide/ha-election.md`
 
 ## 1. Summary
@@ -129,5 +129,5 @@ Recovering a fenced Pod is a manual operator task:
 - Code: `internal/instance/election/`, `internal/instance/fencing/`, `cmd/instance/`
 - Tests: `election_test.go`, `integration_test.go`, `fencing_test.go`
 - Operations: `docs/operator-guide/ha-election.md`
-- Archived decision: self-built-instance-manager rationale under `docs/kb/adr/_archive/v0.x/`
+- Prior v0.x self-built-instance-manager rationale (history preserved in git).
 - Follow-up: P2-T3 (failover controller), P2-T4 (pg_rewind), Phase 13 (kubectl postgres CLI)

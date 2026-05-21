@@ -195,7 +195,7 @@ GitHub Actions 运行 OSS 标准套件(CI / scorecard / CodeQL / DCO / dependenc
 ## Documentation (文档)
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) —— 单页架构描述(8 个 CRD 表面 + 自研分布式 SQL + G0-G6 状态 + ADR 交叉链接)
-- `docs/kb/adr/` —— 架构决策记录(当前:0001–0014;归档位于 `_archive/v0.x/`)
+- `docs/kb/adr/` —— 架构决策记录(当前:0001–0026)
 - `docs/rfcs/` —— RFC 草案(当前:0001–0007)
 - `docs/operator-guide/` —— 部署 / pooler-monitoring / community-operators-onboarding / HA
 - `docs/runbooks/` —— 运维流程:ha / backup / restore / upgrade / security / migration(每一项都附带 SLO 目标 + 验证命令)

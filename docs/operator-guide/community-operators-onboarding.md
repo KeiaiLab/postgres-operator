@@ -125,6 +125,6 @@ bundle-build → PR flow.
 ## Related
 
 - [ADR-0013](../kb/adr/0013-operatorhub-bundle-scaffold.md) — OperatorHub bundle scaffold.
-- [RFC-0002](../rfcs/_archive/v0.x/) — GitHub Actions ban + local 4-layer gate.
+- [ADR-0018](../kb/adr/0018-gha-to-local-4-layer.md), [ADR-0021](../kb/adr/0021-rfc-0002-gha-block-hook.md) — GitHub Actions ban + local 4-layer gate.
 - [CHANGELOG.md](../../CHANGELOG.md) — change summary per alpha cut.
 - [release-process.md](../releases/release-process.md) — release-tag procedure.

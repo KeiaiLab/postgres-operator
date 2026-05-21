@@ -8,7 +8,7 @@ title: "HA Leader Election"
 > Pillar P2 (HA / Failover) deliverable: **K8s lease-based leader
 > election**. Rationale and frozen parameters live in
 > [RFC-0007 — HA Election + PVC Fencing protocol (Draft)](../rfcs/0007-ha-election-and-fencing.md)
-> and the self-built-instance-manager decision in `docs/kb/adr/_archive/v0.x/`.
+> and the prior v0.x self-built-instance-manager decision (history preserved in git).
 
 ## 1. What runs
 
@@ -218,6 +218,6 @@ PVCs in its own namespace (RFC 0003 Appendix A §7).
 ## 11. References
 
 - [RFC-0007 — HA Election + PVC Fencing protocol (Draft)](../rfcs/0007-ha-election-and-fencing.md) (Appendix A: PVC fencing detail).
-- Self-built-instance-manager rationale archived under `docs/kb/adr/_archive/v0.x/`.
+- Prior v0.x self-built-instance-manager rationale (history preserved in git).
 - Code: `internal/instance/election/`, `internal/instance/fencing/`.
 - Follow-up: F05 chaos E2E / live divergent-WAL `pg_rewind` drill.
