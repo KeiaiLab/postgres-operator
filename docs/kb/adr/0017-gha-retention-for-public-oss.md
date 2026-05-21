@@ -2,11 +2,14 @@
 
 | Meta | Value |
 |---|---|
-| Status | Proposed |
+| Status | Superseded by ADR-0018 |
 | Date | 2026-05-21 |
 | Author | keiailab |
 | Supersedes | (none) |
+| Superseded by | ADR-0018 (GHA 전면 제거 → 로컬 4계층 단일 운영) |
 | Related | ADR-0014 (community-operators sync automation), ADR-0016 (former ADR-0015 force-reset history) |
+
+> **2026-05-21 supersede**: maintainer 의 S7 cycle 결정으로 본 ADR 의 *유지* 노선은 폐기되고, ADR-0018 (RFC-0002 strict 적용 + 14 workflow 전면 제거) 로 대체되었다. 본 문서는 history 보존 용도로만 유지된다.
 
 ## Context
 
