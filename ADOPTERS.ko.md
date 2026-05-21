@@ -27,7 +27,7 @@ operator 를 PoC / evaluation / Day-0 환경에서 운영하는 사용자.
 
 | 사용자 | 컴포넌트 | 단계 | 등록일 |
 |---|---|---|---|
-| **argos-platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 배포. PG18 failover smoke PASS, RTO 21 s. HA replicas / backup-restore drill 는 아직 미통과 — production 전 ROADMAP G1 필요. | 2026-05-07 |
+| **platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 배포. PG18 failover smoke PASS, RTO 21 s. HA replicas / backup-restore drill 는 아직 미통과 — production 전 ROADMAP G1 필요. | 2026-05-07 |
 
 ## 등록 방법
 

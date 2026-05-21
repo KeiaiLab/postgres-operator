@@ -753,7 +753,7 @@ prepare_primary_conninfo() {
 
 if [ -f "$DATA/PG_VERSION" ]; then
   chmod 0700 "$DATA"
-  # iteration 35 fix (cluster argos-postgres incident): empty postmaster.pid 정리.
+  # iteration 35 fix (cluster postgres incident): empty postmaster.pid 정리.
   # postgres 의 graceful shutdown 실패 시 postmaster.pid 가 *0 byte* 로 남는
   # 흔적 (FATAL: lock file "postmaster.pid" is empty). 정상 running postgres
   # 의 postmaster.pid 는 non-empty (PID + epoch + ports) — -s 테스트로 *empty
@@ -1017,7 +1017,7 @@ func buildPGStatefulSet(
 							},
 						},
 					}}, dataplaneEphemeralVolumes()...), tlsVolumes(cluster)...), externalClusterCredentialVolumes(replicaConfig)...),
-					// argos cycle 21 stop hook 26차: modern HA 5-layer 활성.
+					// production cycle 21 stop hook 26차: modern HA 5-layer 활성.
 					// Layer 2 TopologySpreadConstraints (multi-node 분산 SPOF 차단)
 					// + Layer 3 PriorityClassName (evict 우선순위) — CR Spec.Shards
 					// 의 신규 fields 사용. Affinity + Tolerations 도 동시 적용.

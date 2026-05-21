@@ -21,8 +21,8 @@
   Remaining: maintainer-owned bundle image push to
   `ghcr.io/keiailab/postgres-operator-bundle:0.3.0-alpha.18` (requires a
   PAT with `write:packages` scope) → CI green → flip to Ready → merge.
-- argos production cluster: ArgoCD `platform-data-postgres-operator`
-  Synced/Healthy, `PostgresCluster/argos-postgres` Ready=True (Day-0
+- production cluster: ArgoCD `platform-data-postgres-operator`
+  Synced/Healthy, `PostgresCluster/postgres` Ready=True (Day-0
   single-shard, no HA replicas yet).
 
 ## Active work
@@ -37,7 +37,7 @@
 | T30 HA bootstrap fence race | Complete 100% | Final fix shipped: (i) `IsStandby(dataDir)` short-circuit, (ii) `promotedAtLeastOnce` guard, (iii) **standby-pod election downgrade** — pods that boot with `standby.signal` on disk take Follower election, never contest the lease, and (iv) `handleStoppedLeading` is now side-effect-free. Failover is exclusively operator-driven (`executeClusterPromotion`). Live PG18 SHARD_REPLICAS=1 5/5 PASS + streaming, PG17 SHARD_REPLICAS=1 5/5 PASS + streaming, SHARD_REPLICAS=0 both PG18 / PG17 5/5 regression-free. |
 | T31 G1 rejoin/sync 라이브 drill 자동화 | Complete 90% | `hack/smoke.sh` 에 `SMOKE_REJOIN` (basebackup + pg_rewind) + `SMOKE_SYNC` (RPO=0 + opt-in kill) 두 환경변수 단계 추가. 라이브 evidence (2026-05-17, fresh kind PG18 SHARD_REPLICAS=1): **B.1~B.3 RPO=0 PASS** (`commit_lsn=0/3DA43A0 / flush_lsn=0/3DA43A0 / pg_wal_lsn_diff=0`, drill_sync commit dca3fa0); **A.1 basebackup rejoin PASS** (`quickstart-shard-0-1` standby PVC delete → fresh basebackup → `streaming sync_state=async lag=0`). ROADMAP G1 `Replica rejoin` + `Synchronous replication` 양쪽 `[~]→[x]`. **A.2 pg_rewind 라이브 drill** + **SMOKE_FAILOVER operator-driven promotion 라이브 trigger** 회귀 = 별 task (`docs/g1-ha-election-fact-fix` 영역 위임). |
 | T32 Gate 진척 turn 2026-05-19 (~26 sub-task / 21 commit) | Complete 100% | **G1**: D.1.1 PVC fence runbook (L76 `[~]→[x]`, pure 함수 + 158-line runbook + 5 sub-test), D.2.3 Upgrade runbook (L92 stub→complete 36→206 lines), D.3.1 WAL-G + Barman plugin (L89 `[~]→[x]`, 양 plugin 13+12 sub-test). **G2**: D.5.2 PrometheusRule alert count verify (L106 `[~]→[x]`, 8 alerts ≥8), D.5.8 object grants DSL (L133 `[~]→[x]`, `internal/postgres/grants.go` 13 sub-test), D.6.1 built-in TLS auto-issuance (L126 `[ ]→[x]`, RSA-2048 self-signed + ShouldRenew 30d skew + 9 sub-test), D.6.4 PSA + default-deny NetworkPolicy (L135 `[ ]→[x]`, 4-5 정책 renderer + 5 sub-test). **G3**: D.8.2 vindex policy branching (L150 `[~]→[x]`, 4 vindex 분기 + 자체 murmur3 + overlap detection + 9 sub-test), D.8.3 metadata store Postgres catalog (L151 `[ ]→[x]`, Store interface + PostgresStore + 2-version SchemaMigrations + 9 sqlmock sub-test), D.8.8 placement + drift guard (L156+L157 `[ ]→[x]`, 6 PlacementDriftReason + 9 sub-test). **G5**: D.10.1 scatter-gather 실 구현 (L180 `[~]→[x]`, ShardExecutor pluggable + FailFast/BestEffort + MergeConcat/OrderBy + 9 sub-test), D.10.2 2PC coordinator real state machine (L181 `[~]→[x]`, Begin/Enlist/Prepare/Commit/Rollback + 5 state + InDoubt + 8 sub-test). 본 turn worktree: `.claude/worktrees/postgres-operator-gates` (T33 P1.2 squash 통합 완료). |
-| T33 supercycle ship readiness | In progress | `~/.claude/plans/postgres-operator-supercycle-T33.md` 추적. P1 (git hygiene + T32 통합) 진행 중. P2 (root 정책 = 사용자 actual 정합, root 유지) / P3 (argos 0 + i18n sync) / P4 (lint + OLM bundle validate) / P5 (release sanity + release.yml multi-arch fix) / P6 (cleanup). Codex review `019e4aa5-55a6-74c2-b003-d595e7232c55` 8 challenge 반영. |
+| T33 supercycle ship readiness | In progress | `~/.claude/plans/postgres-operator-supercycle-T33.md` 추적. P1 (git hygiene + T32 통합) 완료. P2 (root 정책 = 사용자 actual 정합, root 유지) 폐기 / P3 (legacy keyword 0 + i18n sync) / P4 (lint + OLM bundle validate) / P5 (release sanity + release.yml multi-arch fix) / P6 (cleanup). Codex review `019e4aa5-55a6-74c2-b003-d595e7232c55` 8 challenge 반영. |
 
 ## Local 4-layer gate
 

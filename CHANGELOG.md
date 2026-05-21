@@ -267,7 +267,7 @@ This project follows SemVer.
 ### Fixed
 
 - *(bootstrap)* PID-alive check for non-empty stale `postmaster.pid`
-  (argos INC-0046 P19 ⑲). Closes the regression where a leftover
+  (INC-0046 P19 ⑲). Closes the regression where a leftover
   zombie file blocked fresh PG startup.
 
 ## [0.3.0-alpha.16] - 2026-05-10
@@ -365,7 +365,7 @@ This project follows SemVer.
 - When a Postgres Pod with an existing PGDATA restarts, the bootstrap
   init container now re-runs `chmod 0700 "$PGDATA"` even after kubelet
   has applied `fsGroup`. The regression was observed live during
-  `data/argos-postgres-shard-0-0` re-creation, where PostgreSQL exited
+  `data/postgres-shard-0-0` re-creation, where PostgreSQL exited
   with `invalid permissions`.
 
 ## [0.3.0-alpha.2] - 2026-05-07

@@ -69,7 +69,7 @@ operator manager
 
 ### 현재 출하 (v0.3.0-alpha.18)
 
-helm chart 와 OperatorHub bundle 은 **8 owned CRD** 출하. CRD 상태는 argos production 클러스터에서 *오늘 reconcile 되는 범위* 반영:
+helm chart 와 OperatorHub bundle 은 **8 owned CRD** 출하. CRD 상태는 production 클러스터에서 *오늘 reconcile 되는 범위* 반영:
 
 | CRD | 역할 | 상태 |
 |---|---|---|
@@ -141,7 +141,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness
 
-**현재 상태 (0.3.0-alpha.18, 2026-05-12)**: argos Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/argos-postgres` 가 `Ready=True`.
+**현재 상태 (0.3.0-alpha.18, 2026-05-12)**: production Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/postgres` 가 `Ready=True`.
 
 GA 거리:
 - **P1** — production-ready single-shard 는 HA Lease 분산 lock controller + BackupJob/ScheduledBackup live drill + PITR checksum drill + chaos-mesh failover suite 필요. sub-task tracking: `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`.

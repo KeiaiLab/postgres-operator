@@ -43,13 +43,13 @@ file.
 
 | Item | State | Evidence |
 |---|---|---|
-| Project / chart name | `postgres-operator` | GitHub repo, Helm chart, and argos GitOps path are aligned |
+| Project / chart name | `postgres-operator` | GitHub repo, Helm chart, and GitOps path are aligned |
 | License | Apache-2.0 | `LICENSE`, ADR-0003 |
 | Latest release | `0.3.0-alpha.18` | GHCR image + Helm chart publish + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` aligned with 8 CRDs + alm-examples + CSV descriptions | `operator-sdk bundle validate --select-optional suite=operatorframework` is clean (T26) |
 | Declarative DB surface | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycles completed; live kind smoke automation (T27) in progress |
 | Local 4-layer gate | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002; version-drift assertion and bundle validate are automated (T26) |
-| argos deployment | Day-0 single-shard | `PostgresCluster/argos-postgres` Ready |
+| Production deployment | Day-0 single-shard | `PostgresCluster/postgres` Ready |
 | GHCR runtime image | Publicly pullable | `ghcr.io/keiailab/pg:18` restarts with no pull secret |
 | HA replicas | Partial (`Replicas` field only) | `api/v1alpha1/postgrescluster_types.go` |
 | Backup / restore | Partially implemented | `BackupJob` phase transitions + `ScheduledBackup` CRD/controller + `RestorePIT` call path + pgBackRest command-runner plugin + K8s sidecar exec path. Actual restore drill is still pending. |
@@ -67,7 +67,7 @@ cluster via GitOps.
 - [x] `PostgresClusterReconciler` builds desired state (ConfigMap / headless Service / StatefulSet) — `internal/controller/postgrescluster_controller.go`.
 - [x] Status phase transitions (Provisioning → Ready) — `internal/controller/status.go`, `aggregate_status.go`.
 - [x] Pod readiness tracking — reconciler endpoint watch.
-- [x] ArgoCD `Synced/Healthy` — verified on argos production (`platform-data-postgres-operator`).
+- [x] ArgoCD `Synced/Healthy` — verified on production (`platform-data-postgres-operator`).
 - [x] GHCR public pull — `ghcr.io/keiailab/pg:18` restarts with no pull secret.
 - [x] Day-0 e2e — `test/e2e/e2e_test.go`, `postgrescluster_e2e_test.go`.
 - Verify: ArgoCD `Synced/Healthy` + Pod `1/1` Running + `psql -c 'select version()'`.

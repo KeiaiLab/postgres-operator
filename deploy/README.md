@@ -18,7 +18,7 @@ deploy/
 └── postgres-cluster.yaml          # ArgoCD application path: workload (CR instance, ns=data)
 ```
 
-Operational model: per the argos cluster ns-consolidation policy
+Operational model: per the production cluster ns-consolidation policy
 (2026-05-06 cycle: all five charts share the `data` namespace), the
 operator and the CRs live in the *same `data` namespace*. envName
 separation (`overlays/prod`) is preserved only as an environment
@@ -27,11 +27,11 @@ identifier.
 ## Current operational status (2026-05-08)
 
 The reason `keiailab/postgres-operator` was not deployed earlier was
-that the argos-platform-data ApplicationSet
+that the platform-data ApplicationSet
 (`platform/data/application.yaml`) did not list the operator path in
 its `directories` block. The current production GitOps entry point
 is the `postgres-operator/` Helm wrapper chart inside
-argos-platform-data.
+platform-data.
 
 As verified live on 2026-05-08, ArgoCD Application
 `platform-data-postgres-operator` is `Synced/Healthy`
@@ -40,10 +40,10 @@ As verified live on 2026-05-08, ArgoCD Application
 the `data` namespace is running `1/1`. The live image is
 `ghcr.io/keiailab/postgres-operator:0.3.0-alpha.4`
 (`sha256:394ec5eb4aa09d316d957a3c751bb7283f21bfa71f19a9d2871ccbc7ec974f2f`)
-and `PostgresCluster/argos-postgres` is `Ready=True`.
+and `PostgresCluster/postgres` is `Ready=True`.
 
 This directory remains as the **alternate Kustomize deployment entry
-point** (RFC-0004 §3). The argos production environment uses the
+point** (RFC-0004 §3). The production environment uses the
 `platform/data/postgres-operator` path as its primary source of truth.
 
 ⚠️ **Scope boundary** — the status above means Day-0 alpha-deployable
@@ -53,8 +53,8 @@ drills, PITR, and long-running soak are still pending, so this is
 
 ## Cluster prerequisites
 
-- [x] `data` namespace pre-created (Active as of the argos 2026-05-06 cycle).
-- [x] StorageClass `ceph-rbd` (default) available — verified on the argos cluster.
+- [x] `data` namespace pre-created (Active as of the the 2026-05-06 cycle).
+- [x] StorageClass `ceph-rbd` (default) available — verified on the production cluster.
 - [ ] (optional) `pg-admin-creds` Secret in the `data` namespace — required when postgres-operator does not auto-create it; inject via ExternalSecret. The RFC 0001 v2 schema is capable of internal bootstrap.
 - [ ] Prometheus Operator (required when `monitoring.serviceMonitor.enabled=true`).
 - [ ] PrometheusRule CRD available (required when `monitoring.prometheusRule.enabled=true`).
