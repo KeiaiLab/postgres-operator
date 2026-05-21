@@ -9,7 +9,7 @@
 
 > 英文原文: [ROADMAP.md](ROADMAP.md) — canonical / 正本
 
-本 ROADMAP 通过可验证的 Gate 与 sub-task 清单跟踪进度 —— *并非日期承诺*。项目定位为 **Apache-2.0 PostgreSQL Kubernetes Operator**。我们的目标是达到 PGO 级运维质量,且不 fork / embed / wrap PGO、Citus、CloudNativePG、Patroni 等外部系统。
+本 ROADMAP 通过可验证的 Gate 与 sub-task 清单跟踪进度 —— *并非日期承诺*。项目定位为 **Apache-2.0 PostgreSQL Kubernetes Operator**。我们的目标是达到 production-grade 运维质量,且不 fork / embed / wrap 任何外部 PostgreSQL operator 运行时。
 
 ## 复选框含义
 
@@ -23,10 +23,9 @@
 
 ## 原则
 
-- **可以参考外部设计** —— PGO 的运维 UX、Citus 的 distributed-SQL 拆解、Vitess 的 router 模式、CNPG 的 Kubernetes-operator 模式都可作为公开文档/论文用于设计参考。
-- **外部系统不可随本产品出货** —— Citus 扩展、CNPG `Cluster`、Patroni DCS、Cockroach/Yugabyte 后端、PGO 控制器代码不在 runtime artifact 范围内。
+- **外部系统不可随本产品出货** —— 外部 PostgreSQL operator、sharding extension、HA agent runtime、第三方 DB 后端不在 runtime artifact 范围内。
 - **作为新服务实现** —— operator manager、instance manager、sharding 元数据、router、backup orchestration 全部在本仓库以 Apache-2.0 兼容依赖实现。
-- **"PGO 级" = 质量基线** —— 指 HA / backup / restore / upgrade / observability / security UX 的 *目标水平*,而非声称使用特定产品。
+- **质量基线** —— HA / backup / restore / upgrade / observability / security UX 的 *目标水平* 独立于任何具体的第三方产品。
 
 ## 当前状态快照
 
@@ -36,7 +35,7 @@
 | 许可证 | Apache-2.0 | `LICENSE`、ADR-0003 |
 | 最新发布 | `0.3.0-alpha.18` | GHCR 镜像 + Helm chart 发布 + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` 与 8 CRD + alm-examples + CSV 描述一致 | `operator-sdk bundle validate --select-optional suite=operatorframework` 干净 (T26) |
-| CNPG 兼容表面 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 周期完成;live kind smoke 自动化 (T27) 进行中 |
+| 声明式 DB 表面 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 周期完成;live kind smoke 自动化 (T27) 进行中 |
 | 本地 4-layer 网关 | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002;version-drift assertion 与 bundle validate 自动化 (T26) |
 | argos 部署 | Day-0 single-shard | `PostgresCluster/argos-postgres` Ready |
 | GHCR runtime 镜像 | 可公开 pull | `ghcr.io/keiailab/pg:18` 无需 pull secret 即可 restart |
@@ -90,7 +89,7 @@
 
 ### Gate G2 — 运维质量 (~25% buffer)
 
-**目标**: 覆盖 PGO 级运维表面。
+**目标**: 覆盖 production-grade 运维表面。
 
 - [x] `/metrics` baseline 暴露 (port 8443) —— `internal/controller/metrics.go`、`cmd/main.go`。
 - [x] TLS path 设置 (证书挂载 + `ssl=on`) —— `internal/controller/builders.go:renderPostgresConf()`、`tls.go`。
@@ -100,7 +99,7 @@
 - [~] cert-manager 集成 —— 仅 mount path;签发机制仍 TBD。
 - [~] **自动 PrometheusRule 生成** —— Helm metrics Service / ServiceMonitor / PrometheusRule 渲染 + 真实 `postgres_operator_backupjob_phase` 指标驱动的 BackupJob failure alert。
   - [x] Replication-lag 警告 —— 实例状态 `LagBytes` → `postgres_operator_postgrescluster_replication_lag_bytes` + Helm `PostgresReplicationLagHigh`。
-  - [x] Pooler failure / saturation 警告 —— `postgres_operator_pooler_phase{phase="Failed"}` + CNPG `cnpg_pgbouncer_*` exporter 指标驱动的 collection-failure / client-waiting / max-wait 告警渲染验证。
+  - [x] Pooler failure / saturation 警告 —— `postgres_operator_pooler_phase{phase="Failed"}` + PgBouncer exporter 指标驱动的 collection-failure / client-waiting / max-wait 告警渲染验证。
   - [x] 磁盘压力 —— `kubelet_volume_stats_*` data-PVC alert。
   - [x] Backup 失败 —— `postgres_operator_backupjob_phase{phase="Failed"}`。
 - [~] **Grafana dashboards** —— Helm dashboard ConfigMap 渲染完成 (`postgres-operator-cluster-overview.json`、`postgres-operator-pooler.json`);live Grafana 导入 / panel 验证仍 pending。
@@ -108,14 +107,14 @@
   - [x] CRD `Pooler.spec.{cluster, instances, type, pgbouncer.poolMode, pgbouncer.parameters}` 添加。
   - [x] 单独的 PgBouncer Deployment / Service / ConfigMap 创建 + `userlist.txt` Secret fail-closed validation。
   - [x] 默认的 PgBouncer readiness / liveness / startup probe + exporter `/metrics` readiness / liveness probe。
-  - [x] CNPG 兼容的 PgBouncer 参数 allowlist + operator-owned-key fail-closed validation。
+  - [x] PgBouncer 参数 allowlist + operator-owned-key fail-closed validation。
   - [x] `instances > 1` 时自动 topology spread + PodDisruptionBudget。
   - [x] 更强的 rolling-update 默认值 —— `maxUnavailable=0`、`maxSurge=1`、`minReadySeconds=5`。
-  - [x] CNPG Pooler 对齐 —— `deploymentStrategy`、`serviceAccountName`、status `backendTargets/configHash`。
+  - [x] Pooler 对齐表面 —— `deploymentStrategy`、`serviceAccountName`、status `backendTargets/configHash`。
   - [x] `pg_hba` → PgBouncer `pg_hba.conf` 渲染 + operator-owned 校验 `auth_type=hba` / `auth_hba_file`。
   - [x] 用户提供的 server / client TLS Secret 渲染 + Secret/key fail-closed validation。
   - [x] `type=ro` 渲染完整 ready-replica host-list + `server_round_robin=1` + `server_login_retry=2` 默认值。
-  - [~] PgBouncer exporter —— 显式 sidecar + `metrics` ServicePort + PodMonitor selector 标签/样本 + 在 CNPG 指标前缀上的 PrometheusRule alert 渲染验证;live Prometheus scrape / Grafana 验证仍 pending。
+  - [~] PgBouncer exporter —— 显式 sidecar + `metrics` ServicePort + PodMonitor selector 标签/样本 + 在 PgBouncer 指标前缀上的 PrometheusRule alert 渲染验证;live Prometheus scrape / Grafana 验证仍 pending。
   - [x] **内置 auth 用户自动化** (T27 ⑤) —— 当 `authSecretRef` 为空时,自动配置 `keiailab_pooler_pgbouncer` LOGIN role 与 `<pooler-name>-builtin-auth` Secret。
   - [x] **内置 auth 密码轮换** (T27 ⑥) —— `postgres.keiailab.io/rotate-pooler-password=true` annotation 触发 in-place `ALTER ROLE` + Secret 更新 + status timestamp;ConfigHash 包含 userlist,可自动 reload。
   - [ ] 内置 TLS 自动签发 (T29)。
@@ -130,13 +129,13 @@
 - [ ] **安全默认值加固** —— restricted PSA、NetworkPolicy 默认开启。
 - [~] **ImageCatalog / ClusterImageCatalog** —— CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 镜像 → StatefulSet init/main 容器镜像 + image-hash annotation rollout-drift 跟踪 + catalog watch / envtest 完成。Extension 镜像 volume mount、官方 digest catalog 供给、live rollout 测量仍 pending。
 - [~] **Replica cluster / externalClusters** —— `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 表面、streaming standalone replica bootstrap、ordinal-0 外部 `pg_basebackup`、`standby.signal`/`primary_conninfo`、password passfile + TLS client/root cert conninfo、persistent-follower election (阻塞 local promotion)、fail-closed status 全部验证。WAL-archive / object-store hybrid、distributed-topology demotion/promotion-token、live cross-cluster drill 仍 pending。
-- [~] **声明式 hibernation** —— CNPG 兼容的 `cnpg.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保留 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、condition `cnpg.io/hibernation` 全部通过 envtest 验证。`SMOKE_HIBERNATION=1` 路径还会执行 PVC-marker-row 保留与 rehydration SQL round-trip drill;live kind 验证仍 pending。
+- [~] **声明式 hibernation** —— `postgres.keiailab.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保留 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、hibernation condition 全部通过 envtest 验证。`SMOKE_HIBERNATION=1` 路径还会执行 PVC-marker-row 保留与 rehydration SQL round-trip drill;live kind 验证仍 pending。
 - [~] **Release smoke test** —— `scripts/release-smoke-test.sh` 6-stage (与 mongodb sister 模式对齐 —— GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。修正 path (hack/→scripts/) + 修正 stage count "12" 的假设 (sister 标准 = 6)。
 - Verify: PrometheusRule / Grafana dashboard 渲染、通过 Pooler Service 的 `psql` 访问、live PgBouncer exporter scrape、upgrade rolling restart 成功。
 
 ### Gate G3 — 自建 sharding 基础 (~0% buffer)
 
-**目标**: 不依赖 Citus,自建 sharding 元数据。
+**目标**: 不依赖外部 sharding 运行时,自建 sharding 元数据。
 
 - [x] `ShardingMode` 字段 (`none` / `native`) —— `postgrescluster_types.go`。Constants + Spec round-trip 由 `TestShardingMode` 守护 (`api/v1alpha1/postgrescluster_types_test.go`);通过 `+kubebuilder:validation:Enum=none;native` marker 在 apiserver 强制 enum validation。RFC 0001 §3.1 / RFC 0002。
 - [x] `ShardsSpec` (初始 shard 数 / replica / storage) —— `postgrescluster_types.go`。字段 round-trip + `DeepCopy` 切片独立性 + `Replicas=0` (HA-off dev) 由 `TestShardsSpec` 守护 (`api/v1alpha1/postgrescluster_types_test.go`)。RFC 0001 §3.1。
@@ -194,8 +193,8 @@
 
 ## Non-goals (有意排除)
 
-- ❌ 重新打包外部 PostgreSQL operator (fork PGO / CNPG / Patroni)。
-- ❌ Citus 的 first-class built-in 功能 (Citus 是 *设计参考*,不是 runtime 依赖)。
+- ❌ 重新打包或 fork 外部 PostgreSQL operator。
+- ❌ 将外部 sharding 扩展作为 first-class built-in (并非 runtime 依赖)。
 - ❌ 通用 Plugin SDK 产品叙事 (已从 v0.x archive 中 retired)。
 - ❌ **作为必需发布门的 GitHub Actions** —— 见 RFC 0002 (org-wide)。委托给本地 4-layer 网关。
 - ❌ **基于日期的路线图截止时间** —— 见 org-wide `workflow.md`。
@@ -206,8 +205,8 @@
 | 日期 | 变更 |
 |---|---|
 | 2026-05-16 | G3 §Sharding foundation: 将 `ShardingMode` / `ShardsSpec` / `Sharding plugin interface` 连同 unit-test 覆盖一起从 `[~]` 翻转到 `[x]` (`TestShardingMode`、`TestShardsSpec`、`TestShardingPlugin`)。Plans `2026-05-14-4-operators-100pct/P-D` §D.7。 |
-| 2026-05-12 | 关闭 CNPG backup/restore 差距: 增加 `ScheduledBackup` CRD/controller、cron 触发时的 `BackupJob` 创建、`BackupJob.spec.type=restore` → `RestorePIT` call path、`executionMode=job` runner Job 生命周期、pgBackRest command-runner plugin 注册以及 sidecar pod-exec path。 |
-| 2026-05-12 | 关闭 CNPG observability 差距: 添加 Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus 指标。 |
+| 2026-05-12 | 关闭 backup/restore 差距: 增加 `ScheduledBackup` CRD/controller、cron 触发时的 `BackupJob` 创建、`BackupJob.spec.type=restore` → `RestorePIT` call path、`executionMode=job` runner Job 生命周期、pgBackRest command-runner plugin 注册以及 sidecar pod-exec path。 |
+| 2026-05-12 | 关闭 observability 差距: 添加 Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus 指标。 |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` 转换 (Pending → Running → Succeeded/Failed) 实现 + 8 unit test —— `[x]` (ralph-loop iter#3)。 |
 | 2026-05-11 | 整体重写 —— 引入 Gate-scoped sub-task 清单、buffer 指标,移除所有 date-style 表述。 |
 | 2026-05-07 | 发布 `0.3.0-alpha.3`,切换到公开 GHCR pull,移除历史 staging operator,并明确 "no embedded external systems" 原则。 |

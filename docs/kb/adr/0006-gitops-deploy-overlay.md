@@ -26,7 +26,7 @@ ceph-rbd (default)   rook-ceph.rbd.csi.ceph.com   Retain   Immediate   12d
 ceph-fs              rook-ceph.cephfs.csi.ceph.com   Retain   Immediate   11d
 cold-rbd             rook-ceph.rbd.csi.ceph.com   Retain   Immediate   9d
 $ kubectl get application -n argocd -l argos.io/wave=1
-platform-data-cnpg       OutOfSync   Degraded
+platform-data-postgres   OutOfSync   Degraded
 platform-data-mongodb    OutOfSync   Healthy
 platform-data-valkey     OutOfSync   Degraded
 ```
@@ -35,7 +35,7 @@ platform-data-valkey     OutOfSync   Degraded
 
 Derived decisions:
 
-- **Apply ns unification policy**: per the argos 2026-05-06 user-explicit cycle, unify all 5 charts (cnpg/mongodb/valkey/nats/clickhouse) into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
+- **Apply ns unification policy**: per the argos 2026-05-06 user-explicit cycle, unify all 5 data-tier charts (postgres/mongodb/valkey/nats/clickhouse) into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
 - **StorageClass alignment**: `ceph-block` is absent. The default of the argos cluster is `ceph-rbd`. The `storageClass` in CR samples is also changed to `ceph-rbd`.
 - **postgresql deployment status update (2026-05-08)**: at the initial 2026-05-06 inventory, postgresql was not in the ApplicationSet path, but the argos-platform-data Helm wrapper (`platform/data/postgres-operator`) was subsequently adopted as the production source of truth. Currently `platform-data-postgres-operator` is `Synced/Healthy`, the controller Deployment is `1/1`, and `PostgresCluster/argos-postgres` is `Ready=True`. This `deploy/` is retained as an alternative direct-apply entry point.
 - **mongodb / valkey**: operated via the argos-platform-data umbrella chart and the bitnami chart, respectively. This `deploy/` is an *alternative/standby entry point*. Applying both simultaneously will cause a helm release conflict.

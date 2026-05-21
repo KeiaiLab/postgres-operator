@@ -9,7 +9,7 @@
 
 > 영문 원본: [ROADMAP.md](ROADMAP.md) — canonical / 정본
 
-본 ROADMAP 은 검증 가능한 Gate 와 sub-task 체크리스트로 진행을 추적한다 — *날짜 약속이 아니다*. 프로젝트 정체성은 **Apache-2.0 PostgreSQL Kubernetes Operator**. PGO, Citus, CloudNativePG, Patroni 같은 외부 시스템을 fork / embed / wrap 하지 않고 PGO 급 운영 품질을 목표.
+본 ROADMAP 은 검증 가능한 Gate 와 sub-task 체크리스트로 진행을 추적한다 — *날짜 약속이 아니다*. 프로젝트 정체성은 **Apache-2.0 PostgreSQL Kubernetes Operator**. 외부 PostgreSQL operator runtime 을 fork / embed / wrap 하지 않고 production-grade 운영 품질을 목표로 한다.
 
 ## 체크박스 의미
 
@@ -23,10 +23,9 @@
 
 ## 원칙
 
-- **외부 설계는 참고 가능** — PGO 운영 UX, Citus 의 distributed-SQL 분해, Vitess router idiom, CNPG 의 Kubernetes-operator 패턴은 공개 문서/논문으로 한정해 설계에 참고.
-- **외부 시스템은 본 제품 내부로 출하 금지** — Citus extension, CNPG `Cluster`, Patroni DCS, Cockroach/Yugabyte 백엔드, PGO controller 코드는 runtime artifact 에서 제외.
+- **외부 시스템은 본 제품 내부로 출하 금지** — 외부 PostgreSQL operator / sharding extension / HA agent runtime / 3rd-party DB 백엔드는 runtime artifact 에서 제외.
 - **신규 서비스로 구현** — operator manager, instance manager, sharding 메타데이터, router, backup orchestration 은 본 저장소 내에서 Apache-2.0 호환 의존성으로 구현.
-- **"PGO 급" = 품질 기준** — HA / backup / restore / upgrade / observability / security UX 의 *목표 수준*. 특정 제품 사용 주장 아님.
+- **품질 기준** — HA / backup / restore / upgrade / observability / security UX 의 *목표 수준* 은 특정 3rd-party 제품과 무관하게 약속한다.
 
 ## 현 상태 스냅샷
 
@@ -36,7 +35,7 @@
 | 라이선스 | Apache-2.0 | `LICENSE`, ADR-0003 |
 | 최신 릴리스 | `0.3.0-alpha.18` | GHCR 이미지 + Helm chart publish + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` 가 8 CRD + alm-examples + CSV description 과 정합 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
-| CNPG 호환 표면 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycle 완료; live kind smoke 자동화 (T27) 진행 중 |
+| 선언적 DB 표면 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycle 완료; live kind smoke 자동화 (T27) 진행 중 |
 | 로컬 4-layer gate | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002; version-drift assertion 및 bundle validate 자동화 (T26) |
 | argos 배포 | Day-0 single-shard | `PostgresCluster/argos-postgres` Ready |
 | GHCR runtime image | 공개 pull 가능 | `ghcr.io/keiailab/pg:18` 가 pull secret 없이 restart |
@@ -90,7 +89,7 @@
 
 ### Gate G2 — 운영 품질 (~25% buffer)
 
-**목표**: PGO 급 운영 표면 커버.
+**목표**: production-grade 운영 표면 커버.
 
 - [x] `/metrics` baseline 노출 (port 8443) — `internal/controller/metrics.go`, `cmd/main.go`.
 - [x] TLS path 설정 (certificate mount + `ssl=on`) — `internal/controller/builders.go:renderPostgresConf()`, `tls.go`.
@@ -100,7 +99,7 @@
 - [~] cert-manager 통합 — mount path 만; 발급 메커니즘 TBD.
 - [~] **자동 PrometheusRule 생성** — Helm metrics Service / ServiceMonitor / PrometheusRule rendering + 실 `postgres_operator_backupjob_phase` 메트릭 기반 BackupJob failure alert.
   - [x] Replication-lag 경고 — instance status `LagBytes` → `postgres_operator_postgrescluster_replication_lag_bytes` + Helm `PostgresReplicationLagHigh`.
-  - [x] Pooler failure / saturation 경고 — `postgres_operator_pooler_phase{phase="Failed"}` + CNPG `cnpg_pgbouncer_*` exporter 메트릭 기반 collection-failure / client-waiting / max-wait alert rendering 검증.
+  - [x] Pooler failure / saturation 경고 — `postgres_operator_pooler_phase{phase="Failed"}` + PgBouncer exporter 메트릭 기반 collection-failure / client-waiting / max-wait alert rendering 검증.
   - [x] 디스크 압박 — `kubelet_volume_stats_*` data-PVC alert.
   - [x] Backup 실패 — `postgres_operator_backupjob_phase{phase="Failed"}`.
 - [~] **Grafana 대시보드** — Helm 대시보드 ConfigMap rendering 완료 (`postgres-operator-cluster-overview.json`, `postgres-operator-pooler.json`); live Grafana import / panel 검증은 pending.
@@ -108,14 +107,14 @@
   - [x] CRD `Pooler.spec.{cluster, instances, type, pgbouncer.poolMode, pgbouncer.parameters}` 추가.
   - [x] 분리된 PgBouncer Deployment / Service / ConfigMap 생성 + `userlist.txt` Secret fail-closed validation.
   - [x] 기본 PgBouncer readiness / liveness / startup probe + exporter `/metrics` readiness / liveness probe.
-  - [x] CNPG 호환 PgBouncer 파라미터 allowlist + operator-owned-key fail-closed validation.
+  - [x] PgBouncer 파라미터 allowlist + operator-owned-key fail-closed validation.
   - [x] `instances > 1` 시 자동 topology spread + PodDisruptionBudget.
   - [x] 더 강한 rolling-update 기본값 — `maxUnavailable=0`, `maxSurge=1`, `minReadySeconds=5`.
-  - [x] CNPG Pooler parity — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
+  - [x] Pooler parity 표면 — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
   - [x] `pg_hba` → PgBouncer `pg_hba.conf` rendering + operator-owned validation of `auth_type=hba` / `auth_hba_file`.
   - [x] 사용자 제공 server / client TLS Secret rendering + Secret/key fail-closed validation.
   - [x] `type=ro` full ready-replica host-list rendering + `server_round_robin=1` + `server_login_retry=2` 기본값.
-  - [~] PgBouncer exporter — 명시적 sidecar + `metrics` ServicePort + PodMonitor selector label/sample + CNPG metric prefix 의 PrometheusRule alert render 검증; live Prometheus scrape / Grafana 검증은 pending.
+  - [~] PgBouncer exporter — 명시적 sidecar + `metrics` ServicePort + PodMonitor selector label/sample + PgBouncer metric prefix 의 PrometheusRule alert render 검증; live Prometheus scrape / Grafana 검증은 pending.
   - [x] **Built-in auth 사용자 자동화** (T27 ⑤) — `authSecretRef` 비어 있을 때 `keiailab_pooler_pgbouncer` LOGIN role + `<pooler-name>-builtin-auth` Secret 자동 프로비저닝.
   - [x] **Built-in auth 비밀번호 rotation** (T27 ⑥) — `postgres.keiailab.io/rotate-pooler-password=true` annotation 이 in-place `ALTER ROLE` + Secret update + status timestamp 를 trigger; ConfigHash 가 userlist 를 포함해 자동 reload.
   - [ ] Built-in TLS 자동 발급 (T29).
@@ -130,13 +129,13 @@
 - [ ] **Security 기본값 강화** — restricted PSA, NetworkPolicy 기본 on.
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 이미지 → StatefulSet init/main 컨테이너 이미지 + image-hash annotation rollout-drift 추적 + catalog watch / envtest 완료. Extension-image volume mount, official digest catalog 공급, live rollout 측정은 pending.
 - [~] **Replica cluster / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 표면, streaming standalone replica bootstrap, ordinal-0 외부 `pg_basebackup`, `standby.signal`/`primary_conninfo`, password passfile + TLS client/root cert conninfo, persistent-follower election (local promotion 차단), fail-closed status 모두 검증. WAL-archive / object-store hybrid, distributed-topology demotion/promotion-token, live cross-cluster drill 은 pending.
-- [~] **선언적 hibernation** — CNPG 호환 `cnpg.io/hibernation=on/off` annotation, shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, condition `cnpg.io/hibernation` 모두 envtest 검증. `SMOKE_HIBERNATION=1` path 는 PVC-marker-row 보존 및 rehydration SQL round-trip drill 도 수행; live kind 검증 pending.
+- [~] **선언적 hibernation** — `postgres.keiailab.io/hibernation=on/off` annotation, shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, hibernation condition 모두 envtest 검증. `SMOKE_HIBERNATION=1` path 는 PVC-marker-row 보존 및 rehydration SQL round-trip drill 도 수행; live kind 검증 pending.
 - [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (mongodb sister 패턴 정합 — GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan). path 정정 (hack/→scripts/) + stage count "12" 가정 정정 (sister 표준 = 6).
 - Verify: PrometheusRule / Grafana dashboard rendering, Pooler Service 를 통한 `psql` 접근, live PgBouncer exporter scrape, upgrade rolling restart 성공.
 
 ### Gate G3 — 자체 sharding 기반 (~0% buffer)
 
-**목표**: Citus 없이 sharding 메타데이터를 자체 구현.
+**목표**: 외부 sharding runtime 없이 sharding 메타데이터를 자체 구현.
 
 - [x] `ShardingMode` 필드 (`none` / `native`) — `postgrescluster_types.go`. Constants + Spec round-trip 을 `TestShardingMode` 가 guard (`api/v1alpha1/postgrescluster_types_test.go`); enum validation 은 `+kubebuilder:validation:Enum=none;native` marker 로 apiserver 에서 강제. RFC 0001 §3.1 / RFC 0002.
 - [x] `ShardsSpec` (초기 shard 수 / replica / storage) — `postgrescluster_types.go`. 필드 round-trip + `DeepCopy` 슬라이스 독립성 + `Replicas=0` (HA-off dev) 을 `TestShardsSpec` 가 guard (`api/v1alpha1/postgrescluster_types_test.go`). RFC 0001 §3.1.
@@ -194,8 +193,8 @@
 
 ## Non-goals (의도적 제외)
 
-- ❌ 외부 PostgreSQL operator 재패키징 (PGO / CNPG / Patroni fork).
-- ❌ Citus 의 first-class built-in 기능 (Citus 는 *설계 참고*, runtime 의존 아님).
+- ❌ 외부 PostgreSQL operator 재패키징 또는 fork.
+- ❌ 외부 sharding extension 을 first-class built-in 으로 채택 (runtime 의존 아님).
 - ❌ 범용 Plugin SDK 제품 스토리 (v0.x archive 에서 retired).
 - ❌ **필수 릴리스 게이트로서의 GitHub Actions** — RFC 0002 (org-wide) 참조. 로컬 4-layer gate 로 위임.
 - ❌ **날짜 기반 로드맵 데드라인** — org-wide `workflow.md` 참조.
@@ -206,8 +205,8 @@
 | 날짜 | 변경 |
 |---|---|
 | 2026-05-16 | G3 §Sharding foundation: `ShardingMode` / `ShardsSpec` / `Sharding plugin interface` 를 unit-test coverage 와 함께 `[~]` → `[x]` 로 flip (`TestShardingMode`, `TestShardsSpec`, `TestShardingPlugin`). Plans `2026-05-14-4-operators-100pct/P-D` §D.7. |
-| 2026-05-12 | CNPG backup/restore 격차 해소: `ScheduledBackup` CRD/controller, cron firing 시 `BackupJob` 생성, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin 등록, sidecar pod-exec path 추가. |
-| 2026-05-12 | CNPG observability 격차 해소: Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus 메트릭 추가. |
+| 2026-05-12 | Backup/restore 격차 해소: `ScheduledBackup` CRD/controller, cron firing 시 `BackupJob` 생성, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin 등록, sidecar pod-exec path 추가. |
+| 2026-05-12 | Observability 격차 해소: Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus 메트릭 추가. |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transition (Pending → Running → Succeeded/Failed) 구현 + 8 unit test — `[x]` (ralph-loop iter#3). |
 | 2026-05-11 | 전체 재작성 — Gate-scoped sub-task 체크리스트, buffer 지표 도입, date-style 표현 제거. |
 | 2026-05-07 | `0.3.0-alpha.3` 릴리스, 공개 GHCR pull 로 전환, legacy staging operator 제거, "no embedded external systems" 원칙 명시화. |

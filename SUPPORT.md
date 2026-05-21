@@ -15,7 +15,7 @@ the private process in [SECURITY.md](SECURITY.md) instead.
 
 - **README.md** — quickstart and a summary of the core CRD surface.
 - **docs/operator-guide/** — runtime operations (`deployment.md`,
-  `cross-validation-cnpg.md`, `ha-election.md`, `pooler-monitoring.md`).
+  `ha-election.md`, `pooler-monitoring.md`).
 - **docs/releases/release-process.md** — release and upgrade procedures.
 - **CHANGELOG.md** — per-release change history.
 

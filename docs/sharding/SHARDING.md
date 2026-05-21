@@ -1,6 +1,6 @@
 # Sharding Architecture (G3-G5)
 
-> postgres-operator 의 sharding foundation 설계 — `ShardRange` CRD source of truth + `pg-router` 단일 endpoint + `ShardSplitJob` 7-step online resharding. Citus / Vitess 의 *디자인 패턴* 참조, *embedding 금지* (ADR-0001 license-clean boundary).
+> postgres-operator 의 sharding foundation 설계 — `ShardRange` CRD source of truth + `pg-router` 단일 endpoint + `ShardSplitJob` 7-step online resharding. 외부 sharding extension *embedding 금지* (ADR-0001 license-clean boundary).
 
 ## G3 Foundation — 현재 상태
 
@@ -119,8 +119,8 @@ Future (G4+) — ring-based mapping for minimal data movement on resize.
 
 ## Non-goals
 
-- ❌ Citus extension embedding (license-clean Apache-2.0 only)
-- ❌ Vitess fork
+- ❌ 외부 sharding extension embedding (license-clean Apache-2.0 only)
+- ❌ 외부 sharding router fork
 - ❌ PostgresQL < 18
 
 ## Refs

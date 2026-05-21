@@ -6,7 +6,7 @@
 
 ## Context
 
-The Helm packaging strategy is redesigned on top of the previous ADR 0007 (Helm chart P1) and RFC 0002 (no GitHub Actions) flows. In the earlier 0.2.0-alpha stage, splitting an auxiliary chart to isolate Citus (AGPLv3) was considered, but with the 2026-05-02 user decision to adopt a self-built distributed SQL layer, the AGPL dependency itself was removed (see ADR-0001). Therefore the motivation for *a separate auxiliary chart for license isolation* has disappeared. At the same time, the cost for a single maintainer to keep multiple charts in lockstep over a 6-year timeline is realistically unsustainable. Components such as router / resharder / rebalancer / KEDA glue / backup / monitoring need to be *optionally enabled*, but this can be sufficiently modeled with `values.yaml` flags instead of chart separation.
+The Helm packaging strategy is redesigned on top of the previous ADR 0007 (Helm chart P1) and RFC 0002 (no GitHub Actions) flows. In the earlier 0.2.0-alpha stage, splitting an auxiliary chart to isolate an AGPLv3 third-party PostgreSQL sharding extension was considered, but with the 2026-05-02 user decision to adopt a self-built distributed SQL layer, the AGPL dependency itself was removed (see ADR-0001). Therefore the motivation for *a separate auxiliary chart for license isolation* has disappeared. At the same time, the cost for a single maintainer to keep multiple charts in lockstep over a 6-year timeline is realistically unsustainable. Components such as router / resharder / rebalancer / KEDA glue / backup / monitoring need to be *optionally enabled*, but this can be sufficiently modeled with `values.yaml` flags instead of chart separation.
 
 ## Decision
 
@@ -56,7 +56,7 @@ Trade-offs:
 
 ## References
 
-- ADR-0001 (decision for self-built distributed SQL — the direct cause of AGPL Citus dependency removal)
+- ADR-0001 (decision for self-built distributed SQL — the direct cause of the AGPL third-party extension dependency removal)
 - Previous ADR 0007 (Helm chart P1, archived) — this ADR redefines and supersedes it
 - RFC 0002 (no GitHub Actions, archived) — local gate unification policy delegates helm lint to pre-push as well
 - standards/linting.md — `helm lint --strict` is enforced in the L2 pre-push hook

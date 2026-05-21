@@ -289,8 +289,8 @@ spec:
 |---|---|
 | **PgBouncer + add own sharding logic** | PgBouncer is only a connection pool, no SQL parsing. Fork burden |
 | **HAProxy (PG mode)** | Insufficient understanding of the wire protocol, cannot do vindex-based routing |
-| **Reuse Vitess vtgate (Apache 2.0)** | MySQL-only. PG porting = essentially a new project |
-| **Citus router** | AGPL, decided to abandon |
+| **Reuse a foreign MySQL-only router** | wire-protocol incompatible. PG porting = essentially a new project |
+| **External PG sharding extension's router** | license incompatible, decided to abandon |
 | **client-side sharding (libpq extension)** | Application change burden, many language-specific SDKs needed |
 
 ## §6 Open Questions
@@ -344,7 +344,6 @@ make test-driver-compat                              # libpq, JDBC, asyncpg, pq.
 - pg_query_go: https://github.com/pganalyze/pg_query_go (PostgreSQL License)
 - pgx: https://github.com/jackc/pgx (MIT)
 - PostgreSQL Frontend/Backend Protocol: https://www.postgresql.org/docs/18/protocol.html
-- Vitess vtgate (for reference only, 0 code reuse): https://vitess.io/docs/concepts/vtgate/
 - RFC 0001: PostgresCluster CRD v2
 - RFC 0002: ShardRange CRD
 - RFC 0003: ShardSplitJob 7-step

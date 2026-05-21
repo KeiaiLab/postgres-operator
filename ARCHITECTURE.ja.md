@@ -13,7 +13,7 @@
 
 ## 概要
 
-- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — *自前実装* (PGO / Citus の fork / wrapper ではない) で PGO クラスの運用品質 + Citus クラスの分散を狙う。
+- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — *自前実装* で production-grade な運用品質と distributed SQL を提供。外部 PostgreSQL operator の fork や wrapper ではない。
 - **範囲**: K8s 上の vanilla PostgreSQL 18+、single-shard HA → sharding → online resharding → distributed SQL → GA。
 - **安定性ティア**: v0.3.0-alpha.16 (G0 100% / G1 81% / G2 72% / G3 37% / G4-G5 0% / G6 12%)
 - **License**: Apache-2.0 (依存: BSD/Apache/MIT/PG-License のみ — SaaS 公開時 copyleft 義務ゼロ)
@@ -52,7 +52,7 @@ operator manager
   - Rebalancer / Backup / Autoscaler glue
 ```
 
-ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) が keystone — *PGO / Citus を埋め込まない*。
+ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) が keystone — *外部 operator を埋め込まない*。
 
 ## RBAC スコープ
 
@@ -135,9 +135,9 @@ Notable:
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (`pkg/version` 決定により v18 最小)
-- ❌ PGO fork または PGO runtime embedding (Apache-2.0 境界)
-- ❌ Citus extension 出荷 (問題領域を *再実装*)
-- ❌ Patroni / Stolon runtime 依存 (自前 instance manager)
+- ❌ 外部 PostgreSQL operator の再パッケージング (Apache-2.0 境界)
+- ❌ 外部 sharding extension の同梱 (問題領域を *再実装*)
+- ❌ 外部 HA agent runtime 依存 (自前 instance manager)
 - ❌ Copyleft 依存 (license-clean Apache-2.0 のみ)
 - ❌ Plugin SDK (v0.x archive にて retired — 明示 CRD で置換)
 

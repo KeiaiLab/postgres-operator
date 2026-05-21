@@ -3,16 +3,16 @@
 - **Status**: Proposed → Accepted (R1 + R2 Implemented 2026-05-03)
 - **Authors**: phil
 - **Date**: 2026-05-03
-- **Refs**: RFC 0001 (CRD v2), RFC 0003 (election + fencing), RFC 0005 (sharding plugin), ADR 0002 (PID 1 model), `docs/operator-guide/cross-validation-cnpg.md`
+- **Refs**: RFC 0001 (CRD v2), RFC 0003 (election + fencing), RFC 0005 (sharding plugin), ADR 0002 (PID 1 model)
 
 ## §1 Context — why do we need a "higher level"
 
-Cross-validation (CNPG 1.27 vs. ours 0.3.0-alpha, kind v0.31, same node) revealed two truths:
+An early self-validation pass on ours 0.3.0-alpha (kind v0.31, same node) revealed two truths:
 
-1. **We are smaller on resource footprint**: Pod RSS −23%, manager image −37%, LoC −94%. But this is the surface of *decisively missing functionality*.
-2. **Vaporware portion of "alpha-deployable"**: the same measurement only on our side exposed 3 production bugs (RBAC escalation / forced plugin auto-register / Promote race + already-primary). This is a class that *only surfaces in a real K8s environment*, which unit + envtest could not catch.
+1. **We are smaller on resource footprint**: Pod RSS, manager image, and LoC are substantially smaller than typical full-feature operators. But this is the surface of *decisively missing functionality*.
+2. **Vaporware portion of "alpha-deployable"**: the same measurement on our side exposed 3 production bugs (RBAC escalation / forced plugin auto-register / Promote race + already-primary). This is a class that *only surfaces in a real K8s environment*, which unit + envtest could not catch.
 
-Looking at both truths simultaneously, the conclusion is: if we compete with CNPG by simple *feature catch-up*, we lose the differentiation that *small is a virtue*, and we just become an *incomplete CNPG clone*. **Differentiation = identify what existing OSS PG operators structurally cannot do**, and fill that with code volume *in our LoC shape*.
+Looking at both truths simultaneously, the conclusion is: if we compete by simple *feature catch-up*, we lose the differentiation that *small is a virtue*, and we just become an *incomplete clone of a feature-rich operator*. **Differentiation = identify what existing OSS PG operators structurally cannot do**, and fill that with code volume *in our LoC shape*.
 
 This RFC is that blueprint — defining capabilities that 5 atomic refactors (R1~R5) *unlock* stage by stage.
 
@@ -22,7 +22,7 @@ This RFC is that blueprint — defining capabilities that 5 atomic refactors (R1
 
 **Status**: ✅ Implemented.
 
-**Problem**: cross-validation bug 2 — all 6 extensions forced on every cluster → vanilla PG image FATAL.
+**Problem**: self-validation bug 2 — all 6 extensions forced on every cluster → vanilla PG image FATAL.
 
 **Solution**:
 - `Registry.EnabledExtensions(names)` — explicit opt-in filter.
@@ -98,7 +98,7 @@ Each controller reconciles independently + has its own goroutine + its own watch
 
 **Status**: 🚧 Proposed (long term — P2+, can be split into a separate RFC).
 
-**Problem**: `shardingMode: native` only has a schema + the RFC 0005 plugin SDK. Actual distributed SQL (cross-shard query, distributed catalog, range-based shard key, ShardSplitJob) is absent. CNPG / Zalando / CrunchyData all support only single-shard primary + replicas — *no multi-shard PG operator exists in OSS* (Citus is an AGPL extension; ours is a self-built layer on top of vanilla PG).
+**Problem**: `shardingMode: native` only has a schema + the RFC 0005 plugin SDK. Actual distributed SQL (cross-shard query, distributed catalog, range-based shard key, ShardSplitJob) is absent. Existing OSS PostgreSQL operators support only single-shard primary + replicas — *no multi-shard PostgreSQL operator currently exists in the Apache-2.0 OSS space*. Ours is a self-built layer on top of vanilla PG.
 
 **Solution design** (RFC 0005 ShardingPlugin Active side):
 
@@ -146,12 +146,12 @@ R2 (status feedback)  ───┼──→ R3 (standby boot)  ───→  R4 
 
 ## §4 Phase definitions
 
-| Phase | Version | R1 | R2 | R3 | R4 | R5 | CNPG comparison |
+| Phase | Version | R1 | R2 | R3 | R4 | R5 | Capability summary |
 |---|---|---|---|---|---|---|---|
 | **alpha** (current) | 0.3.0 | ✅ | ✅ | ❌ | ❌ | schema only | single-shard primary only |
-| **beta** | 0.4.0 | ✅ | ✅ | ✅ | ❌ | schema only | parity (single-shard HA) |
-| **GA-single** | 1.0.0 | ✅ | ✅ | ✅ | ✅ | schema only | parity + differentiation (lighter footprint) |
-| **GA-distributed** | 2.0.0 | ✅ | ✅ | ✅ | ✅ | ✅ | *only* multi-shard OSS |
+| **beta** | 0.4.0 | ✅ | ✅ | ✅ | ❌ | schema only | single-shard HA |
+| **GA-single** | 1.0.0 | ✅ | ✅ | ✅ | ✅ | schema only | single-shard HA + lighter footprint |
+| **GA-distributed** | 2.0.0 | ✅ | ✅ | ✅ | ✅ | ✅ | multi-shard distributed SQL |
 
 Acceptance moment of this RFC (2026-05-03): **enter alpha — R1/R2 complete**. The next cycle is R3 (beta).
 
@@ -193,13 +193,13 @@ Acceptance moment of this RFC (2026-05-03): **enter alpha — R1/R2 complete**. 
 
 | Phase | Metric | Target |
 |---|---|---|
-| alpha (R1+R2) | Cross-validation re-run passes alpha-deployable (smoke.sh) | Pod Ready < 60s |
+| alpha (R1+R2) | Self-validation re-run passes alpha-deployable (smoke.sh) | Pod Ready < 60s |
 | beta (R3) | RTO until new primary after killing primary in a replicas=2 cluster | < 30s |
 | GA-single (R4) | Number of times cluster reconcile is blocked while a Backup CR is applied | 0 (independent reconcile) |
 | GA-distributed (R5) | Cross-shard query accuracy on a shardCount=4 cluster | 100% match (single-shard reference) |
 
 ## §8 The essence of this RFC's cycle 5R
 
-What cross-validation taught us: *few features is not lightweight — unverified features are vaporware*. 5R is verified by *each R having its own unit test + envtest + cross-validation remeasurement*. 1 R = 1 atomic commit + 1 deployable cycle. The RFC draws the *big picture* but each cycle proceeds in *small, verifiable* units.
+What self-validation taught us: *few features is not lightweight — unverified features are vaporware*. 5R is verified by *each R having its own unit test + envtest + self-validation remeasurement*. 1 R = 1 atomic commit + 1 deployable cycle. The RFC draws the *big picture* but each cycle proceeds in *small, verifiable* units.
 
-This is how 5,220 LoC *competes* with 94,130 LoC (CNPG) — **every single line is verified**.
+The philosophy: a small LoC base *competes* with much larger operators because **every single line is verified**.

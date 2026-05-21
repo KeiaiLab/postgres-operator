@@ -47,8 +47,9 @@ gh repo fork k8s-operatorhub/community-operators --clone --remote
 cd community-operators
 
 # 2. Create the new version directory (the directory must match the
-#    bundle's package name; `postgres-operator` is taken by zalando, so
-#    we register under `keiailab-postgres-operator`).
+#    bundle's package name; the unqualified `postgres-operator` slot is
+#    already taken in community-operators, so we register under
+#    `keiailab-postgres-operator`).
 mkdir -p operators/keiailab-postgres-operator/0.3.0-alpha.18
 cp -r /path/to/postgres-operator/bundle/* \
       operators/keiailab-postgres-operator/0.3.0-alpha.18/
@@ -123,7 +124,7 @@ bundle-build → PR flow.
 
 ## Related
 
-- [ADR-0013](../kb/adr/_archive/v0.x/0013-operatorhub-bundle.md) — OperatorHub bundle scaffold.
+- [ADR-0013](../kb/adr/0013-operatorhub-bundle-scaffold.md) — OperatorHub bundle scaffold.
 - [RFC-0002](../rfcs/_archive/v0.x/) — GitHub Actions ban + local 4-layer gate.
 - [CHANGELOG.md](../../CHANGELOG.md) — change summary per alpha cut.
 - [release-process.md](../releases/release-process.md) — release-tag procedure.

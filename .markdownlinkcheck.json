@@ -1,8 +1,8 @@
 {
   "ignorePatterns": [
     {
-      "pattern": "^https?://(www\\.)?keiailab\\.com/assets/",
-      "comment": "ADR-0024: www.keiailab.com 도메인은 valid 하지만 /assets/logo.svg 등 path 미배포. 외부 인프라 task — 모든 family README 가 동일 URL 사용 (https://keiailab.com/assets/logo.svg)."
+      "pattern": "^https?://(www\\.)?keiailab\\.com(/|$)",
+      "comment": "ADR-0024: www.keiailab.com 도메인은 valid 하나 (a) /assets/ 등 path 미배포, (b) 도메인 root 도 간헐적 503 (외부 인프라 임시 장애). 모든 family README/footer 가 동일 URL 사용."
     },
     {
       "pattern": "^https?://keiailab\\.github\\.io/(postgres-operator|mongodb-operator|valkey-operator|operator-commons|forgewise)",
@@ -11,6 +11,14 @@
     {
       "pattern": "^https?://github\\.com/k8s-operatorhub/community-operators/pull/",
       "comment": "외부 community-operators PR (예: #8109 T28 진행 중) 의 unauthenticated GitHub fetch 가 간헐적 404 반환 (rate-limit / timing). 실제 상태 검증: `gh api repos/k8s-operatorhub/community-operators/pulls/<N>`. markdown-link-check 의 외부 link 검증 한계 — ADR-0024 와 동일 카테고리."
+    },
+    {
+      "pattern": "^/(tutorials|adr|architecture|rfcs|api-reference|runbooks)(/|$)",
+      "comment": "docs/index.md 의 Mintlify root-relative 절대 경로 (예: /tutorials/quickstart, /adr/0001-self-built-distributed-sql). Mintlify 빌드 사이트에서는 resolve 되지만 GitHub markdown viewer 에서는 깨짐. docs site 빌드 후 검증 — link-check 의 GitHub viewer 한계."
+    },
+    {
+      "pattern": "^https?://www\\.postgresql\\.org/docs/",
+      "comment": "외부 PostgreSQL docs URL — version 별 page existence 가 PostgreSQL release cycle 에 따라 변동 (PG18 alpha 시점 일부 page 미배포). 외부 인프라 변동 카테고리 — keiailab.com / GitHub Pages 와 동일."
     }
   ],
   "retryOn429": true,

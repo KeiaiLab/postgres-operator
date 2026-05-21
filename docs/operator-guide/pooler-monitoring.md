@@ -1,9 +1,10 @@
 # Pooler Monitoring Guide
 
-> Per CloudNativePG 1.29: the Pooler PgBouncer exporter is exposed on
-> each Pooler Pod's `metrics` port 9127 and emits `cnpg_pgbouncer_`
-> prefixed metrics. In a Prometheus Operator environment the
-> recommended pattern is for the user to manage the PodMonitor directly.
+> The Pooler PgBouncer exporter is exposed on each Pooler Pod's `metrics`
+> port 9127 and emits `cnpg_pgbouncer_`-prefixed metrics (prefix retained
+> for ecosystem dashboard / alert compatibility). In a Prometheus
+> Operator environment the recommended pattern is for the user to manage
+> the PodMonitor directly.
 
 ## User scenario
 
@@ -20,8 +21,9 @@ Expected outcome:
 - The exporter sidecar exposes the `metrics` container port.
 - The Pooler Service exposes the `metrics` Service port.
 - The operator-manager `/metrics` exposes `postgres_operator_pooler_phase`.
-- The exporter uses the CNPG-compatible metric prefix `cnpg_pgbouncer_`;
-  alert rules key off `cnpg_pgbouncer_last_collection_error`,
+- The exporter uses the metric prefix `cnpg_pgbouncer_` (retained for
+  dashboard / alert ecosystem compatibility); alert rules key off
+  `cnpg_pgbouncer_last_collection_error`,
   `cnpg_pgbouncer_pools_cl_waiting`, and `cnpg_pgbouncer_pools_maxwait`.
 - The Helm PrometheusRule detects Pooler failure as well as PgBouncer
   exporter collection failure, client waiting, and excess client max-wait
@@ -33,8 +35,8 @@ Expected outcome:
   the `pgbouncer` TCP port.
 - The exporter sidecar runs readiness / liveness probes on the
   `metrics` port's `/metrics` path.
-- `pgbouncer.parameters` is validated against an allowlist aligned with
-  the CNPG 1.29 Pooler PgBouncer option surface.
+- `pgbouncer.parameters` is validated against the operator's PgBouncer
+  option allowlist.
 - Operator-owned keys (`listen_addr`, `listen_port`, `auth_file`,
   `pool_mode`) cannot be overridden directly in the CR.
 - `ignore_startup_parameters` always includes `extra_float_digits,options`
