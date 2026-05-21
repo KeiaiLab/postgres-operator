@@ -4,7 +4,7 @@
 > context*. Reading order on startup: this file → `TASKS.md` → the
 > latest commit log.
 
-## Current state (2026-05-12, 0.3.0-alpha.18)
+## Current state (2026-05-21, 0.3.0-alpha.18)
 
 - Release: `0.3.0-alpha.18` — GHCR image + Helm chart published.
   Chart `version` and `appVersion` plus `config/manager/kustomization.yaml`
@@ -35,7 +35,7 @@
 | T29 Pooler TLS auto-issuance | Complete 100% | cert-manager `Certificate` CR auto-issuance via `spec.pgbouncer.autoTLS` (stages 1+2 spec + controller). **Stage 3** cert-manager kind drill → 6/6 PASS. **Stage 4 self-signed fallback** (`spec.pgbouncer.autoTLS.selfSigned: true`) — operator generates in-process RSA-2048 + x509 self-signed cert (1-year validity, 30-day renewal skew), writes the same `tls.crt`/`tls.key`/`ca.crt` Secret layout cert-manager produces, so no end-user manifest change is needed when migrating between environments. **Stage 5 rotation observability** — `Pooler.Status.AutoTLSClientCertNotAfter` / `AutoTLSServerCertNotAfter` and `priority=1` printer columns. T29 complete. |
 
 | T30 HA bootstrap fence race | Complete 100% | Final fix shipped: (i) `IsStandby(dataDir)` short-circuit, (ii) `promotedAtLeastOnce` guard, (iii) **standby-pod election downgrade** — pods that boot with `standby.signal` on disk take Follower election, never contest the lease, and (iv) `handleStoppedLeading` is now side-effect-free. Failover is exclusively operator-driven (`executeClusterPromotion`). Live PG18 SHARD_REPLICAS=1 5/5 PASS + streaming, PG17 SHARD_REPLICAS=1 5/5 PASS + streaming, SHARD_REPLICAS=0 both PG18 / PG17 5/5 regression-free. |
-| T31 G1 rejoin/sync 라이브 drill 자동화 | Complete 90% | `hack/smoke.sh` 에 `SMOKE_REJOIN` (basebackup + pg_rewind) + `SMOKE_SYNC` (RPO=0 + opt-in kill) 두 환경변수 단계 추가. 라이브 evidence (2026-05-17, fresh kind PG18 SHARD_REPLICAS=1): **B.1~B.3 RPO=0 PASS** (`commit_lsn=0/3DA43A0 / flush_lsn=0/3DA43A0 / pg_wal_lsn_diff=0`, drill_sync commit dca3fa0); **A.1 basebackup rejoin PASS** (`quickstart-shard-0-1` standby PVC delete → fresh basebackup → `streaming sync_state=async lag=0`). ROADMAP G1 `Replica rejoin` + `Synchronous replication` 양쪽 `[~]→[x]`. **A.2 pg_rewind 라이브 drill** + **SMOKE_FAILOVER operator-driven promotion 라이브 trigger** 회귀 = 별 task (`docs/g1-ha-election-fact-fix` 영역 위임). spec/plan = `docs/superpowers/{specs,plans}/2026-05-17-g1-rejoin-sync-drill-*.md`. |
+| T31 G1 rejoin/sync 라이브 drill 자동화 | Complete 90% | `hack/smoke.sh` 에 `SMOKE_REJOIN` (basebackup + pg_rewind) + `SMOKE_SYNC` (RPO=0 + opt-in kill) 두 환경변수 단계 추가. 라이브 evidence (2026-05-17, fresh kind PG18 SHARD_REPLICAS=1): **B.1~B.3 RPO=0 PASS** (`commit_lsn=0/3DA43A0 / flush_lsn=0/3DA43A0 / pg_wal_lsn_diff=0`, drill_sync commit dca3fa0); **A.1 basebackup rejoin PASS** (`quickstart-shard-0-1` standby PVC delete → fresh basebackup → `streaming sync_state=async lag=0`). ROADMAP G1 `Replica rejoin` + `Synchronous replication` 양쪽 `[~]→[x]`. **A.2 pg_rewind 라이브 drill** + **SMOKE_FAILOVER operator-driven promotion 라이브 trigger** 회귀 = 별 task (`docs/g1-ha-election-fact-fix` 영역 위임). |
 
 ## Local 4-layer gate
 
@@ -103,26 +103,31 @@ kubectl annotate pooler <name> postgres.keiailab.io/rotate-pooler-password=true 
 # strips the annotation, and records status.builtinAuthLastRotation.
 ```
 
-### To finish T31 (G1 rejoin/sync 라이브 drill)
+## Audit cleanup cycle (2026-05-21)
 
-```bash
-# 전체 시나리오 (failover RTO + rejoin basebackup+rewind + sync RPO=0)
-SHARD_REPLICAS=2 SMOKE_FAILOVER=1 SMOKE_REJOIN=1 SMOKE_SYNC=1 ./hack/smoke.sh
+본 cycle 은 2026-04-30 ~ 05-21 동안 누락된 잔재 항목을 정리한다 (main HEAD
+변화: 38670f3 → 10f8339 → b0b0e22 → …):
 
-# 부분: rejoin only / sync only / sync kill
-SHARD_REPLICAS=2 SMOKE_FAILOVER=1 SMOKE_REJOIN=1 SMOKE_REJOIN_MODE=basebackup ./hack/smoke.sh
-SHARD_REPLICAS=2 SMOKE_SYNC=1 ./hack/smoke.sh
-SHARD_REPLICAS=2 SMOKE_SYNC=1 SMOKE_SYNC_KILL=1 ./hack/smoke.sh
-```
-
-라이브 PASS 후 ROADMAP G1 의 `Replica rejoin` + `Synchronous replication`
-`[~]→[x]` 마감 + Refs 컬럼에 commit hash 인용.
+- **#101** — ADR 0006/0007 orphan ID 중복 정리 (`0025-repmgr-pgbouncer-barman-integration.md` +
+  `0026-operatorhub-io-version-sync.md` 로 안전 renumber, PR #98/#96 시도 후
+  잔존하던 0006/0007 stale 파일을 INDEX 정합). ARCHITECTURE.md ADR cross-link
+  본문도 17 → 24 ADR 정합 + ARCHITECTURE.{ko,ja,zh}.md 다국어 3 파일 동시 추가
+  (markdown-link-check 정합).
+- **#102** — Renovate 제거 (Issue #18 13일째 미해결 closes). Dependabot 단일
+  운영 (RFC-0002 narrow exception ② 정합).
+- **다국어 33 파일 PR** (별 PR) — root-level + `docs/UPGRADING` 의 ko/ja/zh
+  누락 33 파일 작성 (CODE_OF_CONDUCT/SECURITY/MAINTAINERS/ADOPTERS/SUPPORT/
+  GOVERNANCE/CONTRIBUTING/BRANDING/ROADMAP/AGENTS/docs/UPGRADING × 3 lang).
+- **본 PR** — `docs/superpowers/{specs,plans}/2026-05-17-g1-rejoin-sync-drill-*.md`
+  완전 삭제 (T31 진행 산출물, ROADMAP G1 `[x]` 마감 후 dead artifact) +
+  TASKS.md / HANDOFF.md 인용 정합.
+- **stable FF** (별 task) — main HEAD 로 stable 정합.
 
 ## Reference
 
 - `README.md` — quickstart and the 8 CRD surface table.
 - `ROADMAP.md` and `docs/roadmap.md` — Gates G0–G6 with sub-task checklists.
-- `TASKS.md` — full P1 task table (F01a–T29) and the next-phase preview.
+- `TASKS.md` — full P1 task table (F01a–T32) and the next-phase preview.
 - `CHANGELOG.md` — Keep-a-Changelog history through 0.1.1-alpha → 0.3.0-alpha.18.
 - `docs/operator-guide/cross-validation-cnpg.md` — feature matrix vs CloudNativePG.
 - `docs/operator-guide/community-operators-onboarding.md` — community-operators PR procedure.

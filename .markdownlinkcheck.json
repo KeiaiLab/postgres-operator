@@ -7,6 +7,10 @@
     {
       "pattern": "^https?://keiailab\\.github\\.io/(postgres-operator|mongodb-operator|valkey-operator|operator-commons|forgewise)",
       "comment": "ADR-0024: GitHub Pages 미배포 상태. gh-pages 브랜치는 존재하나 site 빌드/배포 미완료. 외부 인프라 task — chart Helm version badge href."
+    },
+    {
+      "pattern": "^https?://github\\.com/k8s-operatorhub/community-operators/pull/",
+      "comment": "외부 community-operators PR (예: #8109 T28 진행 중) 의 unauthenticated GitHub fetch 가 간헐적 404 반환 (rate-limit / timing). 실제 상태 검증: `gh api repos/k8s-operatorhub/community-operators/pulls/<N>`. markdown-link-check 의 외부 link 검증 한계 — ADR-0024 와 동일 카테고리."
     }
   ],
   "retryOn429": true,
