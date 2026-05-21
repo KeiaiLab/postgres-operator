@@ -10,14 +10,15 @@ This document is the canonical reference for `postgres-operator` branding decisi
 
 **Project**: `postgres-operator` — Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap.
 
-**Family**: One of four sister operators sharing the [`operator-commons`](https://github.com/keiailab/operator-commons) shared library:
+**Family**: One of five sister projects in the keiailab operator family. The three database operators share the [`operator-commons`](https://github.com/keiailab/operator-commons) Go library; [`forgewise`](https://github.com/keiailab/forgewise) is the development-assistant tool in the same family.
 
-| Project | Database | Repository |
+| Project | Role | Repository |
 |---|---|---|
-| `postgres-operator` | PostgreSQL 18+ | https://github.com/keiailab/postgres-operator |
-| `mongodb-operator` | MongoDB 7.0+ | https://github.com/keiailab/mongodb-operator |
-| `valkey-operator` | Valkey 8.0+ (Redis fork, BSD-3) | https://github.com/keiailab/valkey-operator |
+| `postgres-operator` | PostgreSQL 18+ operator | https://github.com/keiailab/postgres-operator |
+| `mongodb-operator` | MongoDB 7.0+ operator | https://github.com/keiailab/mongodb-operator |
+| `valkey-operator` | Valkey 8.0+ operator (Redis fork, BSD-3) | https://github.com/keiailab/valkey-operator |
 | `operator-commons` | Shared Go library | https://github.com/keiailab/operator-commons |
+| `forgewise` | MCP-native development assistant (GitLab Duo Enterprise-class) | https://github.com/keiailab/forgewise |
 
 ## 2. Logo & Visual Assets
 
@@ -111,7 +112,8 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
   <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
   <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
   <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
+  <a href="https://github.com/keiailab/forgewise">forgewise</a>
 </p>
 
 <p align="center">
@@ -158,7 +160,8 @@ README 의 shield.io badge 순서 (좌→우):
   <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
   <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
   <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
+  <a href="https://github.com/keiailab/forgewise">forgewise</a>
 </p>
 
 <p align="center">
