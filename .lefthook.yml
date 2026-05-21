@@ -215,10 +215,15 @@ pre-push:
           echo "(no markdown changes vs $BASE_REF — skip)"
           exit 0
         fi
+        # ADR-0024 amendment (2026-05-21): .markdownlinkcheck.json config 사용 —
+        # 외부 인프라 부재 (keiailab.com /assets 미배포 + GitHub Pages 미배포)
+        # 의 dead link 를 ignorePatterns 로 분리. 신규 dead link 는 차단 유지.
+        CFG=""
+        [ -f .markdownlinkcheck.json ] && CFG="-c .markdownlinkcheck.json"
         fail=0
         for f in $changed_md; do
           [ -f "$f" ] || continue
-          markdown-link-check -q "$f" || fail=1
+          markdown-link-check -q $CFG "$f" || fail=1
         done
         [ "$fail" = "0" ] || { echo "❌ 깨진 markdown link 발견 (PR 변경 파일)"; exit 1; }
 
