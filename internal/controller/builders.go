@@ -25,6 +25,7 @@ import (
 
 	"github.com/keiailab/operator-commons/pkg/probes"
 	"github.com/keiailab/operator-commons/pkg/security"
+	commonstopology "github.com/keiailab/operator-commons/pkg/topology"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
@@ -1019,7 +1020,7 @@ func buildPGStatefulSet(
 					Affinity:                  cluster.Spec.Shards.Affinity,
 					Tolerations:               cluster.Spec.Shards.Tolerations,
 					PriorityClassName:         cluster.Spec.Shards.PriorityClassName,
-					TopologySpreadConstraints: defaultedTopologySpread(cluster.Spec.Shards.TopologySpreadConstraints, cluster.Spec.Shards.Replicas, labels),
+					TopologySpreadConstraints: commonstopology.Defaulted(cluster.Spec.Shards.TopologySpreadConstraints, cluster.Spec.Shards.Replicas, labels, commonstopology.WithMinReplicas(1)),
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{

@@ -48,6 +48,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	commonstopology "github.com/keiailab/operator-commons/pkg/topology"
+
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
 
@@ -1591,10 +1593,11 @@ func buildPoolerDeployment(pooler *postgresv1alpha1.Pooler) *appsv1.Deployment {
 	if pooler.Spec.ServiceAccountName != "" {
 		podSpec.ServiceAccountName = pooler.Spec.ServiceAccountName
 	}
-	podSpec.TopologySpreadConstraints = defaultedTopologySpread(
+	podSpec.TopologySpreadConstraints = commonstopology.Defaulted(
 		podSpec.TopologySpreadConstraints,
 		replicas-1,
 		labels,
+		commonstopology.WithMinReplicas(1),
 	)
 
 	container := poolerContainer(pooler)
