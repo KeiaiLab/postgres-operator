@@ -33,6 +33,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0020](0020-sprint-1-commons-pvc-topology-adoption.md) | Sprint 1 — operator-commons pkg/pvc + pkg/topology 채택 (-375 LOC, postgres callsite 2 + pvc 1 교체) | Accepted | 2026-05-21 |
 | [ADR-0021](0021-rfc-0002-gha-block-hook.md) | RFC-0002 GitHub Actions Block — lefthook pre-commit hook 자동 강제 (.github/workflows/ 신규 파일 추가 차단, modify 허용, ADR-0019 dual-track 정합, commons ADR-0012 패턴 sync) | Accepted | 2026-05-21 |
 | [ADR-0022](0022-gha-narrow-exception-3-workflows.md) | GHA Narrow Exception — 3 Workflow 보존 (helm-publish + release + scorecard, RFC-0002 §7 narrow exception, ADR-0019 amendment) | Accepted | 2026-05-21 |
+| [ADR-0023](0023-v3x-stable-baseline.md) | v3.x-stable baseline 인정 (audit ❌ 0 충족, CLAUDE.md §7 v3.x-stable 조건) | Accepted | 2026-05-21 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
