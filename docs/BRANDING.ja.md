@@ -19,16 +19,6 @@
 
 **プロジェクト**: `postgres-operator` — Kubernetes 向け Apache-2.0 PostgreSQL Operator — vanilla PG18+、license-clean、K8s ネイティブの自動シャーディングロードマップ。
 
-**Family**: keiailab operator family における 5 つの sister プロジェクトのひとつ。3 つのデータベース operator は [`operator-commons`](https://github.com/keiailab/operator-commons) Go ライブラリを共有し、[`forgewise`](https://github.com/keiailab/forgewise) は同じ family の開発支援ツールです。
-
-| プロジェクト | 役割 | リポジトリ |
-|---|---|---|
-| `postgres-operator` | PostgreSQL 18+ operator | https://github.com/keiailab/postgres-operator |
-| `mongodb-operator` | MongoDB 7.0+ operator | https://github.com/keiailab/mongodb-operator |
-| `valkey-operator` | Valkey 8.0+ operator (Redis fork、BSD-3) | https://github.com/keiailab/valkey-operator |
-| `operator-commons` | 共有 Go ライブラリ | https://github.com/keiailab/operator-commons |
-| `forgewise` | MCP ネイティブな開発支援ツール (GitLab Duo Enterprise クラス) | https://github.com/keiailab/forgewise |
-
 ## 2. ロゴ & ビジュアルアセット
 
 | Asset | URL | 用途 |
@@ -111,19 +101,10 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 
 ## 7. README Footer 標準
 
-すべての README + root-level .md ファイルの末尾に次の footer を付与 (Wave 3 標準):
+すべての README + ポリシー .md ファイルの末尾に次の footer を付与:
 
 ```markdown
 ---
-
-<p align="center">
-  <b>keiailab operator family</b><br/>
-  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
-  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
-  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
-  <a href="https://github.com/keiailab/forgewise">forgewise</a>
-</p>
 
 <p align="center">
   © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
@@ -163,15 +144,6 @@ README の shield.io バッジ並び順 (左→右):
 - Third-party 出典: 該当する場合は [NOTICE](../NOTICE) を参照
 
 ---
-
-<p align="center">
-  <b>keiailab operator family</b><br/>
-  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
-  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
-  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
-  <a href="https://github.com/keiailab/forgewise">forgewise</a>
-</p>
 
 <p align="center">
   © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
