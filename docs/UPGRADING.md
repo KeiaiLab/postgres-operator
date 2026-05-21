@@ -105,4 +105,3 @@ dual-track 운영 (ADR-0019).
 - operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
 - audit: `make audit-quality` (5 repo 측정, commons ADR-0013)
 - i18n: `commons/docs/i18n/README.md`
-- 가족 family: `docs/family.md`

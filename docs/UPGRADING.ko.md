@@ -108,7 +108,6 @@ CLAUDE.md §7 의 *상용 제품 수준* (P0+P1+P2+OP+C 모두 ✅) 도달 시.
 - operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
 - audit: `make audit-quality` (5 repo 측정, commons ADR-0013)
 - i18n: `commons/docs/i18n/README.md`
-- 가족 family: `docs/family.md`
 
 ---
 
