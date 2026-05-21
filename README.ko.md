@@ -1,18 +1,31 @@
+<p align="center">
+  <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
+</p>
+
 # postgres-operator
 
-> **Apache-2.0 PostgreSQL Kubernetes Operator** — vanilla PG18+, license-clean, 외부 operator/backend 의 fork / embed / wrap 없이 PGO 급 운영 품질을 목표로 하는 자체 구축 distributed SQL 레이어.
+> **Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18%2B-336791?logo=postgresql)](https://www.postgresql.org/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes)](https://kubernetes.io/)
-[![Container Image](https://img.shields.io/badge/ghcr.io-keiailab%2Fpostgres--operator-blue?logo=github)](https://github.com/keiailab/postgres-operator/pkgs/container/postgres-operator)
-[![Helm Chart](https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/keiailab/postgres-operator/main/charts/postgres-operator/Chart.yaml&label=helm%20v)](https://keiailab.github.io/postgres-operator)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/keiailab-postgres-operator)](https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/keiailab/postgres-operator/badge)](https://scorecard.dev/viewer/?uri=github.com/keiailab/postgres-operator)
-[![GitHub Discussions](https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github)](https://github.com/keiailab/postgres-operator/discussions)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"/></a>
+  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-18%2B-336791?logo=postgresql" alt="PostgreSQL"/></a>
+  <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/Kubernetes-1.26+-326CE5?logo=kubernetes" alt="Kubernetes"/></a>
+  <a href="https://github.com/keiailab/postgres-operator/pkgs/container/postgres-operator"><img src="https://img.shields.io/badge/ghcr.io-keiailab%2Fpostgres--operator-blue?logo=github" alt="Container Image"/></a>
+  <a href="https://keiailab.github.io/postgres-operator"><img src="https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/keiailab/postgres-operator/main/charts/postgres-operator/Chart.yaml&label=helm%20v" alt="Helm Chart"/></a>
+  <a href="https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/keiailab-postgres-operator" alt="Artifact Hub"/></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/keiailab/postgres-operator"><img src="https://api.scorecard.dev/projects/github.com/keiailab/postgres-operator/badge" alt="OpenSSF Scorecard"/></a>
+  <a href="https://github.com/keiailab/postgres-operator/discussions"><img src="https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github" alt="GitHub Discussions"/></a>
+</p>
 
-> English README: [README.md](README.md)
+<p align="center">
+  <a href="README.md">English</a> |
+  <b>한국어</b> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.zh.md">中文</a>
+</p>
+
+---
 
 ---
 
@@ -208,3 +221,17 @@ Apache-2.0. [`LICENSE`](LICENSE) 파일 참조.
 ## 메인테이너
 
 [@phil](https://github.com/phil) — `eightynine01@gmail.com`. 메인테이너 명단: [`MAINTAINERS.md`](MAINTAINERS.md).
+
+---
+
+<p align="center">
+  <b>keiailab operator family</b><br/>
+  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
+  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
+  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+</p>
+
+<p align="center">
+  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+</p>

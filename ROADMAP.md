@@ -1,3 +1,10 @@
+<p align="center">
+  <b>English</b> |
+  <a href="ROADMAP.ko.md">한국어</a> |
+  <a href="ROADMAP.ja.md">日本語</a> |
+  <a href="ROADMAP.zh.md">中文</a>
+</p>
+
 # ROADMAP — postgres-operator
 
 This ROADMAP tracks progress through verifiable Gates and sub-task
@@ -216,3 +223,17 @@ cluster via GitOps.
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed) implemented + 8 unit tests — `[x]` (ralph-loop iter#3). |
 | 2026-05-11 | Full rewrite — introduced Gate-scoped sub-task checklists, buffer indicators, and removed any date-style language. |
 | 2026-05-07 | Released `0.3.0-alpha.3`, switched to public GHCR pull, removed legacy staging operator, and made the "no embedded external systems" principle explicit. |
+
+---
+
+<p align="center">
+  <b>keiailab operator family</b><br/>
+  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
+  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
+  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+</p>
+
+<p align="center">
+  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+</p>

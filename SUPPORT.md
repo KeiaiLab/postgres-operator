@@ -1,3 +1,10 @@
+<p align="center">
+  <b>English</b> |
+  <a href="SUPPORT.ko.md">한국어</a> |
+  <a href="SUPPORT.ja.md">日本語</a> |
+  <a href="SUPPORT.zh.md">中文</a>
+</p>
+
 # Support
 
 If you run into problems while using keiailab/postgres-operator, please use
@@ -56,3 +63,17 @@ separate consulting engagement may be required — please email
   availability.
 
 These are best-effort targets from the maintainers and are not SLAs.
+
+---
+
+<p align="center">
+  <b>keiailab operator family</b><br/>
+  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
+  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
+  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+</p>
+
+<p align="center">
+  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+</p>

@@ -1,3 +1,10 @@
+<p align="center">
+  <b>English</b> |
+  <a href="CODE_OF_CONDUCT.ko.md">한국어</a> |
+  <a href="CODE_OF_CONDUCT.ja.md">日本語</a> |
+  <a href="CODE_OF_CONDUCT.zh.md">中文</a>
+</p>
+
 # Contributor Covenant Code of Conduct
 
 This project adopts the [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
@@ -40,3 +47,17 @@ confidential.
 
 [Contributor Covenant homepage](https://www.contributor-covenant.org),
 version 2.1.
+
+---
+
+<p align="center">
+  <b>keiailab operator family</b><br/>
+  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
+  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
+  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+</p>
+
+<p align="center">
+  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+</p>
