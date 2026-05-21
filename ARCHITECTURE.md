@@ -116,8 +116,10 @@ Plan to 100% (G6): `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` (59 su
 
 Notable:
 - ADR-0001: self-built distributed SQL (keystone)
-- ADR-0006: Repmgr / PgBouncer / Barman integration plan (bitnami parity)
-- ADR-0007: OperatorHub.io 자동 sync
+- ADR-0006: Introduce the GitOps deploy overlay (3-repo alignment)
+- ADR-0007: Hook tooling — pre-commit instead of lefthook
+- ADR-0022: Repmgr / PgBouncer / Barman integration plan (bitnami parity)
+- ADR-0023: OperatorHub.io 자동 sync
 - ADR-0009: no legacy GitHub Actions (RFC-0002 정합)
 - ADR-0013: scorecard OLM test parity standard (cross-repo with mongodb)
 - ADR-0014: community-operators upstream sync automation

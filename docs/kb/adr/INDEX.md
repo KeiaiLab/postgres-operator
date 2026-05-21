@@ -32,6 +32,8 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0019](0019-gha-retention-for-public-oss.md) | GitHub Actions 유지 — operator family v2.0 통합 정합 (14 workflow 복원 + ADR-0018 phase 2/3 인프라 유지 + dual-track 운영) | Accepted | 2026-05-21 |
 | [ADR-0020](0020-sprint-1-commons-pvc-topology-adoption.md) | Sprint 1 — operator-commons pkg/pvc + pkg/topology 채택 (-375 LOC, postgres callsite 2 + pvc 1 교체) | Accepted | 2026-05-21 |
 | [ADR-0021](0021-rfc-0002-gha-block-hook.md) | RFC-0002 GitHub Actions Block — lefthook pre-commit hook 자동 강제 (.github/workflows/ 신규 파일 추가 차단, modify 허용, ADR-0019 dual-track 정합, commons ADR-0012 패턴 sync) | Accepted | 2026-05-21 |
+| [ADR-0022](0022-repmgr-pgbouncer-barman-integration.md) | Repmgr / PgBouncer / Barman 통합 — bitnami parity (orphan number recovery from duplicate 0006) | Proposed | 2026-05-14 |
+| [ADR-0023](0023-operatorhub-io-version-sync.md) | OperatorHub.io 최신 버전 자동 sync (orphan number recovery from duplicate 0007) | Proposed | 2026-05-14 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
