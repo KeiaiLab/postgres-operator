@@ -35,6 +35,8 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0022](0022-gha-narrow-exception-3-workflows.md) | GHA Narrow Exception — 3 Workflow 보존 (helm-publish + release + scorecard, RFC-0002 §7 narrow exception, ADR-0019 amendment) | Accepted | 2026-05-21 |
 | [ADR-0023](0023-v3x-stable-baseline.md) | v3.x-stable baseline 인정 (audit ❌ 0 충족, CLAUDE.md §7 v3.x-stable 조건) | Accepted | 2026-05-21 |
 | [ADR-0024](0024-lefthook-pre-push-incremental-lint-envtest.md) | lefthook pre-push 3 hook incremental gate (full-lint + markdown-link-check --new-from-rev, envtest binary 자동 보장) + 22 dead link 가시화 (RFC-0002 후 push 차단 회피, family sister-port) | Accepted | 2026-05-21 |
+| [ADR-0025](0025-repmgr-pgbouncer-barman-integration.md) | Repmgr / PgBouncer / Barman 통합 — bitnami parity (orphan recovery from duplicate 0006; PR #98/#96 attempted 0023/0024 but collided with concurrent merges, renumbered to next free 0025) | Proposed | 2026-05-14 |
+| [ADR-0026](0026-operatorhub-io-version-sync.md) | OperatorHub.io 최신 버전 자동 sync (orphan recovery from duplicate 0007; PR #98/#96 attempted 0024 but collided with concurrent merges, renumbered to next free 0026) | Proposed | 2026-05-14 |
 
 ## Archived (v0.x — decisions from before the redesign)
 

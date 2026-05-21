@@ -112,15 +112,21 @@ Plan to 100% (G6): `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` (59 su
 - ADR-0009 enforces no legacy GitHub Actions (RFC-0002)
 - Lefthook DCO + Conventional Commits + lint gate
 
-## ADR cross-link (17 ADRs)
+## ADR cross-link (24 ADRs)
 
 Notable:
 - ADR-0001: self-built distributed SQL (keystone)
-- ADR-0006: Repmgr / PgBouncer / Barman integration plan (bitnami parity)
-- ADR-0007: OperatorHub.io 자동 sync
-- ADR-0009: no legacy GitHub Actions (RFC-0002 정합)
-- ADR-0013: scorecard OLM test parity standard (cross-repo with mongodb)
+- ADR-0006: introduce the GitOps deploy overlay (3-repo alignment)
+- ADR-0007: hook tooling — pre-commit instead of lefthook
+- ADR-0009: webhook validate — accumulate-errors
+- ADR-0013: OperatorHub.io bundle scaffold cross-cut
 - ADR-0014: community-operators upstream sync automation
+- ADR-0019: GitHub Actions retention (operator family v2.0 dual-track)
+- ADR-0022: GHA narrow exception — 3 workflow (helm-publish + release + scorecard)
+- ADR-0023: v3.x-stable baseline 인정
+- ADR-0024: lefthook pre-push incremental lint + envtest
+- ADR-0025: Repmgr / PgBouncer / Barman integration plan (bitnami parity)
+- ADR-0026: OperatorHub.io 자동 sync
 
 Full list: `docs/kb/adr/INDEX.md`.
 
