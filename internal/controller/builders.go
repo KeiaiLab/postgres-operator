@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/keiailab/operator-commons/pkg/probes"
 	"github.com/keiailab/operator-commons/pkg/security"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -983,30 +985,20 @@ func buildPGStatefulSet(
 						// unix socket race 를 코드 레벨에서 처리 (RFC 0006 R3 prep) 하므로
 						// probe 가 race 회피 임무를 중복 수행할 필요 없음. periodSeconds 3 으로
 						// 첫 successful probe → Ready 전환 가속 (Pod Ready < 60s 목표).
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path: "/readyz",
-									Port: intstr.FromInt32(instanceProbePort),
-								},
-							},
-							InitialDelaySeconds: 5,
-							PeriodSeconds:       3,
-							TimeoutSeconds:      3,
-							FailureThreshold:    3,
-						},
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path: "/healthz",
-									Port: intstr.FromInt32(instanceProbePort),
-								},
-							},
-							InitialDelaySeconds: 60,
-							PeriodSeconds:       30,
-							TimeoutSeconds:      5,
-							FailureThreshold:    3,
-						},
+						ReadinessProbe: probes.New().
+							HTTP("/readyz", instanceProbePort).
+							InitialDelay(5 * time.Second).
+							Period(3 * time.Second).
+							Timeout(3 * time.Second).
+							FailureThreshold(3).
+							Build(),
+						LivenessProbe: probes.New().
+							HTTP("/healthz", instanceProbePort).
+							InitialDelay(60 * time.Second).
+							Period(30 * time.Second).
+							Timeout(5 * time.Second).
+							FailureThreshold(3).
+							Build(),
 						VolumeMounts: append(append([]corev1.VolumeMount{
 							{Name: "data", MountPath: pgDataMountPath},
 							{Name: "config", MountPath: pgConfigMountPath, ReadOnly: true},
