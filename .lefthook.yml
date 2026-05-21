@@ -67,6 +67,24 @@ pre-commit:
           echo "우회: ORPHAN_OK=1 git commit ..."
           exit 1
         fi
+    gha-block:
+      # RFC-0002 §2 (2026-04-29): GitHub Actions 영구 금지 — `.github/workflows/`
+      # 디렉토리 *신규 파일 추가* 금지. modify 는 허용 (dependabot 의 actions 버전
+      # bump 등) — ADR-0019 v2.0 dual-track 운영 정합.
+      # commons ADR-0012 (gha-block hook 자동 강제) 패턴.
+      # 본 ADR: ADR-0021 (RFC-0002 GHA block hook).
+      # 우회: PLAN_BYPASS=1 git commit (PR 본문 사유 + ADR 인용 의무)
+      run: |
+        if [ "${PLAN_BYPASS:-0}" = "1" ]; then exit 0; fi
+        added=$(git diff --cached --name-only --diff-filter=A | grep "^\.github/workflows/" || true)
+        if [ -n "$added" ]; then
+          echo "❌ RFC-0002 §2 위반: .github/workflows/ 신규 파일 추가 금지 (modify 는 허용 — ADR-0019 v2.0 dual-track)"
+          echo "   파일: $added"
+          echo "   대체: 로컬 4계층 (lefthook + Makefile + 리뷰어 증거)"
+          echo "   예외 (helm-publish/release/scorecard 등) ADR 작성 후 사용자 명시 승인 필요"
+          echo "   우회: PLAN_BYPASS=1 git commit ..."
+          exit 1
+        fi
 
 pre-push:
   parallel: false
