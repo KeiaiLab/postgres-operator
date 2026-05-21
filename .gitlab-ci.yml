@@ -1,0 +1,49 @@
+# B2C 대안 — GitLab CI scheduled pipeline 으로 GitHub → GitLab pull mirror (CE 호환)
+#
+# 적용 대상: 5 project (각 project main 에 .gitlab-ci.yml 로 추가)
+#   - keiailab/upstream/mongodb-operator
+#   - keiailab/upstream/valkey-operator
+#   - keiailab/upstream/postgres-operator
+#   - keiailab/upstream/operator-commons
+#   - keiailab/tools/keiailab-gitlab-mcp
+#
+# 사용자 1회 액션:
+#   1. 본 파일을 각 project 의 .gitlab-ci.yml 로 추가 (MR + merge)
+#   2. Settings → CI/CD → Variables:
+#      GITHUB_REPO_URL = https://github.com/keiailab/<project-name>.git  (per-project)
+#      MIRROR_PUSH_TOKEN = <Project Access Token, scope=write_repository, role=Maintainer>
+#   3. Settings → Repository → Protected branches → main → Allowed to push:
+#      "Maintainers" 추가 (Project Access Token 이 main 에 push 할 수 있도록)
+#   4. Build → Pipeline schedules → New schedule → Cron `0 * * * *` (매시간)
+#
+# 안전 장치:
+#   - mongodb/valkey/postgres-operator 는 diverged → fetch 후 push 시 non-fast-forward → halt (정상)
+#   - operator-commons + keiailab-gitlab-mcp 는 FF-safe → 즉시 동기
+
+stages:
+  - mirror
+
+mirror:github-to-gitlab:
+  stage: mirror
+  image: alpine/git:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"  # 수동 트리거 허용
+  script:
+    - apk add --no-cache curl
+    - git config --global user.email "ci-mirror@gitlab.keiailab.com"
+    - git config --global user.name "GitLab CI Mirror"
+    - |
+      # 임시 작업 dir 에 GitHub bare clone
+      cd /tmp
+      git clone --bare "$GITHUB_REPO_URL" repo.git
+      cd repo.git
+    - |
+      # GitLab 으로 push (Project Access Token 인증)
+      GITLAB_PUSH_URL="https://oauth2:${MIRROR_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      # main + 모든 tag fast-forward only — diverged 시 자연 halt
+      git push "$GITLAB_PUSH_URL" 'refs/heads/main:refs/heads/main' || \
+        echo "main diverged — halt (정상, diverged commit 보호)"
+      git push "$GITLAB_PUSH_URL" --tags || true
+  variables:
+    GIT_STRATEGY: none  # CI runner 가 본 project 를 clone 하지 않음 (불필요)
