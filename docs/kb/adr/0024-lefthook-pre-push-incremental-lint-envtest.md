@@ -12,7 +12,7 @@
 
 RFC-0002 (2026-04-29) 시행 후 모든 품질 게이트가 GitHub Actions 에서 **로컬 4계층** (pre-commit / pre-push / Makefile / 리뷰어) 으로 일원화되었다. postgres-operator 는 `.lefthook.yml` 의 pre-push 단계에서 `unit-test` (`go test -count=1 -timeout=120s ./...`) 와 `full-lint` (`./bin/golangci-lint run`) 를 모든 push 에 강제한다.
 
-본 ADR 채택 시점 (2026-05-21) 의 운영 중 다음 *push 차단* 문제 2건을 관찰:
+본 ADR 채택 시점 (2026-05-21) 의 운영 중 다음 *push 차단* 문제 3건을 관찰:
 
 ### 1. `unit-test` BeforeSuite 실패 — KUBEBUILDER_ASSETS 미설정
 
@@ -37,9 +37,24 @@ Err: <syscall.Errno>0x2,
 
 대조: pre-commit 의 `golangci-lint` 는 이미 `--new-from-rev=HEAD~1` 사용 (incremental). pre-push 와 pre-commit 의 baseline 정합 깨짐.
 
+### 3. `markdown-link-check` 가 기존 docs 의 깨진 링크로 모든 push 차단
+
+`markdown-link-check` hook 이 `README.md` + `CHANGELOG.md` + `docs/**/*.md` 를 *전체* 검사. 본 ADR 시점 main HEAD 에서 발견된 기존 부채:
+
+- `README.md`: `https://keiailab.github.io/postgres-operator` 404 (GitHub Pages 미배포), `https://keiailab.com/assets/logo.svg` 404
+- `CHANGELOG.md`: `CHANGELOG.{ko,ja,zh}.md` placeholder 미생성
+- `docs/family.md`: `family.{ko,ja,zh}.md` placeholder + `keiailab.com` 503 (전이 실패)
+- `docs/index.md`: 모든 내부 링크 (`/tutorials/quickstart`, `/adr/`, `/rfcs/`, ...) — mkdocs 사이트 라우팅, markdown-link-check 의 file-system 기반 검사로는 본질적 미지원
+- `docs/operator-guide/community-operators-onboarding.md`: 옛 archive ADR path
+- `docs/rfcs/0003-shardsplitjob-7step.md`: PG 18 docs URL 이동
+- `docs/internal/{TASKS,HANDOFF}.md`: community-operators PR #8109 404 (외부 PR 삭제)
+- `docs/kb/adr/0023-v3x-stable-baseline.md`: `keiailab/.codex` 404 (typo or private)
+
+총 *9개 파일 / 22 dead link* — 어떤 PR 도 markdown 변경과 무관하게 차단.
+
 ## Decision
 
-`.lefthook.yml` 의 pre-push 2 hook 을 다음과 같이 변경:
+`.lefthook.yml` 의 pre-push 3 hook 을 다음과 같이 변경:
 
 ### `unit-test` — envtest binary 자동 보장 + KUBEBUILDER_ASSETS export
 
@@ -59,6 +74,27 @@ unit-test:
 - `bin/k8s/` 존재 시 빠르게 path 추출 (overhead 거의 0)
 - 미존재 시 `make setup-envtest` 자동 호출 → controller-runtime release tag 에 맞는 binary 다운로드
 - 절대 경로 export — 상대 경로 시 webhook test 의 working directory 변경 영향 회피
+
+### `markdown-link-check` — incremental link check (PR 변경 markdown 만)
+
+```yaml
+markdown-link-check:
+  run: |
+    ...
+    if git rev-parse --verify origin/main >/dev/null 2>&1; then
+      BASE_REF="origin/main"
+    else
+      BASE_REF="HEAD~1"
+    fi
+    changed_md=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null | grep -E '\.md$' || true)
+    [ -z "$changed_md" ] && exit 0
+    for f in $changed_md; do
+      markdown-link-check -q "$f" || fail=1
+    done
+```
+
+- `full-lint` 와 동일 incremental 정책 — PR 변경 `.md` 만 검사
+- 기존 main 의 깨진 링크 (예: docs/index.md 의 mkdocs 라우팅, CHANGELOG.{ko,ja,zh}.md placeholder, community-operators PR 8109 404 등) 는 별개 PR 로 누적 처리
 
 ### `full-lint` — incremental lint (--new-from-rev)
 
@@ -82,9 +118,10 @@ full-lint:
 ### Positive
 
 - **호스트 환경 무관 통과**: envtest binary 가 없는 호스트도 hook 자동 setup 후 통과. 신규 contributor 의 onboarding 마찰 ↓
-- **PR scope 명확화**: 문서 PR / 리팩토링 PR / 기능 PR 모두 *해당 PR 의 변경* 으로만 lint 평가. 기존 부채와 분리
+- **PR scope 명확화**: 문서 PR / 리팩토링 PR / 기능 PR 모두 *해당 PR 의 변경* 으로만 lint / link check 평가. 기존 부채와 분리
 - **CI bypass 정책 (RFC-0002) 준수**: GHA 폐지 후에도 *모든 PR 의 신규 이슈* 는 여전히 차단됨 (incremental 이지 disabling 이 아님)
 - **operator family 정합**: mongodb-operator / valkey-operator 도 동일 lefthook 패턴 운영 — 본 fix 의 sister-port 가 family 일관성 회복
+- **markdown 부채 가시화**: ADR Context 섹션에 22 dead link 의 *목록* 을 남겨 별개 PR 의 진행 우선순위 결정 자료가 됨
 
 ### Negative
 
