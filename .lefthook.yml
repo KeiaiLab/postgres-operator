@@ -90,9 +90,30 @@ pre-push:
   parallel: false
   commands:
     unit-test:
-      run: go test -count=1 -timeout=120s ./...
+      # envtest binary (etcd + kube-apiserver) 가 없으면 자동 다운로드 후
+      # KUBEBUILDER_ASSETS 절대 경로 export. 호스트 환경 무관하게 통과.
+      # ADR-0024 (Phase 1B-prereq): GHA 폐지 후 로컬 4계층 일관성 확보.
+      run: |
+        test -d bin/k8s || make setup-envtest >/dev/null 2>&1 || true
+        K8S_DIR=$(ls -d bin/k8s/*/ 2>/dev/null | head -1)
+        if [ -z "$K8S_DIR" ]; then
+          echo "❌ envtest 설정 실패 — 'make setup-envtest' 수동 실행 후 재push"
+          exit 1
+        fi
+        export KUBEBUILDER_ASSETS="$(pwd)/${K8S_DIR%/}"
+        go test -count=1 -timeout=120s ./...
     full-lint:
-      run: ./bin/golangci-lint run
+      # PR 신규 이슈만 차단 (기존 main 이슈는 별개 modernize PR 로 처리).
+      # base ref: origin/main 우선, 미존재 시 HEAD~1 fallback.
+      # ADR-0024: incremental lint = pre-commit 의 --new-from-rev=HEAD~1 패턴
+      # 을 pre-push 단계로 확장 (PR 전체 commit 검사).
+      run: |
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+          BASE_REF="origin/main"
+        else
+          BASE_REF="HEAD~1"
+        fi
+        ./bin/golangci-lint run --new-from-rev="$BASE_REF"
     helm-lint:
       # chart sanity (gh-pages publish 전 마지막 가드).
       run: command -v helm >/dev/null 2>&1 && helm lint charts/postgres-operator || true
