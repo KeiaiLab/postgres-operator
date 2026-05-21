@@ -16,7 +16,7 @@ The 3 repos `keiailab/{mongodb,postgresql,valkey}-operator` were bootstrapped fr
 
 ```
 $ kubectl config current-context
-argos
+keiailab
 $ kubectl get ns data prod db
 data    Active   4h55m
 Error from server (NotFound): namespaces "prod" not found
@@ -25,7 +25,7 @@ $ kubectl get storageclass
 ceph-rbd (default)   rook-ceph.rbd.csi.ceph.com   Retain   Immediate   12d
 ceph-fs              rook-ceph.cephfs.csi.ceph.com   Retain   Immediate   11d
 cold-rbd             rook-ceph.rbd.csi.ceph.com   Retain   Immediate   9d
-$ kubectl get application -n argocd -l argos.io/wave=1
+$ kubectl get application -n argocd -l argocd.argoproj.io/sync-wave=1
 platform-data-cnpg       OutOfSync   Degraded
 platform-data-mongodb    OutOfSync   Healthy
 platform-data-valkey     OutOfSync   Degraded
@@ -35,10 +35,10 @@ platform-data-valkey     OutOfSync   Degraded
 
 Derived decisions:
 
-- **Apply ns unification policy**: per the argos 2026-05-06 user-explicit cycle, unify all 5 charts (cnpg/mongodb/valkey/nats/clickhouse) into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
-- **StorageClass alignment**: `ceph-block` is absent. The default of the argos cluster is `ceph-rbd`. The `storageClass` in CR samples is also changed to `ceph-rbd`.
-- **postgresql deployment status update (2026-05-08)**: at the initial 2026-05-06 inventory, postgresql was not in the ApplicationSet path, but the argos-platform-data Helm wrapper (`platform/data/postgres-operator`) was subsequently adopted as the production source of truth. Currently `platform-data-postgres-operator` is `Synced/Healthy`, the controller Deployment is `1/1`, and `PostgresCluster/argos-postgres` is `Ready=True`. This `deploy/` is retained as an alternative direct-apply entry point.
-- **mongodb / valkey**: operated via the argos-platform-data umbrella chart and the bitnami chart, respectively. This `deploy/` is an *alternative/standby entry point*. Applying both simultaneously will cause a helm release conflict.
+- **Apply ns unification policy**: per the 2026-05-06 user-explicit cycle, unify all 5 charts (cnpg/mongodb/valkey/nats/clickhouse) into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
+- **StorageClass alignment**: `ceph-block` is absent. The default of the production cluster is `ceph-rbd`. The `storageClass` in CR samples is also changed to `ceph-rbd`.
+- **postgresql deployment status update (2026-05-08)**: at the initial 2026-05-06 inventory, postgresql was not in the ApplicationSet path, but the platform-data Helm wrapper (`platform/data/postgres-operator`) was subsequently adopted as the production source of truth. Currently `platform-data-postgres-operator` is `Synced/Healthy`, the controller Deployment is `1/1`, and `PostgresCluster/postgres` is `Ready=True`. This `deploy/` is retained as an alternative direct-apply entry point.
+- **mongodb / valkey**: operated via the platform-data umbrella chart and the bitnami chart, respectively. This `deploy/` is an *alternative/standby entry point*. Applying both simultaneously will cause a helm release conflict.
 
 ## Decision
 
@@ -59,7 +59,7 @@ deploy/
 ## Consequences
 
 Positive:
-- The ArgoCD application source candidate is made explicit as `deploy/overlays/prod` — either the argos-platform-data umbrella chart absorbs this path as a dependency, or this path can be registered *directly* as the ApplicationSet generator path.
+- The ArgoCD application source candidate is made explicit as `deploy/overlays/prod` — either the platform-data umbrella chart absorbs this path as a dependency, or this path can be registered *directly* as the ApplicationSet generator path.
 - `config/default` is preserved for *local development*, so the `make deploy` workflow does not regress.
 - The 3 repos share the same structure, reducing operator cognitive load.
 
@@ -71,4 +71,4 @@ Negative:
 
 1. **Use `config/default` directly as the ArgoCD source** — hard to forcibly change the namespace, and the auto-generated Namespace resource issue remains. Rejected.
 2. **Manually change the Namespace name in `config/manager/manager.yaml` to the full name, like mongodb-operator** — requires a patch on every regeneration. Degraded operator-sdk regenerate compatibility. Rejected.
-3. **Use a Helm chart (`charts/`) as the GitOps source** — the mongodb umbrella chart in argos-platform-data already follows this pattern (absorbing the operator chart as a dependency). postgres-operator could do the same. This ADR is about introducing a *separate entry point*, not negating the helm path. The two entry points (helm wrapper / kustomize overlay) must yield the same cluster state — a parity invariant (analogous to valkey ADR-0028) must be introduced in the future. Covered in a follow-up ADR.
+3. **Use a Helm chart (`charts/`) as the GitOps source** — the mongodb umbrella chart in platform-data already follows this pattern (absorbing the operator chart as a dependency). postgres-operator could do the same. This ADR is about introducing a *separate entry point*, not negating the helm path. The two entry points (helm wrapper / kustomize overlay) must yield the same cluster state — a parity invariant (analogous to valkey ADR-0028) must be introduced in the future. Covered in a follow-up ADR.

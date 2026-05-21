@@ -23,7 +23,7 @@ import (
 // postgresql.conf 의 ssl_cert_file / ssl_key_file 가 본 경로 참조 (Phase 3b 별 cycle).
 const pgTLSMountPath = "/etc/ssl/postgres"
 
-// Pillar P7 §7 TLS 통합 3-phase roadmap (ADR-0062 후속, 본 cluster 의 infisical 가
+// Pillar P7 §7 TLS 통합 3-phase roadmap (ADR-0062 후속, 본 cluster 의 외부 TLS 클라이언트
 // 회복 대상):
 //
 //   Phase 1 (alpha.5): CRD spec.tls field facade. enabled=true 시 webhook reject.

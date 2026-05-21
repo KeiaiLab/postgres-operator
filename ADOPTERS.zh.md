@@ -27,7 +27,7 @@
 
 | 用户 | 组件 | 阶段 | 登记日期 |
 |---|---|---|---|
-| **argos-platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 部署。PG18 failover smoke 通过,RTO 21 秒。HA replicas / backup-restore drill 尚未通过 —— 进入生产前需要 ROADMAP G1。 | 2026-05-07 |
+| **platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 部署。PG18 failover smoke 通过,RTO 21 秒。HA replicas / backup-restore drill 尚未通过 —— 进入生产前需要 ROADMAP G1。 | 2026-05-07 |
 
 ## 如何添加自己
 

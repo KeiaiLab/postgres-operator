@@ -32,7 +32,7 @@ e2e file.
 | Citus-class problem coverage | Shard placement / routing / rebalance / distributed-transaction problems are analyzed; the Citus extension itself is not bundled. |
 | Plugin SDK message retired | The v0.x archive's broad Plugin-SDK positioning is retired. Only narrow, necessary extension points are designed. |
 | Apache-2.0 clean-room | Only allowed-license dependencies are used; code from forbidden-license projects is never copied, translated, or ported. |
-| GitOps first | argos production deployment must be reproducible through the GitOps path + the Helm chart dependency graph. |
+| GitOps first | Production deployment must be reproducible through the GitOps path + the Helm chart dependency graph. |
 
 ## Current state snapshot
 
@@ -41,7 +41,7 @@ e2e file.
 | Naming | repo / chart / GitOps path aligned on `postgres-operator` | Archive docs preserve history |
 | Release | `0.3.0-alpha.18` image / chart / SBOM published + OLM bundle (community-operators PR pending) | Not GA yet |
 | Runtime image | `ghcr.io/keiailab/pg:18` public pull verified | multi-arch / runtime SBOM still to harden |
-| Production cluster | `platform-data-postgres-operator` Synced/Healthy, `argos-postgres` Ready | HA replicas / backup-restore / long-soak still pending |
+| Production cluster | `platform-data-postgres-operator` Synced/Healthy, `postgres` Ready | HA replicas / backup-restore / long-soak still pending |
 | Fencing | PVC fence skeleton | Operator-driven recovery / runbook automation still pending |
 | Backup | Partially implemented | `BackupJob` phase transitions + `ScheduledBackup` CRD/controller + `RestorePIT` call path + pgBackRest command-runner plugin + K8s sidecar exec path present. Actual restore drill still pending. |
 
@@ -57,7 +57,7 @@ cluster via GitOps.
 - [x] `PostgresClusterReconciler` builds desired state (ConfigMap / Headless Service / StatefulSet) — `internal/controller/postgrescluster_controller.go`.
 - [x] Status phase transitions (Provisioning → Ready) — `internal/controller/status.go`, `aggregate_status.go`.
 - [x] Pod readiness tracking — reconciler endpoint watch.
-- [x] ArgoCD `Synced/Healthy` — argos production verified.
+- [x] ArgoCD `Synced/Healthy` — production verified.
 - [x] GHCR public pull.
 - [x] Day-0 e2e — `test/e2e/e2e_test.go`, `postgrescluster_e2e_test.go`.
 - Verify: ArgoCD `Synced/Healthy` + Pod `1/1` Running + `psql -c 'select version()'`.

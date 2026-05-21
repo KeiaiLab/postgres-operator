@@ -72,7 +72,7 @@ Details: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ### Currently shipping (v0.3.0-alpha.18)
 
-The helm chart and OperatorHub bundle ship **8 owned CRDs**. CRD status reflects what is reconciled today on the argos production cluster:
+The helm chart and OperatorHub bundle ship **8 owned CRDs**. CRD status reflects what is reconciled today on the production cluster:
 
 | CRD | Role | Status |
 |---|---|---|
@@ -144,7 +144,7 @@ See [`docs/operator-guide/deployment.md`](docs/operator-guide/deployment.md) and
 
 ## Production readiness
 
-**Current state (0.3.0-alpha.18, 2026-05-12)**: on the argos Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/argos-postgres` reports `Ready=True`. Cross-validation against CloudNativePG is documented in [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md).
+**Current state (0.3.0-alpha.18, 2026-05-12)**: on the production Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/postgres` reports `Ready=True`. Cross-validation against CloudNativePG is documented in [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md).
 
 GA distance:
 - **P1** — production-ready single-shard requires the HA Lease distributed-lock controller, the BackupJob/ScheduledBackup live drill, the PITR checksum drill, and the chaos-mesh failover suite. Tracking sub-tasks in `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`.

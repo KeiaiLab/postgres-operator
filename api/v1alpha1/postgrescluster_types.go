@@ -460,9 +460,8 @@ type PostgresClusterSpec struct {
 //	Phase 3 (alpha.7): reconciler mounts the server cert Secret to the STS volume and sets
 //	                   ssl=on plus ssl_cert_file/ssl_key_file in postgresql.conf.
 //
-// Recovery target: restore the sslmode=verify-ca happy path for external clients
-// (e.g. Infisical in the argos cluster). Currently ssl=off, forcing sslmode=disable
-// regression (ADR-0062 cycle sealed).
+// Recovery target: restore the sslmode=verify-ca happy path for external TLS clients.
+// Currently ssl=off, forcing sslmode=disable regression (ADR-0062 cycle sealed).
 type TLSSpec struct {
 	// Enabled controls whether server-side TLS is active. Only false works in Phase 1.
 	// +kubebuilder:default=false

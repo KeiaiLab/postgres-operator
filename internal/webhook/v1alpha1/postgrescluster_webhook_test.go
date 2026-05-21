@@ -188,7 +188,7 @@ func TestValidate_TLS_Enabled_WithIssuer_Accepted(t *testing.T) {
 	c := validBaseCluster()
 	c.Spec.TLS = &postgresv1alpha1.TLSSpec{
 		Enabled:   true,
-		IssuerRef: &postgresv1alpha1.TLSIssuerRef{Name: "argos-ca", Kind: "ClusterIssuer"},
+		IssuerRef: &postgresv1alpha1.TLSIssuerRef{Name: "keiailab-ca", Kind: "ClusterIssuer"},
 	}
 	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
 		t.Fatalf("tls.enabled=true with IssuerRef should be accepted, got: %v", err)
