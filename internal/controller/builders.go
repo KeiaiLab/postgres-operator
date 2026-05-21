@@ -104,7 +104,11 @@ func pgBinDir(pgMajor string) string {
 
 // ptrBool/ptrInt64는 외부 의존 없이 inline pointer를 만드는 헬퍼다.
 // (K8s API의 *bool/*int64 필드용. k8s.io/utils/ptr import 회피로 SDK 의존 최소화.)
-func ptrBool(b bool) *bool    { return &b }
+//
+//nolint:modernize // helpers preserve typed callers (ptrBool(true) ≠ new(bool))
+func ptrBool(b bool) *bool { return &b }
+
+//nolint:modernize // helpers preserve typed callers (ptrInt64(70) ≠ new(int64))
 func ptrInt64(i int64) *int64 { return &i }
 
 // storageClassPtr 는 빈 문자열이면 nil (클러스터 default), 아니면 ptr 을 반환한다.
@@ -130,10 +134,10 @@ func storageClassPtr(s string) *string {
 // root 가능 상태로 떨어지지 않도록 default를 항상 강제한다.
 func dataplanePodSecurityContext() *corev1.PodSecurityContext {
 	return &corev1.PodSecurityContext{
-		RunAsNonRoot: ptrBool(true),
-		RunAsUser:    ptrInt64(postgresUserUID),
-		RunAsGroup:   ptrInt64(postgresUserUID),
-		FSGroup:      ptrInt64(postgresUserUID),
+		RunAsNonRoot: ptrBool(true),             //nolint:modernize // typed-value pointer required
+		RunAsUser:    ptrInt64(postgresUserUID), //nolint:modernize
+		RunAsGroup:   ptrInt64(postgresUserUID), //nolint:modernize
+		FSGroup:      ptrInt64(postgresUserUID), //nolint:modernize
 		SeccompProfile: &corev1.SeccompProfile{
 			Type: corev1.SeccompProfileTypeRuntimeDefault,
 		},

@@ -369,6 +369,7 @@ func reconcilePostgresUserOnce(
 	return &got
 }
 
+//nolint:modernize // typed-value pointer helper (int32Ptr(5) ≠ new(int32))
 func int32Ptr(value int32) *int32 {
 	return &value
 }
