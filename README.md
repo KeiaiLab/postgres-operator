@@ -189,11 +189,17 @@ The release gate is enforced **locally** via lefthook (pre-commit / commit-msg /
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Single-page architecture description (8 CRD surface + self-built distributed SQL + G0-G6 status + ADR cross-link)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phase roadmap and Gate checklists
-- `docs/kb/adr/` — Architecture Decision Records
-- `docs/rfcs/` — RFC drafts
-- `docs/operator-guide/` — Deployment / pooler-monitoring / HA / community-operators onboarding
-- `docs/runbooks/` — Operations procedures: ha / backup / restore / upgrade / security / migration (each with SLO targets + verify commands)
-- `docs/sharding/` — Sharding architecture spec
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — Release history (en / [ko](docs/CHANGELOG.ko.md) / [ja](docs/CHANGELOG.ja.md) / [zh](docs/CHANGELOG.zh.md))
+- [`docs/kb/adr/INDEX.md`](docs/kb/adr/INDEX.md) — Architecture Decision Records (active set)
+- [`docs/kb/deps/2026-05.md`](docs/kb/deps/2026-05.md) — Monthly dependency change log (lockfile diff append-only)
+- [`docs/rfcs/INDEX.md`](docs/rfcs/INDEX.md) — RFC index (0001–0007 active drafts)
+- [`docs/runbooks/INDEX.md`](docs/runbooks/INDEX.md) — Operations runbook index (ha / backup / restore / upgrade / security / migration / pvc-fence)
+- [`docs/operator-guide/`](docs/operator-guide/) — Deployment, pooler-monitoring, ha-election, community-operators onboarding
+- [`docs/sharding/SHARDING.md`](docs/sharding/SHARDING.md) — Sharding architecture spec
+- [`docs/sql/isolation-matrix.md`](docs/sql/isolation-matrix.md) — Distributed-SQL isolation guarantees
+- [`docs/perf/baseline.md`](docs/perf/baseline.md) — Performance baseline
+- [`docs/releases/release-process.md`](docs/releases/release-process.md) — Release process
+- [`docs/UPGRADING.md`](docs/UPGRADING.md) — Upgrade guide (en / [ko](docs/UPGRADING.ko.md) / [ja](docs/UPGRADING.ja.md) / [zh](docs/UPGRADING.zh.md))
 
 ## Reporting vulnerabilities
 
