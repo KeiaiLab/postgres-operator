@@ -426,4 +426,4 @@ The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
 - ADR 0006 — dataplane SecurityContext.
 - RFC 0001 — PostgresCluster CRD v2 schema.
 - RFC 0003 — election + fencing interface.
-- HANDOFF.md — work-in-progress and the next-cycle entry point.
+- docs/internal/HANDOFF.md — work-in-progress and the next-cycle entry point.
