@@ -37,7 +37,7 @@
 | Mono mark | `https://keiailab.com/assets/mark.svg` | favicon、社交卡片 |
 | Wordmark | `https://keiailab.com/assets/wordmark.svg` | Footer、暗色背景 |
 
-**标志放置**: README 顶部居中、width 120px。始终链接到 https://keiailab.com。
+**标志放置**: README 顶部居中、width 120px。始终链接到 <https://keiailab.com>。
 
 **安全间距 (Clear space)**: 标志周围最小 padding 为标志宽度的 25%。
 
