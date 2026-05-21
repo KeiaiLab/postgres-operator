@@ -1,4 +1,4 @@
-# ADR-0007: OperatorHub.io 최신 버전 자동 sync
+# ADR-0024: OperatorHub.io 최신 버전 자동 sync
 
 - **Date**: 2026-05-14
 - **Status**: Proposed

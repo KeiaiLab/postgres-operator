@@ -1,4 +1,4 @@
-# ADR-0006: Repmgr/PgBouncer/Barman 통합 — bitnami parity
+# ADR-0023: Repmgr/PgBouncer/Barman 통합 — bitnami parity
 
 - **Date**: 2026-05-14
 - **Status**: Proposed
