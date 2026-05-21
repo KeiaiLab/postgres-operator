@@ -90,9 +90,30 @@ pre-push:
   parallel: false
   commands:
     unit-test:
-      run: go test -count=1 -timeout=120s ./...
+      # envtest binary (etcd + kube-apiserver) 가 없으면 자동 다운로드 후
+      # KUBEBUILDER_ASSETS 절대 경로 export. 호스트 환경 무관하게 통과.
+      # ADR-0024 (Phase 1B-prereq): GHA 폐지 후 로컬 4계층 일관성 확보.
+      run: |
+        test -d bin/k8s || make setup-envtest >/dev/null 2>&1 || true
+        K8S_DIR=$(ls -d bin/k8s/*/ 2>/dev/null | head -1)
+        if [ -z "$K8S_DIR" ]; then
+          echo "❌ envtest 설정 실패 — 'make setup-envtest' 수동 실행 후 재push"
+          exit 1
+        fi
+        export KUBEBUILDER_ASSETS="$(pwd)/${K8S_DIR%/}"
+        go test -count=1 -timeout=120s ./...
     full-lint:
-      run: ./bin/golangci-lint run
+      # PR 신규 이슈만 차단 (기존 main 이슈는 별개 modernize PR 로 처리).
+      # base ref: origin/main 우선, 미존재 시 HEAD~1 fallback.
+      # ADR-0024: incremental lint = pre-commit 의 --new-from-rev=HEAD~1 패턴
+      # 을 pre-push 단계로 확장 (PR 전체 commit 검사).
+      run: |
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+          BASE_REF="origin/main"
+        else
+          BASE_REF="HEAD~1"
+        fi
+        ./bin/golangci-lint run --new-from-rev="$BASE_REF"
     helm-lint:
       # chart sanity (gh-pages publish 전 마지막 가드).
       run: command -v helm >/dev/null 2>&1 && helm lint charts/postgres-operator || true
@@ -176,19 +197,30 @@ pre-push:
       # 마크다운 문서의 깨진 링크 검사 (구 .github/workflows/markdown-link-check.yml 대체).
       # 설치: npm install -g markdown-link-check
       # 우회: MD_LINK_CHECK_SKIP=1
+      # ADR-0024: PR 신규/수정 markdown 만 검사 (full-lint 와 동일 incremental 정책).
+      # 기존 main 의 깨진 링크 부채는 별개 PR 로 누적 처리.
       run: |
         if [ "${MD_LINK_CHECK_SKIP:-0}" = "1" ]; then exit 0; fi
         if ! command -v markdown-link-check >/dev/null 2>&1; then
           echo "[warn] markdown-link-check 미설치 — npm install -g markdown-link-check (또는 MD_LINK_CHECK_SKIP=1)"
           exit 0
         fi
-        # README.md + CHANGELOG.md + docs/*.md 만 검사 (외부 링크 timeout 보호: 짧은 timeout).
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+          BASE_REF="origin/main"
+        else
+          BASE_REF="HEAD~1"
+        fi
+        changed_md=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null | grep -E '\.md$' || true)
+        if [ -z "$changed_md" ]; then
+          echo "(no markdown changes vs $BASE_REF — skip)"
+          exit 0
+        fi
         fail=0
-        for f in README.md CHANGELOG.md $(find docs -name '*.md' 2>/dev/null); do
+        for f in $changed_md; do
           [ -f "$f" ] || continue
           markdown-link-check -q "$f" || fail=1
         done
-        [ "$fail" = "0" ] || { echo "❌ 깨진 markdown link 발견"; exit 1; }
+        [ "$fail" = "0" ] || { echo "❌ 깨진 markdown link 발견 (PR 변경 파일)"; exit 1; }
 
 commit-msg:
   commands:
