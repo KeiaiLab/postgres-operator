@@ -159,14 +159,32 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
-.PHONY: lint-k8s
-lint-k8s: ## kube-linter 로 dist/install.yaml + helm chart 렌더 산출물의 K8s 리소스 보안/best-practice 점검.
+.PHONY: lint-k8s kube-lint
+lint-k8s kube-lint: ## kube-linter 로 dist/install.yaml + helm chart 렌더 산출물의 K8s 리소스 보안/best-practice 점검 (lint-k8s/kube-lint alias).
 	@command -v kube-linter >/dev/null 2>&1 || { echo "[error] kube-linter not installed: brew install kube-linter (또는 go install golang.stackrox.io/kube-linter/cmd/kube-linter@latest)"; exit 1; }
 	@echo "=== kube-linter lint dist/install.yaml ==="
 	kube-linter lint dist/install.yaml
 	@echo "=== kube-linter lint helm template (default values) ==="
 	helm template gate "$(HELM_CHART)" --include-crds | kube-linter lint -
 	@echo "✓ kube-linter PASS (dist + helm chart)"
+
+.PHONY: go-licenses
+go-licenses: ## Go 의존성 라이선스 검사 — forbidden/restricted 라이선스 차단 (구 GHA go-licenses.yml 대체).
+	@command -v go-licenses >/dev/null 2>&1 || { echo "[error] go-licenses not installed: go install github.com/google/go-licenses@latest"; exit 1; }
+	@echo "=== go-licenses check (forbidden + restricted) ==="
+	go-licenses check ./... --disallowed_types=forbidden,restricted
+	@echo "✓ go-licenses PASS"
+
+.PHONY: md-link-check
+md-link-check: ## 마크다운 문서 깨진 링크 검사 (구 GHA markdown-link-check.yml 대체).
+	@command -v markdown-link-check >/dev/null 2>&1 || { echo "[error] markdown-link-check not installed: npm install -g markdown-link-check"; exit 1; }
+	@echo "=== markdown-link-check (README/CHANGELOG/docs) ==="
+	@fail=0; for f in README.md CHANGELOG.md $$(find docs -name '*.md' 2>/dev/null); do \
+		[ -f "$$f" ] || continue; \
+		markdown-link-check -q "$$f" || fail=1; \
+	done; \
+	[ "$$fail" = "0" ] || { echo "❌ 깨진 markdown link 발견"; exit 1; }
+	@echo "✓ markdown-link-check PASS"
 
 .PHONY: hooks-install
 hooks-install: ## lefthook 의 pre-commit / commit-msg / pre-push 훅을 git 에 설치 (CONTRIBUTING.md L1/L2).

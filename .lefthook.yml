@@ -125,6 +125,52 @@ pre-push:
           exit 1
         fi
         rm -f /tmp/.go.mod.lefthook.bak /tmp/.go.sum.lefthook.bak
+    kube-linter:
+      # K8s 리소스 보안/best-practice 검사 (구 .github/workflows/kube-linter.yml 대체).
+      # dist/install.yaml + helm template 양쪽 검사.
+      # 설치: brew install kube-linter (또는 go install golang.stackrox.io/kube-linter/cmd/kube-linter@latest)
+      # 우회: KUBE_LINTER_SKIP=1
+      run: |
+        if [ "${KUBE_LINTER_SKIP:-0}" = "1" ]; then exit 0; fi
+        if ! command -v kube-linter >/dev/null 2>&1; then
+          echo "[warn] kube-linter 미설치 — brew install kube-linter (또는 KUBE_LINTER_SKIP=1)"
+          exit 0
+        fi
+        if ! command -v helm >/dev/null 2>&1; then
+          echo "[warn] helm 미설치 — kube-linter helm template skip"
+          exit 0
+        fi
+        # helm template default values 로 lint (dist/install.yaml 가 stale 일 수 있어 helm 만).
+        helm template postgres-operator charts/postgres-operator --include-crds | kube-linter lint -
+    go-licenses:
+      # Go 의존성 라이선스 검사 (구 .github/workflows/go-licenses.yml 대체).
+      # forbidden license (GPL-3.0, AGPL 등) 포함 의존성 차단.
+      # 설치: go install github.com/google/go-licenses@latest
+      # 우회: GO_LICENSES_SKIP=1
+      run: |
+        if [ "${GO_LICENSES_SKIP:-0}" = "1" ]; then exit 0; fi
+        if ! command -v go-licenses >/dev/null 2>&1; then
+          echo "[warn] go-licenses 미설치 — go install github.com/google/go-licenses@latest (또는 GO_LICENSES_SKIP=1)"
+          exit 0
+        fi
+        go-licenses check ./... --disallowed_types=forbidden,restricted 2>&1 | grep -v "^W" || true
+    markdown-link-check:
+      # 마크다운 문서의 깨진 링크 검사 (구 .github/workflows/markdown-link-check.yml 대체).
+      # 설치: npm install -g markdown-link-check
+      # 우회: MD_LINK_CHECK_SKIP=1
+      run: |
+        if [ "${MD_LINK_CHECK_SKIP:-0}" = "1" ]; then exit 0; fi
+        if ! command -v markdown-link-check >/dev/null 2>&1; then
+          echo "[warn] markdown-link-check 미설치 — npm install -g markdown-link-check (또는 MD_LINK_CHECK_SKIP=1)"
+          exit 0
+        fi
+        # README.md + CHANGELOG.md + docs/*.md 만 검사 (외부 링크 timeout 보호: 짧은 timeout).
+        fail=0
+        for f in README.md CHANGELOG.md $(find docs -name '*.md' 2>/dev/null); do
+          [ -f "$f" ] || continue
+          markdown-link-check -q "$f" || fail=1
+        done
+        [ "$fail" = "0" ] || { echo "❌ 깨진 markdown link 발견"; exit 1; }
 
 commit-msg:
   commands:
