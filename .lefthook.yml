@@ -33,10 +33,10 @@ pre-commit:
       # 실 file 존재 검증 (docs/kb/adr/ + docs/adr/ 양 path union).
       # governance-report `adr_phantom_count` (layer 4) 와 sister.
       # cycle 25 P10 root cause fix (양 path 인정).
-      glob: "HANDOFF.md"
+      glob: "docs/internal/HANDOFF.md"
       run: |
         if ! echo "{staged_files}" | grep -qE '(^|/)HANDOFF\.md$'; then exit 0; fi
-        refs=$(grep -oE 'ADR-[0-9]{4}' HANDOFF.md 2>/dev/null | sort -u || true)
+        refs=$(grep -oE 'ADR-[0-9]{4}' docs/internal/HANDOFF.md 2>/dev/null | sort -u || true)
         if [ -z "$refs" ]; then exit 0; fi
         missing=""
         for ref in $refs; do
