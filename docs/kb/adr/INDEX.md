@@ -27,6 +27,8 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0014](0014-community-operators-sync-automation.md) | community-operators sync automation | Accepted | 2026-05-10 |
 | [ADR-0015](0015-distributed-tx.md) | 분산 트랜잭션 — 2PC primary + saga deferred (G5 §D.10.2, RFC-0005 정합) | Accepted | 2026-05-16 |
 | [ADR-0016](0016-former-adr-0015-force-reset-history.md) | 옛 ADR-0015 (RFC-0002 OSS CI 일탈) force-reset history codify — Option A: Accepted / Option B: Withdrawn (사용자 confirmation 대기) | Proposed | 2026-05-20 |
+| [ADR-0017](0017-gha-retention-for-public-oss.md) | GitHub Actions Retention — Public OSS Operator External Trust Gate (S7 cycle 폐기, 본 문서는 history 보존 용) | Superseded by ADR-0018 | 2026-05-21 |
+| [ADR-0018](0018-gha-to-local-4-layer.md) | GHA 전면 제거 → 로컬 4계층 단일 운영 (RFC-0002 strict, 14 workflow 전면 제거 + scripts/helm-publish.sh + scripts/release.sh + 3종 보강) | Accepted | 2026-05-21 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
