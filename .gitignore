@@ -37,3 +37,7 @@ dist/
 # Ralph loop state (local-only, 3-repo 정합)
 .claude/ralph-loop.local.md
 /custom-gcl
+
+# Claude Code session artifacts (broad pattern, Codex Major #6 정합)
+.claude/
+.claude-flow/
