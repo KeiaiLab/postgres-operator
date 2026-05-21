@@ -17,9 +17,9 @@
 
 <p align="center">
   <b>English</b> |
-  <a href="docs/README.ko.md">한국어</a> |
-  <a href="docs/README.ja.md">日本語</a> |
-  <a href="docs/README.zh.md">中文</a>
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.zh.md">中文</a>
 </p>
 
 ---
@@ -59,7 +59,7 @@ operator manager
   KEDA + Prometheus  (auto-split trigger: size + p99 + cpu)
 ```
 
-Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Details: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Features
 
@@ -93,7 +93,7 @@ Helm chart adds: PrometheusRule + Grafana dashboards (Pooler overview + Cluster 
 | **P6** | 0.9.0 | Distributed transactions (2PC + saga) + cross-shard JOIN |
 | **P7** | **1.0.0** | Stabilization + chaos / benchmark + Artifact Hub verified |
 
-Full phase detail (sub-tasks, SLO, ADR/RFC references): [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`docs/roadmap.md`](docs/roadmap.md).
+Full phase detail (sub-tasks, SLO, ADR/RFC references): [`ROADMAP.md`](ROADMAP.md) and [`docs/roadmap.md`](docs/roadmap.md).
 
 ## License policy
 
@@ -183,12 +183,12 @@ make sync-crds              # Verify config/crd/bases ↔ chart synchronization
 make test-e2e PILLAR=p1     # Kind-cluster e2e
 ```
 
-The release gate is enforced **locally** via lefthook (pre-commit / commit-msg / pre-push) and the `make gate` target. See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for the contributor guide, [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) for the governance model (lazy consensus / 2/3 supermajority), and [`docs/CODE_OF_CONDUCT.md`](docs/CODE_OF_CONDUCT.md) for the code of conduct.
+The release gate is enforced **locally** via lefthook (pre-commit / commit-msg / pre-push) and the `make gate` target. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contributor guide, [`GOVERNANCE.md`](GOVERNANCE.md) for the governance model (lazy consensus / 2/3 supermajority), and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for the code of conduct.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Single-page architecture description (8 CRD surface + self-built distributed SQL + G0-G6 status + ADR cross-link)
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phase roadmap and Gate checklists
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Single-page architecture description (8 CRD surface + self-built distributed SQL + G0-G6 status + ADR cross-link)
+- [`ROADMAP.md`](ROADMAP.md) — Phase roadmap and Gate checklists
 - `docs/kb/adr/` — Architecture Decision Records
 - `docs/rfcs/` — RFC drafts
 - `docs/operator-guide/` — Deployment / pooler-monitoring / HA / community-operators onboarding
@@ -197,13 +197,13 @@ The release gate is enforced **locally** via lefthook (pre-commit / commit-msg /
 
 ## Reporting vulnerabilities
 
-Please **do not** open a public issue for security reports. Use the private GitHub Security Advisory channel per [`docs/SECURITY.md`](docs/SECURITY.md). We respond within 5 business days and coordinate disclosure timelines for high-severity findings.
+Please **do not** open a public issue for security reports. Use the private GitHub Security Advisory channel per [`SECURITY.md`](SECURITY.md). We respond within 5 business days and coordinate disclosure timelines for high-severity findings.
 
 ## Community
 
 - **Discussions**: [GitHub Discussions](https://github.com/keiailab/postgres-operator/discussions) — usage questions, feature ideas, operational war stories.
 - **Issues**: [GitHub Issues](https://github.com/keiailab/postgres-operator/issues) — bugs and feature requests (please file reproducible cases; the `question.yml` template guides Q&A).
-- **Governance**: [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) — decision process (lazy consensus / 2/3 supermajority).
+- **Governance**: [`GOVERNANCE.md`](GOVERNANCE.md) — decision process (lazy consensus / 2/3 supermajority).
 - **Sponsorship**: see [`.github/FUNDING.yml`](.github/FUNDING.yml) for the GitHub Sponsors button.
 
 ## License
@@ -212,7 +212,7 @@ Apache-2.0. See the [`LICENSE`](LICENSE) file.
 
 ## Maintainer
 
-[@phil](https://github.com/phil) — `support@masblue.studio`. Maintainer roster: [`docs/MAINTAINERS.md`](docs/MAINTAINERS.md).
+[@phil](https://github.com/phil) — `support@masblue.studio`. Maintainer roster: [`MAINTAINERS.md`](MAINTAINERS.md).
 
 ---
 

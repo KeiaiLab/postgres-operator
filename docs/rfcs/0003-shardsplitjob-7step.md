@@ -342,8 +342,8 @@ Success criteria:
 ## §8 References
 
 - Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.3, §7.2 P4
-- PostgreSQL Logical Replication: https://www.postgresql.org/docs/18/logical-replication.html
-- pg_create_logical_replication_slot: https://www.postgresql.org/docs/18/functions-replication.html
+- PostgreSQL Logical Replication: https://www.postgresql.org/docs/current/logical-replication.html
+- pg_create_logical_replication_slot: https://www.postgresql.org/docs/current/functions-replication.html
 - RFC 0001: PostgresCluster CRD v2
 - RFC 0002: ShardRange CRD
 - RFC 0004: pg-router architecture
