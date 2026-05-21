@@ -53,6 +53,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	commonspvc "github.com/keiailab/operator-commons/pkg/pvc"
+
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
 	"github.com/keiailab/postgres-operator/internal/plugin"
@@ -344,7 +346,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	for ord := range shardCount {
 		stsNamesForResize = append(stsNamesForResize, ShardStatefulSetName(cluster.Name, ord))
 	}
-	if err := expandDataPVCs(ctx, r.Client, cluster.Namespace, stsNamesForResize, cluster.Spec.Shards.Storage.Size); err != nil {
+	if err := commonspvc.ExpandDataPVCs(ctx, r.Client, cluster.Namespace, stsNamesForResize, cluster.Spec.Shards.Storage.Size); err != nil {
 		logger.Error(err, "PVC resize failed (best-effort, reconcile 계속)")
 	}
 

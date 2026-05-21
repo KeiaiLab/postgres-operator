@@ -30,6 +30,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0017](0017-gha-retention-for-public-oss.md) | GitHub Actions Retention — Public OSS Operator External Trust Gate (S7 cycle 폐기, 본 문서는 history 보존 용) | Superseded by ADR-0018 | 2026-05-21 |
 | [ADR-0018](0018-gha-to-local-4-layer.md) | GHA 전면 제거 → 로컬 4계층 단일 운영 (RFC-0002 strict, 14 workflow 전면 제거 + scripts/helm-publish.sh + scripts/release.sh + 3종 보강) | Superseded by ADR-0019 | 2026-05-21 |
 | [ADR-0019](0019-gha-retention-for-public-oss.md) | GitHub Actions 유지 — operator family v2.0 통합 정합 (14 workflow 복원 + ADR-0018 phase 2/3 인프라 유지 + dual-track 운영) | Accepted | 2026-05-21 |
+| [ADR-0020](0020-sprint-1-commons-pvc-topology-adoption.md) | Sprint 1 — operator-commons pkg/pvc + pkg/topology 채택 (-375 LOC, postgres callsite 2 + pvc 1 교체) | Accepted | 2026-05-21 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
