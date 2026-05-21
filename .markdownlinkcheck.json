@@ -1,0 +1,20 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https?://(www\\.)?keiailab\\.com/assets/",
+      "comment": "ADR-0024: www.keiailab.com 도메인은 valid 하지만 /assets/logo.svg 등 path 미배포. 외부 인프라 task — 모든 family README 가 동일 URL 사용 (https://keiailab.com/assets/logo.svg)."
+    },
+    {
+      "pattern": "^https?://keiailab\\.github\\.io/(postgres-operator|mongodb-operator|valkey-operator|operator-commons|forgewise)",
+      "comment": "ADR-0024: GitHub Pages 미배포 상태. gh-pages 브랜치는 존재하나 site 빌드/배포 미완료. 외부 인프라 task — chart Helm version badge href."
+    }
+  ],
+  "retryOn429": true,
+  "retryCount": 2,
+  "timeout": "20s",
+  "_meta": {
+    "owner": "ADR-0024 (lefthook pre-push incremental gate)",
+    "purpose": "markdown-link-check 가 변경 markdown 의 dead link 검사 시 외부 인프라 부재 (keiailab.com/assets 미배포 + GitHub Pages 미배포) 부채를 명시적으로 ignore. 신규 dead link 는 차단 유지.",
+    "review_trigger": "외부 인프라 deploy 완료 시 (www.keiailab.com 의 /assets/ deploy + GitHub Pages 활성화) ignorePatterns 제거 PR 필요."
+  }
+}

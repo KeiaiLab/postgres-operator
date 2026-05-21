@@ -231,7 +231,8 @@ Apache-2.0。请参考 [`LICENSE`](LICENSE) 文件。
   <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
   <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
   <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
+  <a href="https://github.com/keiailab/forgewise">forgewise</a>
 </p>
 
 <p align="center">

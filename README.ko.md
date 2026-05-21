@@ -2,9 +2,11 @@
   <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
 </p>
 
-# postgres-operator
+# postgres-operator (한국어)
 
-> **Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
+> **Kubernetes 용 Apache-2.0 PostgreSQL Operator — vanilla PG18+, license-clean, K8s-native auto-sharding 로드맵**
+
+> English README: [README.md](README.md) — canonical / 정본
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
@@ -26,8 +28,6 @@
   <a href="README.ja.md">日本語</a> |
   <a href="README.zh.md">中文</a>
 </p>
-
----
 
 ---
 
@@ -231,7 +231,8 @@ Apache-2.0. [`LICENSE`](LICENSE) 파일 참조.
   <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
   <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
   <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
+  <a href="https://github.com/keiailab/operator-commons">operator-commons</a> ·
+  <a href="https://github.com/keiailab/forgewise">forgewise</a>
 </p>
 
 <p align="center">
