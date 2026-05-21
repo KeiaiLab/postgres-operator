@@ -138,7 +138,7 @@ See [`docs/operator-guide/deployment.md`](docs/operator-guide/deployment.md) and
 
 ## Production readiness
 
-**Current state (0.3.0-alpha.18)**: on the reference Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/argos-postgres` reports `Ready=True`.
+**Current state (0.3.0-alpha.18)**: on the reference Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/postgres` reports `Ready=True`.
 
 GA distance:
 

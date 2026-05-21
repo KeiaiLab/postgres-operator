@@ -72,7 +72,7 @@ operator manager
 
 ### 当前发布版本(v0.3.0-alpha.18)
 
-Helm chart 和 OperatorHub bundle 包含 **8 个自有 CRD**。CRD 状态反映了当前在 argos 生产集群上已 reconcile 的内容:
+Helm chart 和 OperatorHub bundle 包含 **8 个自有 CRD**。CRD 状态反映了当前在生产集群上已 reconcile 的内容:
 
 | CRD | 作用 | 状态 |
 |---|---|---|
@@ -144,7 +144,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness (生产就绪)
 
-**当前状态(0.3.0-alpha.18,2026-05-12)**:在 argos Kubernetes 集群上,ArgoCD Application `platform-data-postgres-operator` 处于 `Synced/Healthy` 状态,`PostgresCluster/argos-postgres` 报告 `Ready=True`。
+**当前状态(0.3.0-alpha.18)**:在参考 Kubernetes 集群上,ArgoCD Application `platform-data-postgres-operator` 处于 `Synced/Healthy` 状态,`PostgresCluster/postgres` 报告 `Ready=True`。
 
 距离 GA 的差距:
 - **P1** —— 生产就绪的单分片需要 HA Lease 分布式锁控制器、BackupJob/ScheduledBackup 实战演练、PITR 校验和演练以及 chaos-mesh 故障切换套件。相关子任务跟踪于 `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`。

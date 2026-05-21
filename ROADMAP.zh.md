@@ -31,13 +31,13 @@
 
 | 项 | 状态 | Evidence |
 |---|---|---|
-| 项目 / chart 名称 | `postgres-operator` | GitHub repo、Helm chart 与 argos GitOps path 一致 |
+| 项目 / chart 名称 | `postgres-operator` | GitHub repo、Helm chart 与 GitOps path 一致 |
 | 许可证 | Apache-2.0 | `LICENSE`、ADR-0003 |
 | 最新发布 | `0.3.0-alpha.18` | GHCR 镜像 + Helm chart 发布 + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` 与 8 CRD + alm-examples + CSV 描述一致 | `operator-sdk bundle validate --select-optional suite=operatorframework` 干净 (T26) |
 | 声明式 DB 表面 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 周期完成;live kind smoke 自动化 (T27) 进行中 |
 | 本地 4-layer 网关 | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002;version-drift assertion 与 bundle validate 自动化 (T26) |
-| argos 部署 | Day-0 single-shard | `PostgresCluster/argos-postgres` Ready |
+| 生产部署 | Day-0 single-shard | `PostgresCluster/postgres` Ready |
 | GHCR runtime 镜像 | 可公开 pull | `ghcr.io/keiailab/pg:18` 无需 pull secret 即可 restart |
 | HA replicas | 部分 (仅有 `Replicas` 字段) | `api/v1alpha1/postgrescluster_types.go` |
 | Backup / restore | 部分实现 | `BackupJob` phase transitions + `ScheduledBackup` CRD/controller + `RestorePIT` call path + pgBackRest command-runner plugin + K8s sidecar exec path。实际 restore drill 仍 pending。 |
@@ -54,7 +54,7 @@
 - [x] `PostgresClusterReconciler` 构建期望状态 (ConfigMap / headless Service / StatefulSet) —— `internal/controller/postgrescluster_controller.go`。
 - [x] Status phase 转换 (Provisioning → Ready) —— `internal/controller/status.go`、`aggregate_status.go`。
 - [x] Pod readiness 跟踪 —— reconciler endpoint watch。
-- [x] ArgoCD `Synced/Healthy` —— 在 argos production 验证 (`platform-data-postgres-operator`)。
+- [x] ArgoCD `Synced/Healthy` —— 在生产环境验证 (`platform-data-postgres-operator`)。
 - [x] GHCR 公开 pull —— `ghcr.io/keiailab/pg:18` 无需 pull secret 即可 restart。
 - [x] Day-0 e2e —— `test/e2e/e2e_test.go`、`postgrescluster_e2e_test.go`。
 - Verify: ArgoCD `Synced/Healthy` + Pod `1/1` Running + `psql -c 'select version()'`。

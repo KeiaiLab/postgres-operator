@@ -72,7 +72,7 @@ operator manager
 
 ### 現在出荷中 (v0.3.0-alpha.18)
 
-helm チャートおよび OperatorHub バンドルでは **8 つの所有 CRD** を出荷しています。CRD のステータスは、argos 本番クラスターにおいて現時点で reconcile されている内容を反映します:
+helm チャートおよび OperatorHub バンドルでは **8 つの所有 CRD** を出荷しています。CRD のステータスは、本番クラスターにおいて現時点で reconcile されている内容を反映します:
 
 | CRD | 役割 | ステータス |
 |---|---|---|
@@ -144,7 +144,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness (本番運用準備)
 
-**現状 (0.3.0-alpha.18, 2026-05-12)**: argos Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/argos-postgres` は `Ready=True` を報告しています。
+**現状 (0.3.0-alpha.18)**: リファレンス Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/postgres` は `Ready=True` を報告しています。
 
 GA までの距離:
 - **P1** — 本番対応のシングルシャードには、HA Lease 分散ロックコントローラー、BackupJob/ScheduledBackup の実機 drill、PITR チェックサム drill、および chaos-mesh failover スイートが必要です。サブタスクは `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` で追跡しています。

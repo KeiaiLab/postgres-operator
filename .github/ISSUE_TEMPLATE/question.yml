@@ -84,9 +84,9 @@ body:
 
         **Commands I've run:**
         ```bash
-        kubectl get postgrescluster argos-postgres -o yaml
-        kubectl logs -n database argos-postgres-shard-0-0
-        kubectl describe certificate argos-postgres-tls
+        kubectl get postgrescluster postgres -o yaml
+        kubectl logs -n database postgres-shard-0-0
+        kubectl describe certificate postgres-tls
         ```
       render: markdown
     validations:
@@ -103,7 +103,7 @@ body:
         apiVersion: postgres.keiailab.com/v1alpha1
         kind: PostgresCluster
         metadata:
-          name: argos-postgres
+          name: postgres
         spec:
           imageCatalogRef:
             apiGroup: postgres.keiailab.com
@@ -157,7 +157,7 @@ body:
         **Pod status:**
         ```
         NAME                              READY   STATUS             RESTARTS   AGE
-        argos-postgres-shard-0-0          0/1     CrashLoopBackOff   3          5m
+        postgres-shard-0-0                0/1     CrashLoopBackOff   3          5m
         ```
 
   - type: textarea
@@ -173,7 +173,7 @@ body:
 
         **PostgreSQL pod logs:**
         ```bash
-        kubectl logs -n database argos-postgres-shard-0-0
+        kubectl logs -n database postgres-shard-0-0
         ```
       render: shell
 

@@ -212,7 +212,7 @@ func (r *Real) Start(ctx context.Context) error {
 	if r.started {
 		return errors.New("supervise: already started")
 	}
-	// INC-2026-05-09 (argos-postgres CrashLoopBackOff 42h+): postgres unix socket
+	// INC-2026-05-09 (postgres CrashLoopBackOff 42h+): postgres unix socket
 	// dir 가 EmptyDir 운영 시 container restart 후 stale lock file 잔존 →
 	// "FATAL: lock file ... already exists" 무한 fail. Instance manager 가 PID 1
 	// 이고 본 메소드는 *child fork 직전* 호출되므로 동일 pod 내 살아있는

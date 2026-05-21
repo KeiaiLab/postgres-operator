@@ -31,13 +31,13 @@
 
 | 項目 | 状態 | Evidence |
 |---|---|---|
-| プロジェクト / chart 名 | `postgres-operator` | GitHub repo、Helm chart、argos GitOps path 全部整合 |
+| プロジェクト / chart 名 | `postgres-operator` | GitHub repo、Helm chart、GitOps path 全部整合 |
 | ライセンス | Apache-2.0 | `LICENSE`, ADR-0003 |
 | 最新リリース | `0.3.0-alpha.18` | GHCR イメージ + Helm chart publish + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` が 8 CRD + alm-examples + CSV description と整合 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
 | 宣言的 DB サーフェス | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 サイクル完了。live kind smoke 自動化 (T27) 進行中 |
 | ローカル 4-layer ゲート | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002。version-drift assertion と bundle validate を自動化 (T26) |
-| argos デプロイ | Day-0 single-shard | `PostgresCluster/argos-postgres` Ready |
+| 本番デプロイ | Day-0 single-shard | `PostgresCluster/postgres` Ready |
 | GHCR runtime image | 公開 pull 可能 | `ghcr.io/keiailab/pg:18` が pull secret なしで restart |
 | HA replicas | Partial (`Replicas` フィールドのみ) | `api/v1alpha1/postgrescluster_types.go` |
 | Backup / restore | 部分実装 | `BackupJob` phase transitions + `ScheduledBackup` CRD/controller + `RestorePIT` call path + pgBackRest command-runner plugin + K8s sidecar exec path。実際の restore drill は pending。 |
@@ -54,7 +54,7 @@
 - [x] `PostgresClusterReconciler` が desired state を構築 (ConfigMap / headless Service / StatefulSet) — `internal/controller/postgrescluster_controller.go`。
 - [x] Status phase transition (Provisioning → Ready) — `internal/controller/status.go`、`aggregate_status.go`。
 - [x] Pod readiness トラッキング — reconciler endpoint watch。
-- [x] ArgoCD `Synced/Healthy` — argos production で検証 (`platform-data-postgres-operator`)。
+- [x] ArgoCD `Synced/Healthy` — 本番で検証 (`platform-data-postgres-operator`)。
 - [x] GHCR 公開 pull — `ghcr.io/keiailab/pg:18` が pull secret なしで restart。
 - [x] Day-0 e2e — `test/e2e/e2e_test.go`、`postgrescluster_e2e_test.go`。
 - Verify: ArgoCD `Synced/Healthy` + Pod `1/1` Running + `psql -c 'select version()'`。

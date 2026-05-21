@@ -18,8 +18,8 @@ If you want to bring up a cluster in 5 minutes, head to the [Quickstart](/tutori
 ## Current verification state
 
 - `0.3.0-alpha.4` image/chart/SBOM publish and release-smoke 12 PASS / 0 FAIL complete.
-- argos `platform-data-postgres-operator` ArgoCD Application confirmed `Synced/Healthy`, controller Deployment `1/1` live.
-- argos `data` namespace confirms `PostgresCluster/argos-postgres` single-shard `Ready=True`.
+- Production `platform-data-postgres-operator` ArgoCD Application confirmed `Synced/Healthy`, controller Deployment `1/1` live.
+- Production `data` namespace confirms `PostgresCluster/postgres` single-shard `Ready=True`.
 - After switching `ghcr.io/keiailab/pg:18` to public pull, restart confirmed without pull secret.
 - HA replica, backup/restore drill, and long-running soak remain as GA conditions.
 

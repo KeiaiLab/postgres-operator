@@ -28,7 +28,7 @@ Users running the operator in PoC / evaluation / Day-0 environments.
 
 | User | Component | Stage | Listed on |
 |---|---|---|---|
-| **argos-platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 deployment. PG18 failover smoke passed with RTO 21 s. HA replicas / backup-restore drill not yet passed — needs ROADMAP G1 before production. | 2026-05-07 |
+| **platform-data** ([keiailab](https://github.com/keiailab)) | PostgresCluster (single-shard, PG18) | Day-0 deployment. PG18 failover smoke passed with RTO 21 s. HA replicas / backup-restore drill not yet passed — needs ROADMAP G1 before production. | 2026-05-07 |
 
 ## How to add yourself
 
