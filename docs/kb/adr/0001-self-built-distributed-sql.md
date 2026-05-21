@@ -3,7 +3,7 @@
 - Date: 2026-05-02
 - Status: Accepted
 - Authors: @phil
-- Supersedes: prior decisions archived under `_archive/v0.x/`
+- Supersedes: prior v0.x decisions (history preserved in git)
 
 ## Context
 
@@ -152,5 +152,5 @@ Key parameters:
 - ADR-0004: the CRD lifecycle is owned by the operator manager.
 - ADR-0005: alpha → beta → stable channels + CRD apiVersion evolution.
 - RFC-0001 through RFC-0005: the 5 core component RFCs (CRD v2 / `ShardRange` / `ShardSplitJob` / `pg-router` / distributed transactions).
-- Retired decisions archived under `_archive/v0.x/`.
+- Retired prior v0.x decisions (history preserved in git).
 - Org-wide references: `~/Documents/ai-dev/standards/principles.md` §1 (Think Before Coding), §2 (Simplicity First — *conflict* — this decision puts *long-term license-clean + differentiation* ahead of simplicity); `standards/adr.md` (ADR authoring rules).

@@ -35,7 +35,7 @@ $ ls docs/kb/adr/0015-restore-github-actions-for-oss-ci.md
 ls: ... No such file or directory          # file system 부재
 
 $ grep "v0.x ADR-0009" docs/kb/adr/INDEX.md
-| [v0.x ADR-0009](_archive/v0.x/0009-no-github-actions-rfc-0002.md) | Retire GitHub Actions + adopt the local 4-layer gate | Active — this repo's instance of the org-wide RFC 0002 policy
+| v0.x ADR-0009 (archived, history preserved in git) | Retire GitHub Actions + adopt the local 4-layer gate | Active — this repo's instance of the org-wide RFC 0002 policy
                                            # v0.x ADR-0009 = 현 Active (RFC-0002 정합 정책 진본)
                                            # = 옛 0015 force-reset 가 v0.x ADR-0009 정합 회복 의도 evidence (Option B 가능성 강화)
 ```

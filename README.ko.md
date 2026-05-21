@@ -192,7 +192,7 @@ GitHub Actions 는 OSS 표준 suite (CI / scorecard / CodeQL / DCO / dependency-
 ## 문서
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — 단일 페이지 아키텍처 설명 (8 CRD surface + self-built distributed SQL + G0-G6 상태 + ADR cross-link)
-- `docs/kb/adr/` — Architecture Decision Record (현재: 0001–0014; archive: `_archive/v0.x/`)
+- `docs/kb/adr/` — Architecture Decision Record (현재: 0001–0026)
 - `docs/rfcs/` — RFC draft (현재: 0001–0007)
 - `docs/operator-guide/` — Deployment / pooler-monitoring / community-operators-onboarding / HA
 - `docs/runbooks/` — 운영 절차: ha / backup / restore / upgrade / security / migration (각 SLO target + verify command 보유)

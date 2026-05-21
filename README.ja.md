@@ -195,7 +195,7 @@ GitHub Actions が OSS 標準スイートを実行します (CI / scorecard / Co
 ## Documentation (ドキュメント)
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — 単一ページのアーキテクチャ説明(8 CRD サーフェス + 自前構築の分散 SQL + G0-G6 ステータス + ADR クロスリンク)
-- `docs/kb/adr/` — Architecture Decision Records (現行: 0001–0014; archive は `_archive/v0.x/`)
+- `docs/kb/adr/` — Architecture Decision Records (現行: 0001–0026)
 - `docs/rfcs/` — RFC ドラフト (現行: 0001–0007)
 - `docs/operator-guide/` — Deployment / pooler-monitoring / community-operators-onboarding / HA
 - `docs/runbooks/` — 運用手順: ha / backup / restore / upgrade / security / migration (各 SLO 目標 + verify コマンド付き)

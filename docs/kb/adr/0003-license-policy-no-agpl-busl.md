@@ -112,7 +112,7 @@ Trade-offs:
 
 - ADR-0001 (self-built distributed SQL — a direct consequence of this policy).
 - ADR-0002 (single Helm chart — why an isolation chart is no longer needed).
-- Prior archived AGPL-isolation decision (`_archive/v0.x/`) — superseded by this ADR.
+- Prior AGPL-isolation decision — superseded by this ADR (history preserved in git).
 - `standards/enforcement.md §1.5` — security scan + audit log.
 - `standards/ci.md §3` — pre-push gate catalog (license check added).
 - SPDX License List — license-identifier standard.
