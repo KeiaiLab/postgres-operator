@@ -9,7 +9,7 @@
 
 > 英語原文: [ROADMAP.md](ROADMAP.md) — canonical / 正本
 
-本 ROADMAP は、検証可能な Gate と sub-task チェックリストで進捗を追跡します — *日付コミットメントではありません*。プロジェクトの定義は **Apache-2.0 PostgreSQL Kubernetes Operator** です。PGO、Citus、CloudNativePG、Patroni のような外部システムを fork / embed / wrap せずに PGO 級の運用品質を目指します。
+本 ROADMAP は、検証可能な Gate と sub-task チェックリストで進捗を追跡します — *日付コミットメントではありません*。プロジェクトの定義は **Apache-2.0 PostgreSQL Kubernetes Operator** です。外部 PostgreSQL operator ランタイムを fork / embed / wrap せずに production-grade な運用品質を目指します。
 
 ## チェックボックスの意味
 
@@ -23,10 +23,9 @@
 
 ## 原則
 
-- **外部設計の参照は可** — PGO の運用 UX、Citus の distributed-SQL 分解、Vitess の router idiom、CNPG の Kubernetes-operator パターンは、公開ドキュメント/論文として設計の参考にします。
-- **外部システムは本製品に同梱しない** — Citus extension、CNPG `Cluster`、Patroni DCS、Cockroach/Yugabyte バックエンド、PGO コントローラコードは runtime artifact から除外。
+- **外部システムは本製品に同梱しない** — 外部 PostgreSQL operator、sharding extension、HA agent ランタイム、サードパーティ DB バックエンドは runtime artifact から除外。
 - **新規サービスとして実装** — operator manager、instance manager、sharding メタデータ、router、backup orchestration は本リポジトリ内に Apache-2.0 互換ライセンスで実装。
-- **「PGO クラス」= 品質基準** — HA / backup / restore / upgrade / observability / security UX の *目標水準*。特定製品の利用を主張するものではない。
+- **品質基準** — HA / backup / restore / upgrade / observability / security UX の *目標水準* は、特定のサードパーティ製品に依存せず約束します。
 
 ## 現状スナップショット
 
@@ -36,7 +35,7 @@
 | ライセンス | Apache-2.0 | `LICENSE`, ADR-0003 |
 | 最新リリース | `0.3.0-alpha.18` | GHCR イメージ + Helm chart publish + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` が 8 CRD + alm-examples + CSV description と整合 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
-| CNPG 互換サーフェス | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 サイクル完了。live kind smoke 自動化 (T27) 進行中 |
+| 宣言的 DB サーフェス | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 サイクル完了。live kind smoke 自動化 (T27) 進行中 |
 | ローカル 4-layer ゲート | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002。version-drift assertion と bundle validate を自動化 (T26) |
 | 本番デプロイ | Day-0 single-shard | `PostgresCluster/postgres` Ready |
 | GHCR runtime image | 公開 pull 可能 | `ghcr.io/keiailab/pg:18` が pull secret なしで restart |
@@ -90,7 +89,7 @@
 
 ### Gate G2 — 運用品質 (~25% buffer)
 
-**目標**: PGO クラスの運用サーフェスをカバー。
+**目標**: production-grade な運用サーフェスをカバー。
 
 - [x] `/metrics` baseline 公開 (port 8443) — `internal/controller/metrics.go`、`cmd/main.go`。
 - [x] TLS path セットアップ (certificate mount + `ssl=on`) — `internal/controller/builders.go:renderPostgresConf()`、`tls.go`。
@@ -100,7 +99,7 @@
 - [~] cert-manager 統合 — mount path のみ。発行メカニズムは TBD。
 - [~] **自動 PrometheusRule 生成** — Helm metrics Service / ServiceMonitor / PrometheusRule rendering + 実 `postgres_operator_backupjob_phase` メトリクスによる BackupJob failure alert。
   - [x] Replication-lag 警告 — instance status `LagBytes` → `postgres_operator_postgrescluster_replication_lag_bytes` + Helm `PostgresReplicationLagHigh`。
-  - [x] Pooler failure / saturation 警告 — `postgres_operator_pooler_phase{phase="Failed"}` + CNPG `cnpg_pgbouncer_*` exporter メトリクス駆動の collection-failure / client-waiting / max-wait alert rendering 検証。
+  - [x] Pooler failure / saturation 警告 — `postgres_operator_pooler_phase{phase="Failed"}` + PgBouncer exporter メトリクス駆動の collection-failure / client-waiting / max-wait alert rendering 検証。
   - [x] ディスク逼迫 — `kubelet_volume_stats_*` data-PVC alert。
   - [x] Backup 失敗 — `postgres_operator_backupjob_phase{phase="Failed"}`。
 - [~] **Grafana ダッシュボード** — Helm ダッシュボード ConfigMap rendering 完了 (`postgres-operator-cluster-overview.json`、`postgres-operator-pooler.json`)。live Grafana import / panel 検証は pending。
@@ -108,14 +107,14 @@
   - [x] CRD `Pooler.spec.{cluster, instances, type, pgbouncer.poolMode, pgbouncer.parameters}` 追加。
   - [x] 分離された PgBouncer Deployment / Service / ConfigMap 生成 + `userlist.txt` Secret fail-closed validation。
   - [x] デフォルト PgBouncer readiness / liveness / startup probe + exporter `/metrics` readiness / liveness probe。
-  - [x] CNPG 互換 PgBouncer パラメータ allowlist + operator-owned-key fail-closed validation。
+  - [x] PgBouncer パラメータ allowlist + operator-owned-key fail-closed validation。
   - [x] `instances > 1` 時に自動 topology spread + PodDisruptionBudget。
   - [x] より強い rolling-update デフォルト — `maxUnavailable=0`、`maxSurge=1`、`minReadySeconds=5`。
-  - [x] CNPG Pooler parity — `deploymentStrategy`、`serviceAccountName`、status `backendTargets/configHash`。
+  - [x] Pooler parity サーフェス — `deploymentStrategy`、`serviceAccountName`、status `backendTargets/configHash`。
   - [x] `pg_hba` → PgBouncer `pg_hba.conf` rendering + operator-owned validation of `auth_type=hba` / `auth_hba_file`。
   - [x] ユーザー提供 server / client TLS Secret rendering + Secret/key fail-closed validation。
   - [x] `type=ro` full ready-replica host-list rendering + `server_round_robin=1` + `server_login_retry=2` デフォルト。
-  - [~] PgBouncer exporter — 明示的 sidecar + `metrics` ServicePort + PodMonitor selector ラベル/サンプル + CNPG メトリクスプレフィックスでの PrometheusRule alert render 検証。live Prometheus scrape / Grafana 検証は pending。
+  - [~] PgBouncer exporter — 明示的 sidecar + `metrics` ServicePort + PodMonitor selector ラベル/サンプル + PgBouncer メトリクスプレフィックスでの PrometheusRule alert render 検証。live Prometheus scrape / Grafana 検証は pending。
   - [x] **Built-in auth ユーザー自動化** (T27 ⑤) — `authSecretRef` が空のとき `keiailab_pooler_pgbouncer` LOGIN role + `<pooler-name>-builtin-auth` Secret を自動プロビジョニング。
   - [x] **Built-in auth パスワード rotation** (T27 ⑥) — `postgres.keiailab.io/rotate-pooler-password=true` annotation で in-place `ALTER ROLE` + Secret update + status timestamp を trigger。ConfigHash が userlist を含み自動リロード。
   - [ ] Built-in TLS 自動発行 (T29)。
@@ -130,13 +129,13 @@
 - [ ] **Security デフォルト強化** — restricted PSA、NetworkPolicy デフォルト on。
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 画像 → StatefulSet init/main コンテナ画像 + image-hash annotation rollout-drift 追跡 + catalog watch / envtest 完了。Extension-image volume mount、公式 digest catalog 供給、live rollout 計測は pending。
 - [~] **Replica cluster / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 表面、streaming standalone replica bootstrap、ordinal-0 外部 `pg_basebackup`、`standby.signal`/`primary_conninfo`、password passfile + TLS client/root cert conninfo、persistent-follower election (local promotion をブロック)、fail-closed status すべて検証済み。WAL-archive / object-store ハイブリッド、distributed-topology demotion/promotion-token、live cross-cluster drill は pending。
-- [~] **宣言的 hibernation** — CNPG 互換 `cnpg.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保持 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、condition `cnpg.io/hibernation` をすべて envtest で検証。`SMOKE_HIBERNATION=1` パスは PVC-marker-row 保持と rehydration SQL round-trip drill も実行。live kind 検証は pending。
+- [~] **宣言的 hibernation** — `postgres.keiailab.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保持 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、hibernation condition をすべて envtest で検証。`SMOKE_HIBERNATION=1` パスは PVC-marker-row 保持と rehydration SQL round-trip drill も実行。live kind 検証は pending。
 - [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (mongodb sister パターンと整合 — GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。path 修正 (hack/→scripts/) + stage count "12" 想定の修正 (sister 標準 = 6)。
 - Verify: PrometheusRule / Grafana ダッシュボード rendering、Pooler Service 経由の `psql` アクセス、live PgBouncer exporter scrape、upgrade rolling restart の成功。
 
 ### Gate G3 — 自前 sharding 基盤 (~0% buffer)
 
-**目標**: Citus なしで sharding メタデータを自前実装。
+**目標**: 外部 sharding ランタイムなしで sharding メタデータを自前実装。
 
 - [x] `ShardingMode` フィールド (`none` / `native`) — `postgrescluster_types.go`。Constants + Spec round-trip を `TestShardingMode` がガード (`api/v1alpha1/postgrescluster_types_test.go`)。enum validation は `+kubebuilder:validation:Enum=none;native` マーカーで apiserver にて強制。RFC 0001 §3.1 / RFC 0002。
 - [x] `ShardsSpec` (初期 shard 数 / replica / storage) — `postgrescluster_types.go`。フィールド round-trip + `DeepCopy` スライス独立性 + `Replicas=0` (HA-off dev) を `TestShardsSpec` がガード (`api/v1alpha1/postgrescluster_types_test.go`)。RFC 0001 §3.1。
@@ -194,8 +193,8 @@
 
 ## Non-goals (意図的な除外)
 
-- ❌ 外部 PostgreSQL operator の再パッケージング (PGO / CNPG / Patroni の fork)。
-- ❌ Citus の first-class built-in 機能 (Citus は *設計参照*、runtime 依存ではない)。
+- ❌ 外部 PostgreSQL operator の再パッケージングまたは fork。
+- ❌ 外部 sharding extension を first-class built-in として採用 (runtime 依存ではない)。
 - ❌ 汎用 Plugin SDK 製品ストーリー (v0.x archive から retired)。
 - ❌ **必須リリースゲートとしての GitHub Actions** — RFC 0002 (org-wide) 参照。ローカル 4-layer ゲートに委任。
 - ❌ **日付ベースのロードマップ締切** — org-wide `workflow.md` 参照。
@@ -206,8 +205,8 @@
 | 日付 | 変更 |
 |---|---|
 | 2026-05-16 | G3 §Sharding foundation: `ShardingMode` / `ShardsSpec` / `Sharding plugin interface` を unit-test カバレッジと共に `[~]` → `[x]` に flip (`TestShardingMode`、`TestShardsSpec`、`TestShardingPlugin`)。Plans `2026-05-14-4-operators-100pct/P-D` §D.7。 |
-| 2026-05-12 | CNPG backup/restore のギャップ解消: `ScheduledBackup` CRD/controller、cron 発火時の `BackupJob` 生成、`BackupJob.spec.type=restore` → `RestorePIT` call path、`executionMode=job` runner Job ライフサイクル、pgBackRest command-runner plugin 登録、sidecar pod-exec path を追加。 |
-| 2026-05-12 | CNPG observability のギャップ解消: Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus メトリクスを追加。 |
+| 2026-05-12 | Backup/restore のギャップ解消: `ScheduledBackup` CRD/controller、cron 発火時の `BackupJob` 生成、`BackupJob.spec.type=restore` → `RestorePIT` call path、`executionMode=job` runner Job ライフサイクル、pgBackRest command-runner plugin 登録、sidecar pod-exec path を追加。 |
+| 2026-05-12 | Observability のギャップ解消: Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus メトリクスを追加。 |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transition (Pending → Running → Succeeded/Failed) 実装 + 8 unit test — `[x]` (ralph-loop iter#3)。 |
 | 2026-05-11 | 全面書き直し — Gate-scoped sub-task チェックリスト、buffer 指標を導入し、date-style 表現を削除。 |
 | 2026-05-07 | `0.3.0-alpha.3` をリリース、公開 GHCR pull に移行、レガシー staging operator を削除、"no embedded external systems" 原則を明文化。 |

@@ -14,7 +14,7 @@
 ## 从这里开始
 
 - **README.md** —— quickstart 与核心 CRD 表面摘要。
-- **docs/operator-guide/** —— 运行时运维 (`deployment.md`, `cross-validation-cnpg.md`, `ha-election.md`, `pooler-monitoring.md`)。
+- **docs/operator-guide/** —— 运行时运维 (`deployment.md`, `ha-election.md`, `pooler-monitoring.md`)。
 - **docs/releases/release-process.md** —— 发布与升级流程。
 - **CHANGELOG.md** —— 各版本变更历史。
 

@@ -8,7 +8,7 @@
 
 ## §1 Summary
 
-Introduce the `ShardRange` CRD. This is the **single source of truth for the keyspace + key range → shard mapping**, and pg-router watches it to hot-reload the routing table. Previously up to 0.2.0-alpha, the sharding metadata lived in Citus's `pg_dist_partition` system catalog, but after the adoption of self-built distributed SQL (RFC 0001) the K8s API server replaces that role. The spec consists of `vindex` (hash/range function definition) + `ranges[]` (concrete partition boundaries), and the monotonic increase of `generation` in status is used as the cache-invalidation signal for the router.
+Introduce the `ShardRange` CRD. This is the **single source of truth for the keyspace + key range → shard mapping**, and pg-router watches it to hot-reload the routing table. Previously up to 0.2.0-alpha, the sharding metadata lived in an external extension's PostgreSQL system catalog, but after the adoption of self-built distributed SQL (RFC 0001) the K8s API server replaces that role. The spec consists of `vindex` (hash/range function definition) + `ranges[]` (concrete partition boundaries), and the monotonic increase of `generation` in status is used as the cache-invalidation signal for the router.
 
 ## §2 Motivation
 
@@ -21,7 +21,7 @@ The **partition metadata** required for multi-shard routing must satisfy the fol
 - **Observable**: operators can immediately inspect it with `kubectl get`.
 - **Declarative**: compatible with GitOps (Argo / Flux).
 
-A PostgreSQL extension catalog (the Citus approach) fails the declarative condition out of these 4, and requires an additional mechanism for multi-router synchronization. An etcd-backed CRD on the K8s API server naturally meets all 4.
+A PostgreSQL-extension catalog approach fails the declarative condition out of these 4, and requires an additional mechanism for multi-router synchronization. An etcd-backed CRD on the K8s API server naturally meets all 4.
 
 ### §2.2 User scenarios
 
@@ -251,7 +251,7 @@ if err := r.Patch(ctx, &sr, patch); err != nil {
 
 | Alternative | Reason for rejection |
 |---|---|
-| **PG system catalog** (Citus approach) | not declarative, requires an additional mechanism for multi-router sync, incompatible with GitOps |
+| **PG system catalog** (external-extension approach) | not declarative, requires an additional mechanism for multi-router sync, incompatible with GitOps |
 | **Separate metadata service** (e.g., direct etcd) | K8s already provides etcd; running an additional service is operational burden |
 | **Inline within PostgresCluster.spec** | spec bloat, every split updates PostgresCluster itself → side effects (router/HPA reconcile) |
 | **ConfigMap** | no versioning, no validation, awkward to express ownerRef |
@@ -300,8 +300,6 @@ Performance targets:
 ## §8 References
 
 - Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.2, §3.3
-- Vitess VSchema (for reference only, no code reuse): https://vitess.io/docs/reference/features/vschema/
-- Citus shard metadata (for reference only): https://docs.citusdata.com/en/stable/develop/api_metadata.html
 - Murmur3: https://github.com/spaolacci/murmur3
 - RFC 0001: PostgresCluster CRD v2
 - RFC 0003: ShardSplitJob 7-step

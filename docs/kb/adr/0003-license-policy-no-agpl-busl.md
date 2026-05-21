@@ -8,15 +8,15 @@
 
 This operator is distributed under Apache 2.0, and the user has marked
 *license cleanliness* as a top-priority value (decision on 2026-05-02).
-During 0.2.0-alpha we explored ADR-0010, isolating Citus (AGPLv3) into a
-separate plugin chart. Isolation alone does not fully remove
-supply-chain / legal-review / customer-compliance burden (especially for
-SaaS-hosting customers), so that direction was retired. At the same
-time, *source-available* license families — CockroachDB (BUSL/CSL),
-MongoDB drivers (SSPL), Elastic (SSPL) — also violate the OSS
-definition and impose redistribution / cloud-use restrictions, so they
-are rejected. This ADR locks those decisions into a permanent policy
-and enforces them with an automated gate.
+During 0.2.0-alpha we explored isolating an AGPLv3 PostgreSQL sharding
+extension into a separate plugin chart. Isolation alone does not fully
+remove supply-chain / legal-review / customer-compliance burden
+(especially for SaaS-hosting customers), so that direction was retired.
+At the same time, *source-available* license families — BUSL / CSL,
+SSPL, the Elastic License — also violate the OSS definition and impose
+redistribution / cloud-use restrictions, so they are rejected. This ADR
+locks those decisions into a permanent policy and enforces them with an
+automated gate.
 
 ## Decision
 
@@ -47,13 +47,13 @@ Key parameters:
   - `cert-manager` (Apache-2.0) — TLS.
   - `prometheus-operator` (Apache-2.0) — monitoring.
 - **Concrete rejected examples**:
-  - Citus (AGPLv3) — license violation.
-  - CockroachDB (BUSL → CSL) — license violation.
-  - MongoDB drivers (SSPL) — license violation.
-  - Patroni (MIT) — the license itself is compatible, but the DCS model
-    conflicts; rejected at the API surface (this is an
-    *architecture-compatibility* matter, not a license one — needs a
-    separate ADR).
+  - Third-party PostgreSQL sharding extensions licensed under AGPLv3 — license violation.
+  - Distributed databases licensed under BUSL / CSL — license violation.
+  - Driver suites licensed under SSPL — license violation.
+  - External HA agent runtimes — even when the license itself is
+    compatible, the foreign DCS model conflicts; rejected at the API
+    surface (this is an *architecture-compatibility* matter, not a
+    license one — see RFC 0007).
 - **Automated gates**:
   - `scripts/check-license-policy.sh` parses `go list -m -json all` and
     exits 1 when any license falls outside the allow-list.
@@ -79,29 +79,29 @@ Positive:
 
 Negative:
 
-- We cannot directly use Citus's 8-year distributed-SQL assets (vindex,
-  scatter-gather, online resharding) → §3 self-built path costs ~6
-  years (P0–P7 phase roadmap).
-- CockroachDB's proven distributed-transaction patterns (transactional
-  KV, parallel commits) cannot be code-borrowed → learning by reading
-  papers / docs only.
-- When a strong tool (e.g. Elastic search integration) is needed, there
-  may not be an allow-list alternative.
+- We cannot directly use the existing distributed-SQL assets of
+  copyleft-licensed PostgreSQL sharding extensions → §3 self-built path
+  costs ~6 years (P0–P7 phase roadmap).
+- Distributed-transaction patterns proven under BUSL-class
+  distributed-database projects cannot be code-borrowed → learning by
+  reading papers / docs only.
+- When a strong tool is needed but its license is on the deny-list,
+  there may not be an allow-list alternative.
 
 Trade-offs:
 
 - We trade ~6 years of self-build for *license-clean + API-stability*
   value. A single maintainer can mitigate the load by recruiting OSS
   contributors from P2 onward.
-- Cases like Patroni — *license compatible but architecturally
-  incompatible* — need a separate justification ADR. This ADR covers
-  only the *license dimension*.
+- Cases such as external HA agent runtimes — *license compatible but
+  architecturally incompatible* — need a separate justification ADR.
+  This ADR covers only the *license dimension*.
 
 ## Alternatives Considered
 
 | Option | Why rejected |
 |---|---|
-| (a) Keep the AGPL-isolation plugin-chart (the original ADR-0010 direction) | User explicitly rejected (2026-05-02). Isolation is partial and customer legal review remains. |
+| (a) Keep the AGPL-isolation plugin-chart (the original 0.2.0-alpha direction) | User explicitly rejected (2026-05-02). Isolation is partial and customer legal review remains. |
 | (b) Dual-license the operator (Apache + AGPL) | Even with a dual-licensed operator, the dependency-license problem stays. Unrelated to this ADR's issue. |
 | (c) Allow some source-available licenses (e.g. BUSL with a fair-use clause) | Violates the OSS definition; cloud restrictions exclude SaaS users. |
 | (d) Case-by-case judgement (no policy) | A single maintainer would do legal review per dependency; ADR explosion. |
@@ -112,7 +112,7 @@ Trade-offs:
 
 - ADR-0001 (self-built distributed SQL — a direct consequence of this policy).
 - ADR-0002 (single Helm chart — why an isolation chart is no longer needed).
-- Prior ADR-0010 (Citus AGPL isolation, now archived) — superseded by this ADR.
+- Prior AGPL-isolation decision — superseded by this ADR (history preserved in git).
 - `standards/enforcement.md §1.5` — security scan + audit log.
 - `standards/ci.md §3` — pre-push gate catalog (license check added).
 - SPDX License List — license-identifier standard.

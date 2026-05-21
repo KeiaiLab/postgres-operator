@@ -295,7 +295,7 @@ make test-e2e PILLAR=p4 -- --focus="cutover SLA"
 | **trigger-based replication (Slony, Bucardo)** | external dependency (BSD/Apache compatible, but operationally complex); PG native is superior |
 | **physical replication + range filter** | physical replication cannot row-filter (need to replicate everything and DELETE afterward) |
 | **shadow write (dual-write from app)** | requires application changes; violates this operator's abstraction |
-| **Citus `citus_split_shard_by_split_points`** | Citus dependency (AGPL, decided to abandon) |
+| **External sharding extension's split UDF** | external-extension dependency (license incompatibility, decided to abandon) |
 
 ## §6 Open Questions
 
@@ -342,10 +342,8 @@ Success criteria:
 ## §8 References
 
 - Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.3, §7.2 P4
-- PostgreSQL Logical Replication: https://www.postgresql.org/docs/18/logical-replication.html
-- pg_create_logical_replication_slot: https://www.postgresql.org/docs/18/functions-replication.html
-- Vitess VReplication (for reference only): https://vitess.io/docs/reference/vreplication/
-- Citus split_shard (for reference only, 0 code reuse): https://docs.citusdata.com/en/stable/develop/api_udf.html
+- PostgreSQL Logical Replication: https://www.postgresql.org/docs/current/logical-replication.html
+- pg_create_logical_replication_slot: https://www.postgresql.org/docs/current/functions-replication.html
 - RFC 0001: PostgresCluster CRD v2
 - RFC 0002: ShardRange CRD
 - RFC 0004: pg-router architecture

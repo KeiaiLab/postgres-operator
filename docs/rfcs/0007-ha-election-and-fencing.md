@@ -3,7 +3,7 @@
 - **Status**: Accepted (2026-05-11 — retrospective document for completed implementation artifacts)
 - **Date**: 2026-05-11
 - **Authors**: @keiailab/maintainers (republished — the previous 0003 slot was reassigned to shardsplitjob; this RFC is the canonical slot)
-- **Refs**: archived [ADR 0002 — No Patroni](../kb/adr/_archive/v0.x/0002-no-patroni-instance-manager.md), operations guide [`docs/operator-guide/ha-election.md`](../operator-guide/ha-election.md)
+- **Refs**: prior v0.x self-built-instance-manager decision (history preserved in git), operations guide [`docs/operator-guide/ha-election.md`](../operator-guide/ha-election.md)
 - **Supersedes**: the portion that previously lived as a temporary SSOT in `docs/operator-guide/ha-election.md`
 
 ## 1. Summary
@@ -17,12 +17,12 @@ This RFC unifies the rationale, parameters, and operational interface of both de
 
 ## 2. Context
 
-The de facto standard for PostgreSQL HA is Patroni (Python) + external DCS (etcd / Consul / ZooKeeper). However:
+Several PostgreSQL HA designs rely on an external HA agent + external DCS (etcd / Consul / ZooKeeper). However, for this operator:
 
 - **External DCS dependency**: operating an etcd cluster is a burden; an outage takes the PG HA down with it
-- **Python runtime**: a Patroni sidecar in a Go-based operator → increases image size / security surface
-- **Dual sources of truth**: divergence risk between state written by Patroni to etcd vs. state written by the operator to K8s
-- **CloudNativePG validation**: the model that uses the K8s API itself as the DCS has production-grade operational track record
+- **Foreign runtime**: an external HA agent sidecar in a Go-based operator → increases image size / security surface
+- **Dual sources of truth**: divergence risk between state written by the external agent to etcd vs. state written by the operator to K8s
+- **Kubernetes-native HA precedent**: using the K8s API itself as the DCS has a production-grade operational track record
 
 Since P2-T2 (2026-04-28), PVC fencing has been enabled, blocking the split-brain scenario of an old leader Pod.
 
@@ -67,24 +67,24 @@ Operational knob: `--fencing-disabled` (development-only; forbidden in productio
 - **Operational simplification**: etcd dependency removed — the K8s control plane guarantees consensus
 - **Image / security**: a single Go static binary, distroless base, zero external runtime
 - **Single source of truth**: only CRD status + K8s lease are authoritative — duplication removed
-- **CNPG precedent**: production-grade record with the same model
-- **Natural Citus integration**: the instance manager calls `citus_update_node` directly → a single owner handles propagating the new primary IP
+- **Kubernetes-native HA precedent**: production-grade record with the same model
+- **Single-owner topology updates**: the instance manager owns updating the new primary's endpoint without coordinating with an external agent
 
 ### 4.2 Negative / Trade-offs
 - **Depends on K8s API server availability**: an API server outage blocks election
   - Mitigation: the K8s control plane is a precondition for running the cluster. Assumed to be in the same availability class as PG. + PVC fencing covers split-brain.
-- **Patroni ecosystem tooling (patronictl, etc.) not applicable**: lacks the operator-friendly CLI
-  - Mitigation: provide `kubectl pgo` or our own CLI in Phase 13. For ordinary operations, `kubectl` + CR is sufficient.
+- **No external HA agent CLI ecosystem**: lacks an operator-friendly CLI
+  - Mitigation: provide `kubectl postgres` or our own CLI in Phase 13. For ordinary operations, `kubectl` + CR is sufficient.
 - **Permanent maintenance of our own instance manager**: license / maintenance risk
-  - Mitigation: reference Apache-2.0 code patterns from CNPG (license-compatible). Core logic is in the hundreds of lines.
+  - Mitigation: implement from K8s primitives under Apache-2.0. Core logic is in the hundreds of lines.
 
 ## 5. Alternatives Considered
 
-### 5.1 Patroni + etcd
-Reason for rejection: external DCS operational burden, Python runtime, dual source of truth — see §2 Context.
+### 5.1 External HA agent + etcd
+Reason for rejection: external DCS operational burden, foreign runtime, dual source of truth — see §2 Context.
 
-### 5.2 Stolon
-Reason for rejection: 3 components (keeper / sentinel / proxy) → increased operational complexity. Not a K8s-friendly model.
+### 5.2 Multi-component external HA suite
+Reason for rejection: 3+ separate components (keeper / sentinel / proxy class) → increased operational complexity. Not a K8s-friendly model.
 
 ### 5.3 K8s Operator + rely only on the default StatefulSet behavior
 Reason for rejection: cannot prevent split-brain. No data-consistency guarantee during failover.
@@ -120,7 +120,7 @@ Recovering a fenced Pod is a manual operator task:
 - [x] Lease-based leader election (`internal/instance/election/`)
 - [x] PVC fencing (`internal/instance/fencing/`, P2-T2 active 2026-04-28)
 - [x] `--fencing-disabled` development knob
-- [ ] `kubectl pgo failover` CLI command (Phase 13)
+- [ ] `kubectl postgres failover` CLI command (Phase 13)
 - [ ] failover controller (P2-T3)
 - [ ] `pg_rewind` integration (P2-T4)
 
@@ -129,5 +129,5 @@ Recovering a fenced Pod is a manual operator task:
 - Code: `internal/instance/election/`, `internal/instance/fencing/`, `cmd/instance/`
 - Tests: `election_test.go`, `integration_test.go`, `fencing_test.go`
 - Operations: `docs/operator-guide/ha-election.md`
-- Archived decision: `docs/kb/adr/_archive/v0.x/0002-no-patroni-instance-manager.md`
-- Follow-up: P2-T3 (failover controller), P2-T4 (pg_rewind), Phase 13 (kubectl pgo CLI)
+- Prior v0.x self-built-instance-manager rationale (history preserved in git).
+- Follow-up: P2-T3 (failover controller), P2-T4 (pg_rewind), Phase 13 (kubectl postgres CLI)

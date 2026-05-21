@@ -11,7 +11,7 @@
 
 ## Overview
 
-- **Purpose**: Apache-2.0 PostgreSQL Kubernetes Operator targeting PGO-class operational quality + Citus-class distribution via *self-built* code (no PGO/Citus fork or wrapper).
+- **Purpose**: Apache-2.0 PostgreSQL Kubernetes Operator delivering production-grade operational quality and distributed SQL via *self-built* code — no external PostgreSQL operator fork or wrapper.
 - **Scope**: vanilla PostgreSQL 18+ on K8s, single-shard HA → sharding → online resharding → distributed SQL → GA.
 - **Stability tier**: v0.3.0-alpha.16 (G0 100% / G1 81% / G2 72% / G3 37% / G4-G5 0% / G6 12%)
 - **License**: Apache-2.0 (deps: BSD/Apache/MIT/PG-License only — no copyleft on SaaS)
@@ -50,7 +50,7 @@ operator manager
   - Rebalancer / Backup / Autoscaler glue
 ```
 
-ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) is the keystone — *no PGO/Citus embedding*.
+ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) is the keystone — *no external operator embedding*.
 
 ## RBAC scope
 
@@ -133,9 +133,9 @@ Full list: `docs/kb/adr/INDEX.md`.
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (v18 minimum per `pkg/version` decision)
-- ❌ PGO fork or PGO runtime embedding (Apache-2.0 boundary)
-- ❌ Citus extension shipping (we re-implement the problem space)
-- ❌ Patroni / Stolon runtime dependency (self-built instance manager)
+- ❌ Repackaging an external PostgreSQL operator (Apache-2.0 boundary)
+- ❌ Embedding a third-party sharding extension (we re-implement the problem space)
+- ❌ Third-party HA agent runtime dependency (self-built instance manager)
 - ❌ Copyleft dependencies (license-clean Apache-2.0 only)
 - ❌ Plugin SDK (retired from v0.x archive — explicit CRDs instead)
 

@@ -129,9 +129,9 @@ Before applying in production verify:
 
 ### Synchronous-replication example
 
-We use the same structured surface as CloudNativePG. The user does not
-write the PostgreSQL GUC `synchronous_standby_names` directly; the
-operator generates it from the shard Pod names and the
+The operator exposes a structured synchronous-replication surface. The
+user does not write the PostgreSQL GUC `synchronous_standby_names`
+directly; the operator generates it from the shard Pod names and the
 `primary_conninfo application_name`.
 
 ```yaml
@@ -166,9 +166,9 @@ spec:
 
 ### ImageCatalog-driven runtime image selection
 
-We support the same `spec.imageCatalogRef` shape as CloudNativePG.
-`ImageCatalog` is namespace-scoped, `ClusterImageCatalog` is
-cluster-scoped. When a catalog entry changes, the referencing
+The `spec.imageCatalogRef` shape lets you reference an
+`ImageCatalog` (namespace-scoped) or a `ClusterImageCatalog`
+(cluster-scoped). When a catalog entry changes, the referencing
 `PostgresCluster`'s StatefulSet Pod-template image and its
 `postgres.keiailab.io/postgres-image-catalog-sha256` annotation change
 together, which triggers a Kubernetes rollout.
@@ -204,7 +204,7 @@ spec:
 
 Compatibility / safety rules:
 
-- `apiGroup` accepts empty, `postgres.keiailab.io`, or `postgresql.cnpg.io`.
+- `apiGroup` accepts empty, `postgres.keiailab.io`, or `postgresql.cnpg.io` (the latter is retained for ecosystem compatibility).
 - `imageCatalogRef.major` is the single source of truth for image / bin
   directory selection, in place of `postgresVersion`. If both are
   present they must match.
@@ -214,13 +214,13 @@ Compatibility / safety rules:
 
 ### Standalone replica cluster
 
-We support the same `externalClusters` + `bootstrap.pg_basebackup.source` +
-`replica.enabled/source` surface that drives CloudNativePG's standalone
-replica-cluster baseline. In this mode the ordinal-0 Pod does **not**
-run `initdb`; it runs `pg_basebackup` from the external source and
-writes `standby.signal` and `primary_conninfo`. The instance manager
-runs with `POSTGRES_REPLICA_CLUSTER=standalone`, using a persistent-
-follower election so local promotion never occurs.
+The operator exposes the `externalClusters` + `bootstrap.pg_basebackup.source` +
+`replica.enabled/source` surface for declaring a standalone replica
+cluster. In this mode the ordinal-0 Pod does **not** run `initdb`; it
+runs `pg_basebackup` from the external source and writes
+`standby.signal` and `primary_conninfo`. The instance manager runs with
+`POSTGRES_REPLICA_CLUSTER=standalone`, using a persistent-follower
+election so local promotion never occurs.
 
 ```yaml
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -290,10 +290,11 @@ Current scope:
 
 ### Declarative hibernation
 
-We support the same annotation that CloudNativePG uses. Hibernation
-preserves the shard StatefulSet's and PVC template's ownership while
-scaling the database Pod count to zero. PVCs are not deleted, so the
-cluster can be rehydrated later.
+Hibernation is opted in via the `cnpg.io/hibernation` annotation (kept
+for ecosystem-tool compatibility). Hibernation preserves the shard
+StatefulSet's and PVC template's ownership while scaling the database
+Pod count to zero. PVCs are not deleted, so the cluster can be
+rehydrated later.
 
 ```fish
 kubectl annotate postgrescluster quickstart --overwrite cnpg.io/hibernation=on
@@ -337,9 +338,9 @@ The script:
 4. Applies the quickstart sample.
 5. Waits up to 5 minutes for `StatefulSet.ReadyReplicas ≥ 1`.
 6. Verifies a `psql -c 'SELECT 1'` round-trip.
-7. With `SMOKE_HIBERNATION=1`: exercises `cnpg.io/hibernation=on/off`,
-   StatefulSet `replicas=0`, PVC preservation, and a marker-row `SELECT`
-   on rehydration.
+7. With `SMOKE_HIBERNATION=1`: exercises the hibernation annotation
+   `cnpg.io/hibernation=on/off`, StatefulSet `replicas=0`, PVC
+   preservation, and a marker-row `SELECT` on rehydration.
 8. With `SMOKE_POOLER=1`: creates the Pooler CR + the PgBouncer auth
    Secret, runs `psql SELECT 1` through the Pooler Service, blocks new
    clients when `spec.paused=true`, reconnects after `spec.paused=false`,
@@ -397,11 +398,12 @@ The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
   rendering, the ConfigMap-hash rolling reconcile, and the standby
   `application_name` wiring are all unit-test-pinned. A real commit
   latency / RPO=0 kind drill is F05 follow-up.
-- **Hibernation lacks live measurement** — `cnpg.io/hibernation=on/off`,
-  StatefulSet scale-to-zero / restore, PVC-template preservation, and
-  the condition / phase surface are envtest-verified, and a
-  `SMOKE_HIBERNATION=1` kind drill path was added. Actual PVC
-  data-preservation rehydration `SELECT` round-trips are F05 follow-up.
+- **Hibernation lacks live measurement** — the hibernation annotation
+  `cnpg.io/hibernation=on/off`, StatefulSet scale-to-zero / restore,
+  PVC-template preservation, and the condition / phase surface are
+  envtest-verified, and a `SMOKE_HIBERNATION=1` kind drill path was
+  added. Actual PVC data-preservation rehydration `SELECT` round-trips
+  are F05 follow-up.
 - **Only single-shard is GA** — `shardingMode=native` + multi-shard +
   router become meaningful after P2. This alpha guarantees only
   `shardingMode=none` (single shard).
@@ -411,7 +413,7 @@ The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
 | Symptom | Cause / remedy |
 |---|---|
 | Pod stuck in ImagePullBackOff | `ghcr.io/keiailab/pg:18` not present in the cluster registry. Run `make docker-build-pg` + `kind load docker-image`, or push to a private mirror. |
-| PgBouncer image kind-load fails with an OCI-index digest error | `hack/smoke.sh` falls back to a single-platform `ctr images import` when `kind load docker-image` fails. The `ghcr.io/cloudnative-pg/pgbouncer:1.24.1` attestation manifest causes this on Docker Desktop arm64. |
+| PgBouncer image kind-load fails with an OCI-index digest error | `hack/smoke.sh` falls back to a single-platform `ctr images import` when `kind load docker-image` fails. The upstream PgBouncer image attestation manifest can trigger this on Docker Desktop arm64. |
 | CRD apply fails with `metadata.annotations: Too long` | `dist/install.yaml` exceeds the client-side apply size limit. Use `kubectl apply --server-side -f dist/install.yaml` instead. |
 | PgBouncer Pod CrashLoops on a read-only-rootfs with `/tmp/.s.PGSQL.5432` | The operator should render `unix_socket_dir = ` to disable the Unix socket. If the ConfigMap lacks that line, rebuild with the latest operator image. |
 | A single-member quickstart CrashLoops after PVC label `postgres.keiailab.io/fenced=true` | Legacy alpha-image bug in single-member election-stop handling. The latest PG runtime image skips the PVC fence / fast demote when `POSTGRES_MEMBER_COUNT=1` and leadership stops. |
@@ -426,4 +428,3 @@ The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
 - ADR 0006 — dataplane SecurityContext.
 - RFC 0001 — PostgresCluster CRD v2 schema.
 - RFC 0003 — election + fencing interface.
-- docs/internal/HANDOFF.md — work-in-progress and the next-cycle entry point.

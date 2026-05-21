@@ -18,8 +18,6 @@
   <a href="https://artifacthub.io/packages/helm/keiailab-postgres-operator/postgres-operator"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/keiailab-postgres-operator" alt="Artifact Hub"/></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/keiailab/postgres-operator"><img src="https://api.scorecard.dev/projects/github.com/keiailab/postgres-operator/badge" alt="OpenSSF Scorecard"/></a>
   <a href="https://github.com/keiailab/postgres-operator/discussions"><img src="https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github" alt="GitHub Discussions"/></a>
-  <a href="https://github.com/keiailab/operator-commons/blob/main/docs/quality/audit-history.md"><img src="https://img.shields.io/badge/keiailab-v3.x--stable-success?style=flat-square" alt="keiailab v3.x-stable"/></a>
-  <a href="https://github.com/keiailab/operator-commons/blob/main/scripts/audit-production-grade.sh"><img src="https://img.shields.io/badge/audit-100%25-success?style=flat-square" alt="audit"/></a>
 </p>
 
 <p align="center">
@@ -33,7 +31,7 @@
 
 ## Identity (アイデンティティ)
 
-本オペレーターは、PostgreSQL の上に *自前で構築した分散 SQL レイヤー* を実装します。PGO、Citus、Vitess、CloudNativePG、Patroni、CockroachDB の公開設計および運用イディオムを参考としていますが、これらのいずれもランタイム依存として埋め込んだり、ラップしたりはしていません。コード、CRD、reconciler、instance manager、router はすべて本リポジトリ内で Apache-2.0 互換ライセンスのもとに直接実装されています。
+本オペレーターは、upstream PostgreSQL の上に *自前で構築した分散 SQL レイヤー* を実装します。外部の PostgreSQL operator ランタイムを埋め込んだりラップしたりはせず、コード、CRD、reconciler、instance manager、router はすべて本リポジトリ内で Apache-2.0 互換ライセンスのもとに直接実装されています。
 
 差別化ポイント:
 
@@ -42,7 +40,7 @@
 - **K8s ネイティブ自動シャーディングロードマップ** — `ShardRange` CRD を真実の源とし、KEDA 駆動の自動分割、7 ステップのオンライン再シャーディング(カットオーバー SLA 目標 p99 < 500 ms)。
 - **シングルエンドポイントロードマップ** — アプリケーションは PostgreSQL wire protocol で `pg-router` Deployment に接続し、シャーディングを意識する必要はありません。
 
-PGO クラスは *品質基準* であり、PGO のフォークでも PGO の埋め込みでもありません。同様に Citus クラスの分散化とは、Citus 拡張を同梱することではなく、Citus が PostgreSQL 互換の新サービスとして検証してきた問題領域を再実装することを指します。v0.x アーカイブにあった Plugin SDK 構想は撤回され、現在の方向性は狭く範囲を限定した内部モジュールと明示的な CRD です。
+v0.x アーカイブにあった Plugin SDK 構想は撤回され、現在の方向性は狭く範囲を限定した内部モジュールと明示的な CRD です。
 
 ADR 0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) がこの決定の中核を成します。
 
@@ -81,10 +79,10 @@ helm チャートおよび OperatorHub バンドルでは **8 つの所有 CRD**
 | `PostgresCluster` | シャード対応トポロジー(primary + standby + ネイティブシャーディングロードマップ) | ✅ deployable |
 | `BackupJob` | アトミックな backup/restore Job (pgBackRest plugin) | ⚠️ controller partial |
 | `ScheduledBackup` | cron 駆動の BackupJob 生成(6 フィールドスケジュール) | ⚠️ controller partial |
-| `Pooler` | PgBouncer コネクションプール層(CNPG 互換サーフェス) | ⚠️ controller partial |
+| `Pooler` | PgBouncer コネクションプール層 | ⚠️ controller partial |
 | `PostgresDatabase` | 宣言的な database/schema/extension/FDW (ready-primary psql) | ⚠️ controller partial |
 | `PostgresUser` | 宣言的な role + password + membership (ready-primary psql) | ⚠️ controller partial |
-| `ImageCatalog` | Namespace スコープの PostgreSQL ランタイムイメージカタログ(CNPG 互換) | ⚠️ rollout path |
+| `ImageCatalog` | Namespace スコープの PostgreSQL ランタイムイメージカタログ | ⚠️ rollout path |
 | `ClusterImageCatalog` | クラスター全体共有の PostgreSQL ランタイムイメージカタログ | ⚠️ rollout path |
 
 helm チャートには次が追加されています: PrometheusRule + Grafana ダッシュボード(Pooler overview + Cluster overview)、restricted PSA SecurityContext、deny-by-default の NetworkPolicy、cert-manager TLS 統合、OpenTelemetry 対応フック。
@@ -118,7 +116,7 @@ helm チャートには次が追加されています: PrometheusRule + Grafana 
 
 ```bash
 # 1. オペレーター + 8 CRD のインストール (helm チャートまたは OperatorHub bundle)
-helm install pgo charts/postgres-operator
+helm install postgres-operator charts/postgres-operator
 
 # 2. quickstart 用 PostgresCluster を適用
 kubectl apply -f config/samples/postgres_v1alpha1_postgrescluster_dev.yaml
@@ -135,7 +133,7 @@ kubectl apply -f config/samples/postgres_v1alpha1_pooler.yaml
 kubectl apply -f config/samples/postgres_v1alpha1_scheduledbackup.yaml
 
 # 6. モニタリングを有効化 (prometheus-operator が必要)
-helm upgrade pgo charts/postgres-operator \
+helm upgrade postgres-operator charts/postgres-operator \
   --reuse-values \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.prometheusRule.enabled=true \
@@ -146,7 +144,7 @@ helm upgrade pgo charts/postgres-operator \
 
 ## Production readiness (本番運用準備)
 
-**現状 (0.3.0-alpha.18, 2026-05-12)**: 本番 Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/postgres` は `Ready=True` を報告しています。CloudNativePG とのクロスバリデーションは [`docs/operator-guide/cross-validation-cnpg.md`](docs/operator-guide/cross-validation-cnpg.md) に記載されています。
+**現状 (0.3.0-alpha.18)**: リファレンス Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/postgres` は `Ready=True` を報告しています。
 
 GA までの距離:
 - **P1** — 本番対応のシングルシャードには、HA Lease 分散ロックコントローラー、BackupJob/ScheduledBackup の実機 drill、PITR チェックサム drill、および chaos-mesh failover スイートが必要です。サブタスクは `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` で追跡しています。
@@ -169,7 +167,7 @@ kubectl delete pooler --all -A
 kubectl delete scheduledbackup --all -A
 
 # 2. チャートをアンインストール
-helm uninstall pgo
+helm uninstall postgres-operator
 
 # 3. CRD を削除 (オプション; helm はクラスター状態保全のためデフォルトで CRD を残します)
 kubectl delete crd postgresclusters.postgres.keiailab.com \
@@ -197,9 +195,9 @@ GitHub Actions が OSS 標準スイートを実行します (CI / scorecard / Co
 ## Documentation (ドキュメント)
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — 単一ページのアーキテクチャ説明(8 CRD サーフェス + 自前構築の分散 SQL + G0-G6 ステータス + ADR クロスリンク)
-- `docs/kb/adr/` — Architecture Decision Records (現行: 0001–0014; archive は `_archive/v0.x/`)
+- `docs/kb/adr/` — Architecture Decision Records (現行: 0001–0026)
 - `docs/rfcs/` — RFC ドラフト (現行: 0001–0007)
-- `docs/operator-guide/` — Deployment / pooler-monitoring / cross-validation-cnpg / community-operators-onboarding / HA
+- `docs/operator-guide/` — Deployment / pooler-monitoring / community-operators-onboarding / HA
 - `docs/runbooks/` — 運用手順: ha / backup / restore / upgrade / security / migration (各 SLO 目標 + verify コマンド付き)
 - `docs/sharding/` — シャーディングアーキテクチャ仕様 (G3-G5)
 - `docs/api-reference/` — CRD リファレンス (自動生成、計画中)

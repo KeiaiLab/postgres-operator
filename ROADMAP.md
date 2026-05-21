@@ -9,9 +9,9 @@
 
 This ROADMAP tracks progress through verifiable Gates and sub-task
 checklists — *not* date commitments. The project identity is
-**Apache-2.0 PostgreSQL Kubernetes Operator**. We target PGO-class
+**Apache-2.0 PostgreSQL Kubernetes Operator**. We target production-grade
 operational quality without forking, embedding, or wrapping external
-systems such as PGO, Citus, CloudNativePG, or Patroni.
+operator runtimes.
 
 ## Checkbox semantics
 
@@ -26,18 +26,18 @@ file.
 
 ## Principles
 
-- **External design is fair game** — PGO operational UX, Citus's distributed-SQL
-  decomposition, the Vitess router idiom, and CNPG's Kubernetes-operator
-  patterns inform our design, but only as public documents / papers.
-- **External systems must not ship inside this product** — Citus extension,
-  CNPG `Cluster`, Patroni DCS, Cockroach/Yugabyte backends, or PGO
-  controller code are excluded from the runtime artifact.
+- **External design is fair game** — public operator design documents
+  and distributed-SQL papers inform our internal design, only as references.
+- **External systems must not ship inside this product** — external
+  sharding extensions, third-party operator CRDs, external HA agents,
+  and third-party distributed-SQL backends are excluded from the runtime
+  artifact.
 - **Implement as a new service** — the operator manager, instance manager,
   sharding metadata, router, and backup orchestration are written in this
   repository under Apache-2.0–compatible dependencies.
-- **"PGO-class" = quality bar** — the *target level* for HA / backup /
+- **Production-grade quality bar** — the *target level* for HA / backup /
   restore / upgrade / observability / security UX. Not a claim of using
-  any specific product.
+  any specific external product.
 
 ## Current state snapshot
 
@@ -47,7 +47,7 @@ file.
 | License | Apache-2.0 | `LICENSE`, ADR-0003 |
 | Latest release | `0.3.0-alpha.18` | GHCR image + Helm chart publish + OLM bundle (community-operators PR pending) |
 | OLM bundle | `bundle/manifests/` aligned with 8 CRDs + alm-examples + CSV descriptions | `operator-sdk bundle validate --select-optional suite=operatorframework` is clean (T26) |
-| CNPG-compatible surface | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycles completed; live kind smoke automation (T27) in progress |
+| Declarative DB surface | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycles completed; live kind smoke automation (T27) in progress |
 | Local 4-layer gate | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002; version-drift assertion and bundle validate are automated (T26) |
 | Production deployment | Day-0 single-shard | `PostgresCluster/postgres` Ready |
 | GHCR runtime image | Publicly pullable | `ghcr.io/keiailab/pg:18` restarts with no pull secret |
@@ -102,7 +102,7 @@ cluster via GitOps.
 
 ### Gate G2 — Operational quality (~25% buffer)
 
-**Goal**: cover the PGO-class operational surface.
+**Goal**: cover the production-grade operational surface.
 
 - [x] `/metrics` baseline exposure (port 8443) — `internal/controller/metrics.go`, `cmd/main.go`.
 - [x] TLS path setup (certificate mount + `ssl=on`) — `internal/controller/builders.go:renderPostgresConf()`, `tls.go`.
@@ -112,7 +112,7 @@ cluster via GitOps.
 - [~] cert-manager integration — mount path only; issuance mechanism still TBD.
 - [x] **Automatic PrometheusRule generation** — Helm metrics Service / ServiceMonitor / PrometheusRule rendering + real `postgres_operator_backupjob_phase` metric driving BackupJob failure alerts. **Verify PASS**: `helm template charts/postgres-operator --set metrics.enabled=true --set metrics.prometheusRule.enabled=true \| grep -cE "alert:"` = 8 alerts (ReconcileFailureRate / LeaderElectionLost / ReplicationLagHigh / ConnectionsHigh / PrimaryDown / BackupFailed / LocksHigh / WorkqueueDepthHigh) ≥ 8 (D.5.2, 2026-05-19).
   - [x] Replication-lag warning — instance status `LagBytes` → `postgres_operator_postgrescluster_replication_lag_bytes` + Helm `PostgresReplicationLagHigh`.
-  - [x] Pooler failure / saturation warnings — `postgres_operator_pooler_phase{phase="Failed"}` + render verification of CNPG `cnpg_pgbouncer_*` exporter-metric-driven collection-failure / client-waiting / max-wait alerts.
+  - [x] Pooler failure / saturation warnings — `postgres_operator_pooler_phase{phase="Failed"}` + render verification of `cnpg_pgbouncer_*` exporter-metric-driven collection-failure / client-waiting / max-wait alerts (metric prefix retained for ecosystem exporter compatibility).
   - [x] Disk pressure — `kubelet_volume_stats_*` data-PVC alert.
   - [x] Backup failure — `postgres_operator_backupjob_phase{phase="Failed"}`.
 - [~] **Grafana dashboards** — Helm dashboard ConfigMap rendering done (`postgres-operator-cluster-overview.json`, `postgres-operator-pooler.json`); live Grafana import / panel verification still pending.
@@ -120,14 +120,14 @@ cluster via GitOps.
   - [x] CRD `Pooler.spec.{cluster, instances, type, pgbouncer.poolMode, pgbouncer.parameters}` added.
   - [x] Separate PgBouncer Deployment / Service / ConfigMap created + `userlist.txt` Secret fail-closed validation.
   - [x] Default PgBouncer readiness / liveness / startup probes + exporter `/metrics` readiness / liveness probes.
-  - [x] CNPG-compatible PgBouncer parameter allowlist + operator-owned-key fail-closed validation.
+  - [x] PgBouncer parameter allowlist + operator-owned-key fail-closed validation.
   - [x] Automatic topology spread + PodDisruptionBudget when `instances > 1`.
   - [x] Stronger rolling-update defaults — `maxUnavailable=0`, `maxSurge=1`, `minReadySeconds=5`.
-  - [x] CNPG Pooler parity — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
+  - [x] Pooler parity surface — `deploymentStrategy`, `serviceAccountName`, status `backendTargets/configHash`.
   - [x] `pg_hba` → PgBouncer `pg_hba.conf` rendering + operator-owned validation of `auth_type=hba` / `auth_hba_file`.
   - [x] User-supplied server / client TLS Secret rendering + Secret/key fail-closed validation.
   - [x] `type=ro` full ready-replica host-list rendering + `server_round_robin=1` + `server_login_retry=2` defaults.
-  - [~] PgBouncer exporter — explicit sidecar + `metrics` ServicePort + PodMonitor selector label/sample + PrometheusRule alert render verification on CNPG metric prefixes; live Prometheus scrape / Grafana verification still pending.
+  - [~] PgBouncer exporter — explicit sidecar + `metrics` ServicePort + PodMonitor selector label/sample + PrometheusRule alert render verification on standard PgBouncer metric prefixes; live Prometheus scrape / Grafana verification still pending.
   - [x] **Built-in auth user automation** (T27 ⑤) — `keiailab_pooler_pgbouncer` LOGIN role + `<pooler-name>-builtin-auth` Secret auto-provisioned when `authSecretRef` is empty.
   - [x] **Built-in auth password rotation** (T27 ⑥) — `postgres.keiailab.io/rotate-pooler-password=true` annotation triggers in-place `ALTER ROLE` + Secret update + status timestamp; ConfigHash now includes userlist for auto-reload.
   - [x] Built-in TLS auto-issuance (T29) — `internal/postgres/tls_auto.go` (`IssueSelfSigned` RSA-2048 + x509 self-signed CA + ServerAuth+ClientAuth ExtKeyUsage + `ShouldRenew` 30d skew). 9 sub-test PASS (`TestIssueSelfSigned` + `TestShouldRenew`). cert-manager 부재 환경 대응 (in-process 발급, D.6.1, 2026-05-19).
@@ -142,13 +142,13 @@ cluster via GitOps.
 - [x] **Security defaults hardening** — `internal/controller/security_defaults.go` (`PodSecurityRestrictedLabels` PSA v1.29+ restricted enforce/audit/warn + `RestrictedSecurityContext` AllowPrivEsc=false/Privileged=false/ROfs=true/NonRoot=true/Caps=ALL drop/Seccomp=RuntimeDefault + `BuildDefaultDenyNetworkPolicies` 4-5 policy: default-deny + allow-intra (replication) + allow-client (Pooler ns) + allow-egress (DNS) + 옵션 allow-metrics monitoring scrape). 3 test/5 sub-test PASS (D.6.4, 2026-05-19).
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog image → StatefulSet init/main container image + image-hash annotation rollout-drift tracking + catalog watch / envtest done. **`test/e2e/imagecatalog_e2e_test.go`** 신규 작성 (D.5.9): ImageCatalog apply (17+18) → STS image 17 + Ready → patch major 18 → STS image rollout + image-hash annotation drift 추적. `//go:build e2e` PASS. 라이브 kind drill 은 cluster mesh 복원 후 별 turn 잔여 (extension-image volume mount + official digest catalog 도 후속, 2026-05-19).
 - [~] **Replica clusters / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` surface, streaming standalone replica bootstrap, ordinal-0 external `pg_basebackup`, `standby.signal`/`primary_conninfo`, password passfile + TLS client/root cert conninfo, persistent-follower election that blocks local promotion, and fail-closed status all verified. **`test/e2e/external_clusters_drill_e2e_test.go`** 신규 작성 (D.5.10): source → replica cluster (replica.enabled=true) → in_recovery=t 유지 + source data streaming + primary lease holder 차단 (fail-closed). `//go:build e2e` PASS. WAL-archive hybrid + distributed-topology demotion + 라이브 cross-cluster drill 은 별 turn (2026-05-19).
-- [~] **Declarative hibernation** — CNPG-compatible `cnpg.io/hibernation=on/off` annotation, shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, condition `cnpg.io/hibernation`, all envtest-verified. `SMOKE_HIBERNATION=1` path PVC marker preservation + rehydration round-trip. **`test/e2e/hibernation_e2e_test.go`** 신규 작성 (D.5.11): marker INSERT → hibernation=on → STS replicas=0 + Phase=Hibernated + PVC 보존 → hibernation=off → Ready 복귀 + marker 'keep-me' 보존. `//go:build e2e` PASS. 라이브 kind drill 은 cluster mesh 복원 후 별 turn (2026-05-19).
+- [~] **Declarative hibernation** — hibernation annotation `cnpg.io/hibernation=on/off` (retained for ecosystem-tool compatibility), shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, hibernation condition, all envtest-verified. `SMOKE_HIBERNATION=1` path PVC marker preservation + rehydration round-trip. **`test/e2e/hibernation_e2e_test.go`** 신규 작성 (D.5.11): marker INSERT → hibernation=on → STS replicas=0 + Phase=Hibernated + PVC 보존 → hibernation=off → Ready 복귀 + marker 'keep-me' 보존. `//go:build e2e` PASS. 라이브 kind drill 은 cluster mesh 복원 후 별 turn (2026-05-19).
 - [x] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (1/6 GH Release tag+assets / 2/6 GHCR image manifest / 3/6 GitHub Pages / 4/6 helm index / 5/6 helm pull+template default+all-features / 6/6 trivy post-publish HIGH+CRITICAL fixed only). baseline grep verify PASS (6/6 stage 모두 출력) (D.6.5, 2026-05-19).
 - Verify: PrometheusRule / Grafana dashboard rendering, `psql` access through the Pooler Service, live PgBouncer exporter scrape, and an upgrade rolling restart succeed.
 
 ### Gate G3 — Self-built sharding foundation (~0% buffer)
 
-**Goal**: implement sharding metadata in-house, without Citus.
+**Goal**: implement sharding metadata in-house, without any external sharding runtime.
 
 - [x] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`. Constants + Spec round-trip guarded by `TestShardingMode` (`api/v1alpha1/postgrescluster_types_test.go`); enum validation is enforced at the apiserver via the `+kubebuilder:validation:Enum=none;native` marker. RFC 0001 §3.1 / RFC 0002.
 - [x] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`. Field round-trip + `DeepCopy` slice independence + `Replicas=0` (HA-off dev) guarded by `TestShardsSpec` (`api/v1alpha1/postgrescluster_types_test.go`). RFC 0001 §3.1.
@@ -206,8 +206,8 @@ cluster via GitOps.
 
 ## Non-goals (intentional exclusions)
 
-- ❌ Repackaging an external PostgreSQL operator (forking PGO / CNPG / Patroni).
-- ❌ Citus's first-class built-in features (Citus is a *design reference*, not a runtime dependency).
+- ❌ Repackaging an external PostgreSQL operator.
+- ❌ External sharding-extension built-in features (external sharding extensions are *design references*, not runtime dependencies).
 - ❌ A general-purpose Plugin SDK product story (retired from the v0.x archive).
 - ❌ **GitHub Actions as a required release gate** — see RFC 0002 (org-wide). Delegated to the local 4-layer gate.
 - ❌ **Date-based roadmap deadlines** — see the org-wide `workflow.md`.
@@ -218,8 +218,8 @@ cluster via GitOps.
 | Date | Change |
 |---|---|
 | 2026-05-16 | G3 §Sharding foundation: flipped `ShardingMode` / `ShardsSpec` / `Sharding plugin interface` `[~]` → `[x]` with unit-test coverage (`TestShardingMode`, `TestShardsSpec`, `TestShardingPlugin`). Plans `2026-05-14-4-operators-100pct/P-D` §D.7. |
-| 2026-05-12 | CNPG backup/restore gap closed: added `ScheduledBackup` CRD/controller, `BackupJob` creation on cron firing, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin registration, and the sidecar pod-exec path. |
-| 2026-05-12 | CNPG observability gap closed: added Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus metric. |
+| 2026-05-12 | Backup/restore gap closed: added `ScheduledBackup` CRD/controller, `BackupJob` creation on cron firing, `BackupJob.spec.type=restore` → `RestorePIT` call path, `executionMode=job` runner Job lifecycle, pgBackRest command-runner plugin registration, and the sidecar pod-exec path. |
+| 2026-05-12 | Observability gap closed: added Helm metrics Service / ServiceMonitor / PrometheusRule + `postgres_operator_backupjob_phase` Prometheus metric. |
 | 2026-05-11 | G1 §Backup/Restore `BackupJob.Phase` transitions (Pending → Running → Succeeded/Failed) implemented + 8 unit tests — `[x]` (ralph-loop iter#3). |
 | 2026-05-11 | Full rewrite — introduced Gate-scoped sub-task checklists, buffer indicators, and removed any date-style language. |
 | 2026-05-07 | Released `0.3.0-alpha.3`, switched to public GHCR pull, removed legacy staging operator, and made the "no embedded external systems" principle explicit. |

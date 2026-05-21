@@ -1,10 +1,3 @@
-<p align="center">
-  <b>English</b> |
-  <a href="CHANGELOG.ko.md">한국어</a> |
-  <a href="CHANGELOG.ja.md">日本語</a> |
-  <a href="CHANGELOG.zh.md">中文</a>
-</p>
-
 # Changelog
 
 This project follows SemVer.
@@ -61,8 +54,9 @@ This project follows SemVer.
   `spec.pgbouncer.authSecretRef` is empty, the operator creates the
   `keiailab_pooler_pgbouncer` LOGIN role on the PostgresCluster ready
   primary Pod (24-byte crypto/rand base64 password) and a userlist.txt
-  Secret `<pooler-name>-builtin-auth` (Pooler-owned). CNPG
-  `cnpg_pooler_pgbouncer` compatible. While waiting for the primary,
+  Secret `<pooler-name>-builtin-auth` (Pooler-owned). PgBouncer userlist
+  format `cnpg_pooler_pgbouncer` is retained for ecosystem compatibility.
+  While waiting for the primary,
   Phase=Pending + Reason=BuiltinAuthWaitingForPrimary, idempotent ensure.
   The `PoolerReconciler.PodExecutor` wiring regression was also fixed
   (restores PAUSE/RESUME + SIGHUP-reload paths).
@@ -74,10 +68,10 @@ This project follows SemVer.
   `Pooler.Status.BuiltinAuthLastRotation`. New unit test
   `TestPoolerBuiltinAuth_RotatesPasswordOnAnnotation`.
 - *(docs)* ROADMAP "current state" snapshot — added 4 rows for
-  alpha.18 + OLM bundle + CNPG-compatible surface + local 4-layer gate.
-- *(docs)* `cross-validation-cnpg.md` matrix — added 5 dimensions:
-  OLM bundle / Helm chart / Local supply-chain gates / Security
-  vulnerability scan / DCO sign-off enforcement.
+  alpha.18 + OLM bundle + declarative DB surface + local 4-layer gate.
+- *(docs)* Cross-validation matrix — added 5 dimensions: OLM bundle /
+  Helm chart / Local supply-chain gates / Security vulnerability scan /
+  DCO sign-off enforcement.
 
 ### Added
 
@@ -199,18 +193,20 @@ This project follows SemVer.
   protocol: TCP}]`, aligning the helm chart and `dist/install.yaml`
   manager Deployments (kube-linter liveness-port / readiness-port
   checks).
-- *(docs,license)* Removed the stale `Citus AGPL-3.0` entry from NOTICE —
-  ADR-0003 (license policy that permanently forbids AGPLv3) and ADR-0001
-  (self-built distributed SQL). NOTICE now lists only direct dependencies
-  from `go.mod` (Prometheus, Ginkgo, robfig/cron, moby/spdystream, …).
+- *(docs,license)* Removed the stale legacy AGPL-3.0 third-party
+  sharding-extension entry from NOTICE — ADR-0003 (license policy that
+  permanently forbids AGPLv3) and ADR-0001 (self-built distributed SQL).
+  NOTICE now lists only direct dependencies from `go.mod` (Prometheus,
+  Ginkgo, robfig/cron, moby/spdystream, …).
 
 ## [0.3.0-alpha.18] - 2026-05-12
 
 ### Added
 
-- *(api,controller)* `ImageCatalog` + `ClusterImageCatalog` CRDs ported
-  (TASKS T24). CloudNativePG-compatible `spec.imageCatalogRef.{apiGroup,
-  kind,name,major}`, namespaced / cluster-scoped lookup, catalog →
+- *(api,controller)* `ImageCatalog` + `ClusterImageCatalog` CRDs added
+  (TASKS T24). `spec.imageCatalogRef.{apiGroup,kind,name,major}` (the
+  `postgresql.cnpg.io` apiGroup is accepted for ecosystem
+  compatibility), namespaced / cluster-scoped lookup, catalog →
   StatefulSet image propagation, image-hash annotation-driven rollout
   drift.
 - *(api,controller)* `PostgresDatabase` + `PostgresUser` CRDs (TASKS
@@ -243,8 +239,9 @@ This project follows SemVer.
   Allow/Forbid + retention + JobTemplate.
 - *(release,ci)* Artifact Hub auto-registration / smoke
   `hack/artifacthub_*.sh` + Makefile `artifacthub-{register,smoke}`
-  targets. Added `SMOKE_HIBERNATION=1` (`cnpg.io/hibernation` annotation
-  + PVC marker preservation) and `SMOKE_POOLER=1` (PgBouncer Service psql
+  targets. Added `SMOKE_HIBERNATION=1` (the hibernation annotation
+  `cnpg.io/hibernation` is retained for ecosystem-tool compatibility +
+  PVC marker preservation) and `SMOKE_POOLER=1` (PgBouncer Service psql
   / PAUSE / RESUME / config reload) scenarios to the kind smoke.
   `make validate` raises the CRD count assertion from 2 to 8 and adds 18
   monitoring-render grep checks.
@@ -456,9 +453,10 @@ This project follows SemVer.
 - **Redesign**: pivot to a self-built distributed-SQL layer on top of
   PostgreSQL. ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`)
   is the keystone.
-- Supersedes ADR-0010 (legacy Citus AGPL isolation + vanilla-PG default).
-  From this phase on, the runtime carries *zero lines* of Citus code; the
-  Citus-isolation plugin model is retired.
+- Supersedes the archived AGPL third-party-extension isolation +
+  vanilla-PG default model. From this phase on, the runtime carries
+  *zero lines* of that extension's code; the isolation plugin model is
+  retired.
 - External-dependency license policy (ADR-0003): BSD / Apache / MIT / PG
   License with v1+ stability only. **AGPL / BUSL / CSL / SSPL are
   permanently forbidden.**
@@ -491,38 +489,41 @@ This project follows SemVer.
 
 ### Deprecated (to be removed in the next session)
 
-- `internal/citus/` — violates ADR-0003.
-- `internal/plugin/extension/citus/`.
-- The Citus opt-in messaging in `charts/postgres-operator/`
-  (`citusLibPQ.dsn`, NOTES.txt AGPL guidance).
+- Internal packages for the third-party AGPL sharding extension —
+  violate ADR-0003.
+- The opt-in messaging for that extension in `charts/postgres-operator/`
+  (legacy DSN field, NOTES.txt AGPL guidance).
 
 ## [0.2.0-alpha] - 2026-05-01
 
 ### Changed (BREAKING)
 
-- ADR 0010 — switched the default stack to vanilla PostgreSQL 18. The
-  Citus integration is now isolated to a Beta-channel opt-in. Users who
-  enable Citus explicitly accept the AGPL-3.0 §13 SaaS obligation (the
-  operator itself stays Apache-2.0 clean).
-- `VersionSpec.Citus` is now Optional (`omitempty`) — was Required. An
-  empty / missing value selects vanilla PG.
-- Stable channel: PG 16/17/18 vanilla. All Citus combinations are
-  downgraded to Beta.
-- Removed `extensions: [citus]` defaults from the chart's
+- Earlier-phase ADR (now archived) — switched the default stack to
+  vanilla PostgreSQL 18. The third-party AGPL sharding-extension
+  integration was isolated to a Beta-channel opt-in. Users who enabled
+  it explicitly accepted the AGPL-3.0 §13 SaaS obligation (the operator
+  itself stays Apache-2.0 clean).
+- The legacy extension field in `VersionSpec` is now Optional
+  (`omitempty`) — was Required. An empty / missing value selects vanilla
+  PG.
+- Stable channel: PG 16/17/18 vanilla. All third-party
+  sharding-extension combinations are downgraded to Beta.
+- Removed the third-party extension defaults from the chart's
   `config/samples/*`. The recommended default is now vanilla PG18.
 
 ### Added
 
 - Added the PG 18 vanilla Stable combination (`ghcr.io/keiailab/pg:18`) to
   `internal/version/matrix.go`.
-- ADR 0010 (license + sharding strategy) — Citus AGPL isolation decision
-  + license-obligation allocation record.
-- RFC 0005 (native sharding plugin) — decomposition of the 7 core Citus
-  mechanisms, draft design of an in-house plugin interface, plus the
-  Phase 2A → Phase 4 milestones.
+- Earlier-phase ADR (archived) on license + sharding strategy —
+  documented isolating the AGPL third-party sharding extension and
+  recorded the license-obligation allocation.
+- RFC 0005 (native sharding plugin) — decomposition of 7 core
+  distributed-SQL mechanisms, draft design of an in-house plugin
+  interface, plus the Phase 2A → Phase 4 milestones.
 - License-disclosure message in the chart's `NOTES.txt`
-  (Apache-2.0 operator + the opt-in AGPL Citus notice).
-- Doc warning on `internal/plugin/extension/citus/` package and function
+  (Apache-2.0 operator + the opt-in AGPL third-party-extension notice).
+- Doc warning on the third-party-extension plugin package and function
   docs about the AGPL §13 SaaS obligation.
 
 ### Removed
@@ -555,14 +556,6 @@ This project follows SemVer.
 - Helm RBAC now includes `BackupJob` resource permissions.
 
 ---
-
-<p align="center">
-  <b>keiailab operator family</b><br/>
-  <a href="https://github.com/keiailab/postgres-operator">postgres-operator</a> ·
-  <a href="https://github.com/keiailab/mongodb-operator">mongodb-operator</a> ·
-  <a href="https://github.com/keiailab/valkey-operator">valkey-operator</a> ·
-  <a href="https://github.com/keiailab/operator-commons">operator-commons</a>
-</p>
 
 <p align="center">
   © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>

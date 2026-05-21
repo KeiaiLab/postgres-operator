@@ -206,7 +206,7 @@ CALL pgr.saga_commit();
 
 Anomaly of distributed RR: snapshots on one shard may not align with the 2PC commit time. *Non-monotonic reads* can occur. Application guidance: use only RC for distributed transactions.
 
-Reason for not providing distributed SERIALIZABLE: the distributed flavor of SSI (e.g., the CockroachDB pattern) requires *predicate tracking + distributed abort*. Huge implementation cost + the BUSL avoidance perspective excludes it from P6.
+Reason for not providing distributed SERIALIZABLE: distributed SSI requires *predicate tracking + distributed abort*. Huge implementation cost + the copyleft/BUSL avoidance perspective excludes it from P6.
 
 ### §3.7 Deadlock detection
 
@@ -251,7 +251,7 @@ What the application needs to know:
 | Alternative | Reason for rejection |
 |---|---|
 | **Spanner-style TrueTime + MVCC** | Requires clock sync (atomic clock); unfit for K8s |
-| **Adopt the CockroachDB SSI pattern** | BUSL license risk; zero-code-reuse policy |
+| **Adopt a BUSL-licensed distributed SSI pattern** | BUSL license risk; zero-code-reuse policy |
 | **Single shard only (reject distributed txns)** | Usability ↓; cannot support standard use cases like money transfer |
 | **HLC + distributed commit time** | Complexity ↑; exceeds P6 scope. v2.0 candidate |
 | **External dtm library (e.g., dtm-labs/dtm)** | Apache 2.0 compatible, but adds a Go service to operate; misaligned with K8s-native policy |
@@ -310,7 +310,6 @@ Success criteria:
 - 2PC original: Gray, Jim. *Notes on Database Operating Systems* (1978)
 - Saga: Garcia-Molina & Salem, *Sagas* (SIGMOD 1987)
 - Spanner (for reference only): https://research.google/pubs/pub39966/
-- CockroachDB SSI (for reference only, 0 code reuse): https://www.cockroachlabs.com/docs/stable/architecture/transaction-layer.html
 - etcd lease: https://etcd.io/docs/v3.5/learning/api/#lease-api
 - RFC 0003: ShardSplitJob (cutover is also a kind of distributed atomic operation)
 - RFC 0004: pg-router (coordinator location)

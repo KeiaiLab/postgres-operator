@@ -30,7 +30,7 @@ nominated for maintainer:
 - Adherence to this project's [GOVERNANCE.md](GOVERNANCE.md) and
   [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - Deep understanding of at least one core area (controller, instance
-  manager, backup, Citus integration, docs, etc.).
+  manager, backup, sharding, docs, etc.).
 
 ## Adding a maintainer
 
