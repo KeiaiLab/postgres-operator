@@ -76,7 +76,7 @@ Key parameters:
   (server-side apply); the Helm `crds/` directory is retired.
 - **Version channels** (ADR-0005): alpha / beta / stable. CRD
   apiVersion v1alpha1 → v1beta1 → v1.
-- **Phase roadmap** (`docs/roadmap.md`): P0 (redesign reset, 0.3.0) →
+- **Phase roadmap** (`docs/ROADMAP.md`): P0 (redesign reset, 0.3.0) →
   P1 (single-shard production-ready, 0.4.0) → P2 (multi-shard manual,
   0.5.0) → P3 (vindex extension + read autoscale, 0.6.0) → P4 (online
   split, 0.7.0) → P5 (auto split + rebalance, 0.8.0) → P6 (distributed

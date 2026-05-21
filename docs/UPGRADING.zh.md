@@ -108,7 +108,6 @@ go mod tidy
 - operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
 - audit: `make audit-quality` (覆盖 5 repo 测量,commons ADR-0013)
 - i18n: `commons/docs/i18n/README.md`
-- 家族: `docs/family.md`
 
 ---
 
