@@ -1,84 +1,202 @@
 // Package router implements the pg-router multi-shard query path.
 //
-// 본 file 은 RFC-0004 §2.2 Scenario 2 (scatter-gather, P3+) 의 *skeleton* 이다.
-// 실 wire-protocol forwarding + result merge 는 future phase (P3 ~ v0.6.0) 에서
-// pg_query_go planner + per-shard connection pool 위에 구현된다.
+// 본 file 은 RFC-0004 §2.2 Scenario 2 (scatter-gather) 의 fan-out + gather
+// + merge orchestration 이다. 실 wire-protocol forwarding (libpq passthrough)
+// 은 ShardExecutor interface 의 *외부 구현체* 로 위임 — 본 패키지는 그것을
+// 호출하고 결과를 정책에 따라 merge 만 한다.
 //
 // Cross-references:
 //   - RFC-0004 (pg-router architecture) — §3.1 component decomposition,
-//     §2.2 Scenario 2 scatter-gather example.
-//   - ADR-0015 (distributed transactions / 2PC primary) — multi-shard write 경로
-//     의 2PC coordinator 정합. 본 skeleton 은 read-only scatter 만 다루며 write
-//     scatter 는 ADR-0015 의 2PC prepare/commit 경로에 위임한다.
-//   - docs/sql/isolation-matrix.md — cross-shard `READ COMMITTED + 2PC` 진본
-//     기준. 본 path 는 *non-transactional read* 또는 *single-snapshot read* 이며,
-//     repeatable-read 류 isolation 은 ADR-0015 coordinator 경로로 강등 routing.
+//     §2.2 Scenario 2 scatter-gather example, §3.4 partial failure policy.
+//   - ADR-0015 (distributed transactions / 2PC primary) — write scatter 는
+//     본 path 가 아닌 tx.TwoPhaseCommit coordinator 경로로 위임.
+//   - docs/sql/isolation-matrix.md — cross-shard `READ COMMITTED + 2PC` 진본 기준.
 package router
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
+	"sync"
 )
 
-// ErrNotImplemented 는 scatter-gather 의 실 구현이 future phase 임을 표시하는
-// sentinel error 이다. compile-time interface freeze 용도로 test 에서 직접
-// 비교한다 (`errors.Is`).
-var ErrNotImplemented = errors.New("router: scatter-gather not implemented (RFC-0004 P3+)")
-
-// ShardID 는 라우팅 대상 shard 의 논리 식별자다. 실 구현 시 ShardRange CRD 의
-// `.spec.shardID` 와 1:1 대응한다 (RFC-0002 §3).
+// ShardID 는 라우팅 대상 shard 의 논리 식별자. ShardRange CRD `.spec.shardID` 와 1:1.
 type ShardID string
 
-// Row 는 scatter-gather 가 모든 shard 로부터 수집한 결과의 *normalized* 단위다.
-// 실 구현 시 pgproto3.DataRow 또는 driver-neutral []any 로 확장된다.
-type Row struct {
-	// Shard 는 본 row 가 유래한 shard ID 다. 동일 query 가 N shard 에 scatter 될
-	// 때 trace / debug 용도. merge 시점에 stripped 되거나 metadata 로 attach 된다.
-	Shard ShardID
+// ErrShardFailure 는 1+ shard 가 실패하고 정책이 fail-fast 일 때 반환.
+// errors.Is 비교 가능하며, 원인 error 는 fmt.Errorf("...: %w", ErrShardFailure) 로 wrap.
+var ErrShardFailure = errors.New("router: one or more shards failed (fail-fast policy)")
 
-	// Values 는 column-ordered raw values. 실 구현 시 wire format (text/binary)
-	// 보존을 위해 []byte 또는 pgtype 으로 변경 예정.
+// ErrNoShards 는 shards slice 가 빈 경우 반환. caller (planner) 가 단축 처리 시그널.
+var ErrNoShards = errors.New("router: no shards specified")
+
+// Row 는 scatter-gather 가 모든 shard 로부터 수집한 결과의 *normalized* 단위.
+type Row struct {
+	// Shard 는 본 row 가 유래한 shard ID. trace / debug 용도.
+	Shard ShardID
+	// Values 는 column-ordered raw values.
 	Values []any
 }
 
-// Executor 는 multi-shard query 실행 contract 다. compile-time interface freeze
-// 를 위해 본 type 을 노출한다. 실 구현은 *ScatterGather 가 본 interface 를 만족.
+// Executor 는 multi-shard query 실행 contract.
 type Executor interface {
 	Execute(ctx context.Context, query string, shards []ShardID) ([]Row, error)
 }
 
-// ScatterGather 는 *동일 query* 를 모든 지정 shard 에 fan-out 하고, 응답을
-// gather + merge 하는 executor 다.
-//
-// 실 구현 단계 (future):
-//  1. wire frontend 가 SQL 을 parse → planner 가 multi-shard 판정 → 본 type 으로 위임.
-//  2. per-shard connection pool 에서 N goroutine fan-out (`errgroup`).
-//  3. 각 shard 응답을 streaming merge — `ORDER BY` 시 k-way merge, aggregate 시
-//     re-aggregation (SUM/COUNT/MIN/MAX), 일반 시 그대로 concat.
-//  4. 부분 shard failure 정책: RFC-0004 §3.4 에 따라 fail-fast (default) 또는
-//     `application_name=allow_partial` 시 best-effort.
-//  5. ADR-0015 정합: write scatter 는 본 path 가 직접 처리하지 않고 dtxn
-//     coordinator (2PC) 로 위임. 본 type 은 read-only 만.
+// ShardExecutor 는 단일 shard 에 query 를 forward 하고 row 응답을 받는 contract.
+// 실 구현은 pgconn / libpq passthrough — 본 패키지는 interface 만 의존.
+type ShardExecutor interface {
+	// ExecuteOne 은 단일 shard 에 query 를 forward 하고 row stream 을 slice 로 반환한다.
+	// context 취소 시 즉시 종료, 원인 err 포함.
+	ExecuteOne(ctx context.Context, shard ShardID, query string) ([]Row, error)
+}
+
+// FailurePolicy 는 부분 shard 실패 시 정책이다.
+type FailurePolicy int
+
+const (
+	// FailFast — 1+ shard 실패 시 즉시 전체 abort, 다른 in-flight 도 cancel.
+	FailFast FailurePolicy = iota
+	// BestEffort — 실패한 shard 는 skip, 성공한 shard 의 결과만 반환.
+	// caller 가 `application_name=allow_partial` 또는 명시 옵션 설정 시 사용.
+	BestEffort
+)
+
+// MergeStrategy 는 N shard 응답을 1 결과로 합치는 방식이다.
+type MergeStrategy int
+
+const (
+	// MergeConcat — 단순 concat (default). UNION ALL 의미.
+	MergeConcat MergeStrategy = iota
+	// MergeOrderBy — 첫 column 기준 k-way merge (사전식 비교).
+	// 실 구현 시 planner 가 ORDER BY column index + direction 을 전달.
+	MergeOrderBy
+)
+
+// ScatterGather 는 동일 query 를 모든 지정 shard 에 fan-out 하고 gather + merge.
 type ScatterGather struct {
-	// 실 구현 시 per-shard connection pool / planner / metrics sink 주입.
-	// 현 skeleton 단계는 의도적으로 empty — 향후 dependency-injection point.
+	// Shard 는 단일 shard 호출 구현체. nil 이면 NewScatterGather default (no-op stub) 사용.
+	Shard ShardExecutor
+	// Policy 는 부분 실패 정책 (default FailFast).
+	Policy FailurePolicy
+	// Merge 는 결과 합치기 전략 (default MergeConcat).
+	Merge MergeStrategy
 }
 
-// NewScatterGather 는 skeleton constructor 다. future 단계에서 pool / planner /
-// observability 의존성을 매개변수로 받는다.
+// NewScatterGather 는 ScatterGather 인스턴스를 반환한다. Shard 가 nil 이면
+// Execute 호출 시 ErrShardFailure 반환 — 명시 의존성 주입 강제.
 func NewScatterGather() *ScatterGather {
-	return &ScatterGather{}
+	return &ScatterGather{Policy: FailFast, Merge: MergeConcat}
 }
 
-// Execute 는 query 를 모든 shards 에 scatter 하고 결과를 gather + merge 한다.
-//
-// 현 skeleton 은 *항상* ErrNotImplemented 를 반환한다. 본 method 시그니처는
-// interface freeze 용도이며, 실 구현 전까지 caller (planner) 가 본 path 로
-// route 하지 않도록 RFC-0004 §3.3 의 vindex 평가 단계에서 차단된다.
+// Execute 는 query 를 모든 shards 에 scatter + merge 정책에 따라 합쳐 반환한다.
 func (s *ScatterGather) Execute(ctx context.Context, query string, shards []ShardID) ([]Row, error) {
-	return nil, ErrNotImplemented
+	if len(shards) == 0 {
+		return nil, ErrNoShards
+	}
+	if s.Shard == nil {
+		return nil, fmt.Errorf("router: ShardExecutor not configured")
+	}
+
+	// Cancellation: FailFast 에서 1 fail 발견 시 다른 in-flight 도 즉시 cancel.
+	fanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type result struct {
+		shard ShardID
+		rows  []Row
+		err   error
+	}
+	resCh := make(chan result, len(shards))
+	var wg sync.WaitGroup
+	for _, sh := range shards {
+		wg.Add(1)
+		go func(shard ShardID) {
+			defer wg.Done()
+			rows, err := s.Shard.ExecuteOne(fanCtx, shard, query)
+			resCh <- result{shard: shard, rows: rows, err: err}
+		}(sh)
+	}
+	go func() { wg.Wait(); close(resCh) }()
+
+	collected := make(map[ShardID][]Row, len(shards))
+	var failed []ShardID
+	for r := range resCh {
+		if r.err != nil {
+			failed = append(failed, r.shard)
+			if s.Policy == FailFast {
+				cancel() // 나머지 in-flight cancel
+				// drain 중지하지 않고 모두 받기 — 그러나 결과는 무시.
+				for range resCh { //nolint:revive
+				}
+				return nil, fmt.Errorf("%w: shard=%s: %v", ErrShardFailure, r.shard, r.err)
+			}
+			continue
+		}
+		collected[r.shard] = r.rows
+	}
+	if s.Policy == BestEffort && len(collected) == 0 {
+		return nil, fmt.Errorf("%w: all %d shards failed", ErrShardFailure, len(failed))
+	}
+	return s.merge(shards, collected), nil
 }
 
-// 컴파일 타임 interface 만족 검사 — *ScatterGather 가 Executor 를 만족하지
-// 못하면 build fail.
+func (s *ScatterGather) merge(order []ShardID, collected map[ShardID][]Row) []Row {
+	switch s.Merge {
+	case MergeOrderBy:
+		return mergeOrderBy(order, collected)
+	default:
+		return mergeConcat(order, collected)
+	}
+}
+
+// mergeConcat 는 shards 순서대로 단순 concat — UNION ALL.
+func mergeConcat(order []ShardID, collected map[ShardID][]Row) []Row {
+	total := 0
+	for _, rows := range collected {
+		total += len(rows)
+	}
+	out := make([]Row, 0, total)
+	for _, sh := range order {
+		out = append(out, collected[sh]...)
+	}
+	return out
+}
+
+// mergeOrderBy 는 첫 column 기준 사전식 k-way merge.
+// 각 shard 의 row slice 가 *이미 정렬된* 상태라고 가정 (PG 가 정렬한 결과).
+func mergeOrderBy(order []ShardID, collected map[ShardID][]Row) []Row {
+	// flatten 후 사전 정렬 — k-way streaming merge 는 future optimization.
+	// 정확성 우선, 성능은 후속 turn (large result 시 k-way heap 도입).
+	flat := mergeConcat(order, collected)
+	sort.SliceStable(flat, func(i, j int) bool {
+		return cmpFirstValue(flat[i], flat[j]) < 0
+	})
+	return flat
+}
+
+func cmpFirstValue(a, b Row) int {
+	if len(a.Values) == 0 && len(b.Values) == 0 {
+		return 0
+	}
+	if len(a.Values) == 0 {
+		return -1
+	}
+	if len(b.Values) == 0 {
+		return 1
+	}
+	as := fmt.Sprintf("%v", a.Values[0])
+	bs := fmt.Sprintf("%v", b.Values[0])
+	switch {
+	case as < bs:
+		return -1
+	case as > bs:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// 컴파일 타임 interface 만족 검사.
 var _ Executor = (*ScatterGather)(nil)

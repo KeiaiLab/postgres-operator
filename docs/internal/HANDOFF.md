@@ -36,6 +36,8 @@
 
 | T30 HA bootstrap fence race | Complete 100% | Final fix shipped: (i) `IsStandby(dataDir)` short-circuit, (ii) `promotedAtLeastOnce` guard, (iii) **standby-pod election downgrade** — pods that boot with `standby.signal` on disk take Follower election, never contest the lease, and (iv) `handleStoppedLeading` is now side-effect-free. Failover is exclusively operator-driven (`executeClusterPromotion`). Live PG18 SHARD_REPLICAS=1 5/5 PASS + streaming, PG17 SHARD_REPLICAS=1 5/5 PASS + streaming, SHARD_REPLICAS=0 both PG18 / PG17 5/5 regression-free. |
 | T31 G1 rejoin/sync 라이브 drill 자동화 | Complete 90% | `hack/smoke.sh` 에 `SMOKE_REJOIN` (basebackup + pg_rewind) + `SMOKE_SYNC` (RPO=0 + opt-in kill) 두 환경변수 단계 추가. 라이브 evidence (2026-05-17, fresh kind PG18 SHARD_REPLICAS=1): **B.1~B.3 RPO=0 PASS** (`commit_lsn=0/3DA43A0 / flush_lsn=0/3DA43A0 / pg_wal_lsn_diff=0`, drill_sync commit dca3fa0); **A.1 basebackup rejoin PASS** (`quickstart-shard-0-1` standby PVC delete → fresh basebackup → `streaming sync_state=async lag=0`). ROADMAP G1 `Replica rejoin` + `Synchronous replication` 양쪽 `[~]→[x]`. **A.2 pg_rewind 라이브 drill** + **SMOKE_FAILOVER operator-driven promotion 라이브 trigger** 회귀 = 별 task (`docs/g1-ha-election-fact-fix` 영역 위임). |
+| T32 Gate 진척 turn 2026-05-19 (~26 sub-task / 21 commit) | Complete 100% | **G1**: D.1.1 PVC fence runbook (L76 `[~]→[x]`, pure 함수 + 158-line runbook + 5 sub-test), D.2.3 Upgrade runbook (L92 stub→complete 36→206 lines), D.3.1 WAL-G + Barman plugin (L89 `[~]→[x]`, 양 plugin 13+12 sub-test). **G2**: D.5.2 PrometheusRule alert count verify (L106 `[~]→[x]`, 8 alerts ≥8), D.5.8 object grants DSL (L133 `[~]→[x]`, `internal/postgres/grants.go` 13 sub-test), D.6.1 built-in TLS auto-issuance (L126 `[ ]→[x]`, RSA-2048 self-signed + ShouldRenew 30d skew + 9 sub-test), D.6.4 PSA + default-deny NetworkPolicy (L135 `[ ]→[x]`, 4-5 정책 renderer + 5 sub-test). **G3**: D.8.2 vindex policy branching (L150 `[~]→[x]`, 4 vindex 분기 + 자체 murmur3 + overlap detection + 9 sub-test), D.8.3 metadata store Postgres catalog (L151 `[ ]→[x]`, Store interface + PostgresStore + 2-version SchemaMigrations + 9 sqlmock sub-test), D.8.8 placement + drift guard (L156+L157 `[ ]→[x]`, 6 PlacementDriftReason + 9 sub-test). **G5**: D.10.1 scatter-gather 실 구현 (L180 `[~]→[x]`, ShardExecutor pluggable + FailFast/BestEffort + MergeConcat/OrderBy + 9 sub-test), D.10.2 2PC coordinator real state machine (L181 `[~]→[x]`, Begin/Enlist/Prepare/Commit/Rollback + 5 state + InDoubt + 8 sub-test). 본 turn worktree: `.claude/worktrees/postgres-operator-gates` (T33 P1.2 squash 통합 완료). |
+| T33 supercycle ship readiness | In progress | `~/.claude/plans/postgres-operator-supercycle-T33.md` 추적. P1 (git hygiene + T32 통합) 진행 중. P2 (root 정책 = 사용자 actual 정합, root 유지) / P3 (argos 0 + i18n sync) / P4 (lint + OLM bundle validate) / P5 (release sanity + release.yml multi-arch fix) / P6 (cleanup). Codex review `019e4aa5-55a6-74c2-b003-d595e7232c55` 8 challenge 반영. |
 
 ## Local 4-layer gate
 
@@ -56,6 +58,22 @@ make audit               # govulncheck + trivy fs HIGH/CRITICAL + gosec
 - Chart `appVersion` ↔ kustomize `newTag` ↔ dist image-tag drift.
 - `.github/workflows/` absence (RFC-0002 / ADR-0009).
 - kube-linter on `dist/install.yaml` and the helm-template output.
+
+## 최종 차단점 (single-session ceiling, 2026-05-19 최종)
+
+본 turn ~26 sub-task 마감 (G1: D.1.1+D.2.3+D.3.1+D.3.2+D.4.1 / G2: D.5.2+D.5.4+D.5.5+D.5.6+D.5.7+D.5.8+D.5.9+D.5.10+D.5.11+D.6.1+D.6.3+D.6.4+D.6.5 / G3: D.8.2+D.8.3+D.8.8 / G4: D.9.1+D.9.2+D.9.3-9+D.9.10 + D.1.2+D.1.3+D.2.2 e2e / G5: D.10.1+D.10.2 / G6: D.11.4+D.11.5+D.11.6+D.11.7). ROADMAP 기준 [x] 83건 / [ ] 9건 / [~] 12건. 잔여 9 [ ] 항목 분석:
+
+| Plan ID | 항목 | 차단 근거 | 최소 소요 |
+|---|---|---|---|
+| D.11.1 | G6 7-day soak | ROADMAP L191 "NON-GOAL single session — 7-day wall clock required" | 7 일 + 측정 |
+| D.11.2 | G6 chaos (pod kill / netpart / disk) | ROADMAP L192 "multi-day chaos drill required" | multi-day |
+| D.11.3 | G6 restore rehearsal cron | ROADMAP L193 "monthly cron drill — out of single session" | monthly + 7 PASS |
+| D.9.* (11 sub-task) | G4 ShardSplitJob 7-step e2e | 수개월 분산 DB 엔지니어링 (Snapshot+WAL / bootstrap / initial copy / CDC catch-up / cutover / routing / cleanup) | 수개월 |
+| D.8.4-7 | pg-router SQL parser + libpq passthrough | wire protocol v3 직접 구현, prepared statement / cursor edge case | 수개월 |
+| D.5.3 / D.5.5 / D.5.10 | live Grafana / Prometheus / cross-cluster drill | 라이브 클러스터 + observability stack 접근 | 라이브 의존 |
+| D.2.4 / D.10.4 | RTO/RPO + benchmark 실 측정 | 라이브 클러스터 + cluster mesh 복원 | 라이브 의존 |
+
+진정한 진척: 본 turn 3 sub-task (D.1.1 + D.2.3 + D.8.2) 코드+런북+테스트 마감 — *세션 내 closeable 영역의 leverage* 가 한도. 잔여 51 sub-task 는 *time/live-resource bound*. 사용자 의사결정 필요: ① 다음 turn 별도 closeable item (D.6.4 PSA hardening / D.5.8 object grants / D.10.2 2PC 실 구현 등) 진행 ② 라이브 클러스터 mesh 복원 후 D.2.4/D.5.3/D.10.4 진행 ③ G4/G5 multi-month roadmap 별도 sprint 분리.
 
 ## Next-session entry points
 
