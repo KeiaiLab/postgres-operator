@@ -15,40 +15,18 @@
     { "name": "GitHub", "url": "https://github.com/keiailab/postgres-operator" }
   ],
   "topbarCtaButton": {
-    "name": "Quickstart",
-    "url": "/tutorials/quickstart"
+    "name": "Documentation",
+    "url": "/index"
   },
   "anchors": [
-    { "name": "API Reference", "icon": "code", "url": "reference" },
-    { "name": "ADR", "icon": "scroll", "url": "adr" },
+    { "name": "Operator Guide", "icon": "book", "url": "operator-guide" },
+    { "name": "ADR", "icon": "scroll", "url": "kb/adr" },
     { "name": "RFC", "icon": "lightbulb", "url": "rfcs" }
   ],
   "navigation": [
     {
-      "group": "시작하기",
-      "pages": ["index", "tutorials/quickstart", "tutorials/production-cluster"]
-    },
-    {
-      "group": "개념",
-      "pages": [
-        "concepts/coordinator-worker-router",
-        "concepts/metadata-sync",
-        "concepts/version-matrix"
-      ]
-    },
-    {
-      "group": "How-to",
-      "pages": [
-        "how-to/backup-pitr",
-        "how-to/shard-rebalance",
-        "how-to/zone-sharding",
-        "how-to/upgrade",
-        "how-to/migrate-from-cnpg"
-      ]
-    },
-    {
-      "group": "Reference",
-      "pages": ["reference/crd-overview", "reference/cli", "reference/metrics"]
+      "group": "Getting Started",
+      "pages": ["index", "ARCHITECTURE", "ROADMAP"]
     },
     {
       "group": "Operator Guide",
@@ -56,18 +34,25 @@
         "operator-guide/deployment",
         "operator-guide/ha-election",
         "operator-guide/pooler-monitoring",
-        "operator-guide/cross-validation-cnpg",
         "operator-guide/community-operators-onboarding"
+      ]
+    },
+    {
+      "group": "Operations",
+      "pages": [
+        "UPGRADING",
+        "CHANGELOG",
+        "sharding/SHARDING"
       ]
     },
     {
       "group": "ADR",
       "pages": [
-        "adr/0001-self-built-distributed-sql",
-        "adr/0002-single-chart-with-flags",
-        "adr/0003-license-policy-no-agpl-busl",
-        "adr/0004-crd-managed-by-operator",
-        "adr/0005-versioning-and-channels"
+        "kb/adr/0001-self-built-distributed-sql",
+        "kb/adr/0002-single-chart-with-flags",
+        "kb/adr/0003-license-policy-no-agpl-busl",
+        "kb/adr/0004-crd-managed-by-operator",
+        "kb/adr/0005-versioning-and-channels"
       ]
     },
     {
@@ -79,16 +64,27 @@
         "rfcs/0004-pg-router-architecture",
         "rfcs/0005-distributed-transactions"
       ]
+    },
+    {
+      "group": "Community",
+      "pages": [
+        "CONTRIBUTING",
+        "CODE_OF_CONDUCT",
+        "GOVERNANCE",
+        "SECURITY"
+      ]
     }
   ],
   "footerSocials": {
     "github": "https://github.com/keiailab/postgres-operator"
   },
   "i18n": {
-    "defaultLanguage": "ko",
+    "defaultLanguage": "en",
     "languages": [
+      { "code": "en", "name": "English" },
       { "code": "ko", "name": "한국어" },
-      { "code": "en", "name": "English" }
+      { "code": "ja", "name": "日本語" },
+      { "code": "zh", "name": "中文" }
     ]
   }
 }

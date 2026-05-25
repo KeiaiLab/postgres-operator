@@ -1,0 +1,47 @@
+properties:
+  - type: olm.package
+    value:
+      packageName: keiailab-postgres-operator
+      version: 0.3.0-alpha.18
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: PostgresCluster
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: BackupJob
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: ScheduledBackup
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: PostgresDatabase
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: PostgresUser
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: Pooler
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: ImageCatalog
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: postgres.keiailab.io
+      kind: ClusterImageCatalog
+      version: v1alpha1
+  - type: olm.maxOpenShiftVersion
+    value: "4.17"
