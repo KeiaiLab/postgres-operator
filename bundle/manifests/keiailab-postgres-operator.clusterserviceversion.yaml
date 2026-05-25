@@ -276,7 +276,7 @@ metadata:
       ]
     capabilities: Seamless Upgrades
     categories: Database, Storage
-    containerImage: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.20
+    containerImage: ghcr.io/keiailab/postgres-operator:0.4.0-alpha.1
     createdAt: "2026-05-12T13:53:44Z"
     description: |
       Apache-2.0 PostgreSQL Kubernetes Operator — vanilla PG17/PG18, license-clean,
@@ -286,7 +286,7 @@ metadata:
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/keiailab/postgres-operator
     support: https://github.com/keiailab/postgres-operator/issues
-  name: keiailab-postgres-operator.v0.3.0-alpha.20
+  name: keiailab-postgres-operator.v0.4.0-alpha.1
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -594,7 +594,7 @@ spec:
                 - --health-probe-bind-address=:8081
                 command:
                 - /manager
-                image: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.20
+                image: ghcr.io/keiailab/postgres-operator:0.4.0-alpha.1
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -701,4 +701,4 @@ spec:
   provider:
     name: Keiailab
     url: https://github.com/keiailab
-  version: 0.3.0-alpha.20
+  version: 0.4.0-alpha.1

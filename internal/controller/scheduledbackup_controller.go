@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"sort"
+
 	"github.com/robfig/cron/v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -147,6 +149,11 @@ func (r *ScheduledBackupReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	sb.Status.ObservedGeneration = sb.Generation
 	setScheduledBackupCondition(&sb, metav1.ConditionTrue, ScheduledBackupReasonBackupJobCreated,
 		"Created BackupJob "+jobName)
+
+	// Enforce retention: delete old completed BackupJobs exceeding KeepFull.
+	if err := r.enforceRetention(ctx, &sb); err != nil {
+		logger.Error(err, "Retention cleanup failed (best-effort)")
+	}
 
 	requeueAfter := nextAt.Sub(now)
 	requeueAfter = max(requeueAfter, time.Second)
@@ -315,4 +322,54 @@ func (r *ScheduledBackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&postgresv1alpha1.BackupJob{}).
 		Named("scheduledbackup").
 		Complete(r)
+}
+
+// enforceRetention deletes old completed BackupJobs that exceed the retention policy.
+func (r *ScheduledBackupReconciler) enforceRetention(
+	ctx context.Context,
+	sb *postgresv1alpha1.ScheduledBackup,
+) error {
+	if sb.Spec.Retention.KeepFull == 0 {
+		return nil
+	}
+	keepFull := int(sb.Spec.Retention.KeepFull)
+
+	var allJobs postgresv1alpha1.BackupJobList
+	if err := r.List(ctx, &allJobs,
+		client.InNamespace(sb.Namespace),
+		client.MatchingLabels{"postgres.keiailab.io/scheduled-backup": sb.Name},
+	); err != nil {
+		return err
+	}
+
+	var completed []postgresv1alpha1.BackupJob
+	for _, j := range allJobs.Items {
+		if j.Status.Phase == postgresv1alpha1.BackupJobSucceeded {
+			completed = append(completed, j)
+		}
+	}
+
+	if len(completed) <= keepFull {
+		return nil
+	}
+
+	// Sort by completion time (oldest first).
+	sort.Slice(completed, func(i, j int) bool {
+		ti := completed[i].Status.EndedAt
+		tj := completed[j].Status.EndedAt
+		if ti == nil || tj == nil {
+			return ti == nil
+		}
+		return ti.Time.Before(tj.Time)
+	})
+
+	toDelete := completed[:len(completed)-keepFull]
+	logger := log.FromContext(ctx)
+	for i := range toDelete {
+		logger.Info("Retention cleanup: deleting old BackupJob", "name", toDelete[i].Name)
+		if err := r.Delete(ctx, &toDelete[i]); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("retention delete %s: %w", toDelete[i].Name, err)
+		}
+	}
+	return nil
 }
