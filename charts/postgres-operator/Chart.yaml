@@ -14,10 +14,10 @@ kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — alpha 단계, breaking change 가능. SemVer 준수.
 # alpha.N iterative pre-release 표기.
-version: 0.3.0-alpha.18
+version: 0.3.0-alpha.19
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
-appVersion: "0.3.0-alpha.18"
+appVersion: "0.3.0-alpha.19"
 
 home: https://github.com/keiailab/postgres-operator
 sources:
