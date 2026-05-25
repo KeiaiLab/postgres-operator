@@ -376,6 +376,18 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)
 
+	// Config hot-reload: if cluster is Ready and primary Pods are running with
+	// a stale configHash, signal PostgreSQL to reload without restarting.
+	if !hibernating && allShardPrimaryReady {
+		for _, ss := range shardStatuses {
+			if ss.Primary != nil && ss.Primary.Ready && ss.Primary.Pod != "" {
+				if err := r.reloadPostgresConfig(ctx, cluster.Namespace, ss.Primary.Pod); err != nil {
+					logger.V(1).Info("pg_reload_conf best-effort failed", "pod", ss.Primary.Pod, "err", err)
+				}
+			}
+		}
+	}
+
 	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —
 	// 매 reconcile noise 회피). prevPhase 비교로 transition 감지.
 	if r.Recorder != nil && cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
@@ -784,4 +796,25 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Named("postgrescluster").
 		Complete(r)
+}
+
+// reloadPostgresConfig executes SELECT pg_reload_conf() on the ready primary Pod
+// to apply postgresql.conf/pg_hba.conf changes without restarting the Pod.
+// This enables hot-reload for parameters that support SIGHUP-level changes.
+func (r *PostgresClusterReconciler) reloadPostgresConfig(ctx context.Context, namespace, podName string) error {
+	if r.PromotionPodExecutor == nil {
+		return nil
+	}
+	target := BackupSidecarTarget{
+		Namespace: namespace,
+		Pod:       podName,
+		Container: "postgres",
+	}
+	out, err := r.PromotionPodExecutor.Exec(ctx, target, []string{
+		"psql", "-U", "postgres", "-d", "postgres", "-tAc", "SELECT pg_reload_conf()",
+	})
+	if err != nil {
+		return fmt.Errorf("pg_reload_conf on %s: %w (output: %s)", podName, err, string(out))
+	}
+	return nil
 }
