@@ -30,7 +30,7 @@ body:
       description: Provide context about what you're trying to achieve
       placeholder: |
         I'm trying to deploy a PostgresCluster with TLS encryption and a Pooler in front.
-        I'm running Kubernetes 1.30 on a bare-metal cluster and using the operator v0.3.0-alpha.19.
+        I'm running Kubernetes 1.30 on a bare-metal cluster and using the operator v0.3.0-alpha.20.
       render: markdown
     validations:
       required: true
@@ -66,7 +66,7 @@ body:
       label: postgres-operator Version
       description: Which version of the postgres-operator are you using?
       options:
-        - 'v0.3.0-alpha.19'
+        - 'v0.3.0-alpha.20'
         - 'v0.3.0-alpha.17'
         - 'v0.3.0-alpha.16'
         - 'Other'

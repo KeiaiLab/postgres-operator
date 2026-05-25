@@ -182,7 +182,7 @@ metadata:
       ]
     capabilities: Seamless Upgrades
     categories: Database, Storage
-    containerImage: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.19
+    containerImage: ghcr.io/keiailab/postgres-operator:0.3.0-alpha.20
     createdAt: "2026-05-10T00:00:00Z"
     description: |
       Apache-2.0 PostgreSQL Kubernetes Operator — vanilla PG18+, license-clean,

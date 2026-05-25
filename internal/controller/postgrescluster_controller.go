@@ -361,6 +361,16 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	cluster.Status.ManagedRolesStatus = managedRolesStatus
 	cluster.Status.ObservedGeneration = cluster.Generation
+	// Switchover: annotation-triggered planned primary change (Sprint S5).
+	if !hibernating && allShardPrimaryReady {
+		if err := r.handleSwitchover(ctx, &cluster, shardStatuses); err != nil {
+			logger.Error(err, "Switchover failed")
+			if r.Recorder != nil {
+				r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, "SwitchoverFailed", "SwitchoverFailed", "%v", err)
+			}
+		}
+	}
+
 	failoverShardName, failoverDecision := clusterFailoverDecision(shardStatuses)
 	if prevPhase == postgresv1alpha1.ClusterPhaseReady && failoverDecision.Failed && failoverDecision.PromotionCandidate != nil {
 		if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {

@@ -142,3 +142,65 @@ exit 1
 `
 	return []string{"sh", "-ec", script}
 }
+
+const AnnotationSwitchoverTarget = "postgres.keiailab.io/switchover-target"
+
+func (r *PostgresClusterReconciler) handleSwitchover(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardStatuses []postgresv1alpha1.ShardStatus,
+) error {
+	if cluster.Annotations == nil {
+		return nil
+	}
+	targetPod, ok := cluster.Annotations[AnnotationSwitchoverTarget]
+	if !ok || targetPod == "" {
+		return nil
+	}
+	if r.PromotionPodExecutor == nil {
+		return errors.New("promotion pod executor not configured for switchover")
+	}
+
+	var targetEndpoint string
+	for _, ss := range shardStatuses {
+		if ss.Primary != nil && ss.Primary.Pod == targetPod {
+			return fmt.Errorf("switchover target %s is already primary", targetPod)
+		}
+		for _, rep := range ss.Replicas {
+			if rep.Pod == targetPod && rep.Ready {
+				targetEndpoint = rep.Endpoint
+			}
+		}
+	}
+	if targetEndpoint == "" {
+		return fmt.Errorf("switchover target %s not found or not ready", targetPod)
+	}
+
+	promoter := &clusterPodPromoter{
+		Namespace:   cluster.Namespace,
+		Client:      r.Client,
+		PodExecutor: r.PromotionPodExecutor,
+		Now:         time.Now,
+	}
+	plan := failover.PromotionPlan{
+		Target: failover.PromotionTarget{
+			Pod:      targetPod,
+			Endpoint: targetEndpoint,
+		},
+	}
+	if err := promoter.Execute(ctx, plan); err != nil {
+		return fmt.Errorf("switchover promotion of %s failed: %w", targetPod, err)
+	}
+
+	before := cluster.DeepCopy()
+	delete(cluster.Annotations, AnnotationSwitchoverTarget)
+	if err := r.Patch(ctx, cluster, client.MergeFrom(before)); err != nil {
+		return fmt.Errorf("failed to clear switchover annotation: %w", err)
+	}
+
+	if r.Recorder != nil {
+		r.Recorder.Eventf(cluster, nil, corev1.EventTypeNormal, "SwitchoverCompleted", "SwitchoverCompleted",
+			"Switchover to %s completed successfully", targetPod)
+	}
+	return nil
+}
