@@ -9,13 +9,13 @@
 
 > 영문 원본: [BRANDING.md](BRANDING.md) — canonical / 정본
 
-> keiailab operator family 의 시각 identity, voice, tone.
+> `postgres-operator` 의 시각 identity, voice, tone.
 
 본 문서는 `postgres-operator` 의 브랜딩 결정에 대한 정본 (canonical) 참조다. README, 릴리스 노트, 마케팅 자료, 그리고 프로젝트를 대표하는 모든 third-party 커뮤니케이션에 적용된다.
 
 ## 1. Identity
 
-**조직**: [keiailab](https://keiailab.com) — Kubernetes-native data platform operator (Apache-2.0, license-clean, vanilla upstream 호환).
+**조직**: [keiailab](https://keiailab.com) — Kubernetes-native data platform (Apache-2.0, license-clean, vanilla upstream 호환).
 
 **프로젝트**: `postgres-operator` — Kubernetes 용 Apache-2.0 PostgreSQL Operator — vanilla PG18+, license-clean, K8s-native auto-sharding 로드맵.
 
@@ -65,7 +65,7 @@ GitHub README 의 shield.io 배지는 위 hex 사용 권장.
 **Voice 원칙**:
 - **직접적 (Direct)** — 가능하면 단락보다 bullet 사용
 - **증거 기반 (Evidence-based)** — claim 은 벤치마크 / SLA / 링크 포함
-- **벤더 중립 (Vendor-neutral)** — upstream (PostgreSQL, MongoDB, Valkey) 참조하되 third-party operator 를 embed/wrap 하지 않음
+- **벤더 중립 (Vendor-neutral)** — upstream PostgreSQL 참조하되 third-party operator 를 embed/wrap 하지 않음
 - **License-aware** — Apache-2.0 + BSD/MIT/PG-license 의존성만
 
 **피할 표현**:
@@ -117,7 +117,7 @@ README 의 shield.io badge 순서 (좌→우):
 
 1. License (Apache-2.0)
 2. Go Version (1.25+)
-3. Database (예: PostgreSQL 18+ / MongoDB 7.0+ / Valkey 8.0+)
+3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
 5. Container Image (ghcr.io/keiailab)
 6. Helm Chart (Chart.yaml version + Artifact Hub link)

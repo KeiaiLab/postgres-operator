@@ -18,7 +18,6 @@ You may obtain a copy of the License at
 // internal/version/matrix.go 가 이미 16/17/18 stable 보유. 본 e2e 는 *runtime
 // 동작 검증* — patch propagate + Pod rotation + Phase=Running 복귀.
 //
-// mongodb iteration 14 (9d439f8) + valkey iteration 7 (d5fbbf8) 패턴 차용 —
 // 가설 A/B/C 회귀 가드 적용.
 
 package e2e

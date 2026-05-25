@@ -296,7 +296,6 @@ make test-e2e PILLAR=p1                            # single-shard scenario
 
 ## §8 References
 
-- Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.2
 - Prior v0.x RFC-0001 (old single-backend `vanilla-default` decision) — history preserved in git.
 - Prior v0.x RFC-0005 (old dual-backend `sharding-plugin-interface` abstraction) — history preserved in git.
 - Kubebuilder CEL validation: https://book.kubebuilder.io/reference/markers/crd-validation.html

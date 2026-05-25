@@ -66,15 +66,13 @@ go mod tidy
 - CRD spec 无变更 (v1alpha2 conversion 为另一个 cycle)
 - 不影响 Helm chart
 
-## 3. v0.3.x → v1.0.0 (计划中 —— v3.x-stable 宣告时)
+## 3. v0.3.x → v1.0.0 (计划中 —— 商用产品级别里程碑)
 
 到达 CLAUDE.md §7 的 *商用产品级别* (P0+P1+P2+OP+C 全部 ✅) 时执行。
 
 - 将所有 CR 的 API stability 升级到 `Stable` (v1)
 - 无 breaking change (v0.x → v1.0 仅是 *命名* 变更)
-- 保证 5 repo 一致性: 参见 `commons/docs/quality/production-grade-checklist.md`
-
-详情: operator-commons ADR-0013 (audit-production-grade.sh)
+- 通过 `make audit-quality` 验证商用产品级别质量
 
 ## 4. GHA dual-track 策略 (ADR-0019)
 
@@ -105,9 +103,6 @@ go mod tidy
 ## 参考
 
 - ADR 列表: `docs/kb/adr/INDEX.md`
-- operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
-- audit: `make audit-quality` (覆盖 5 repo 测量,commons ADR-0013)
-- i18n: `commons/docs/i18n/README.md`
 
 ---
 

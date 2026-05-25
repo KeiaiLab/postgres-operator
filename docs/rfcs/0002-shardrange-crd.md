@@ -299,7 +299,6 @@ Performance targets:
 
 ## §8 References
 
-- Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.2, §3.3
 - Murmur3: https://github.com/spaolacci/murmur3
 - RFC 0001: PostgresCluster CRD v2
 - RFC 0003: ShardSplitJob 7-step

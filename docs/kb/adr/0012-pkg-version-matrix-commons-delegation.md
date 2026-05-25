@@ -3,7 +3,7 @@
 - Date: 2026-05-09
 - Status: Accepted
 - Authors: @eightynine01
-- Refs: Plan §2 D12 (`~/.claude/plans/1-https-artifacthub-io-packages-helm-clo-synthetic-gem.md`), commons-ADR-0004 (Matrix[E] generic), ADR-0005 (versioning-and-channels)
+- Refs: commons-ADR-0004 (Matrix[E] generic), ADR-0005 (versioning-and-channels)
 
 ## Context
 

@@ -287,9 +287,9 @@
 
 ### Bug fixes (バグ修正)
 
-- *(lint)* SA1019 + gocyclo nolint (mongodb ADR-0022 パターン整合)。
-- *(bundle)* generate-kustomize-manifests ステップを廃止 (PR-B9.4、
-  mongodb ADR-0023 整合) (#25)。
+- *(lint)* SA1019 + gocyclo nolint ディレクティブを追加。
+- *(bundle)* generate-kustomize-manifests ステップを廃止 (PR-B9.4)
+  (#25)。
 
 ### Chores (雑務)
 
@@ -395,8 +395,7 @@
   CR サンプル (db ネームスペース、`shardingMode=none`、`replicas=2`、
   ceph-block、monitoring on)。
 - `deploy/README.md` — 運用 runbook (前提、適用、ロールバック)。
-- ADR-0006 — GitOps deploy-overlay 採用決定 (mongodb-operator /
-  valkey-operator との 3-repo 構造整合)。
+- ADR-0006 — GitOps deploy-overlay 採用決定。
 
 ### Fixed (修正)
 
@@ -411,8 +410,7 @@
 ### Changed (変更)
 
 - Chart.yaml の `version` + `appVersion` 0.3.0-alpha → 0.3.0-alpha.1
-  (mongodb-operator の beta.N + valkey-operator の alpha.N に合わせた
-  反復的 pre-release 表記)。
+  (反復的 pre-release 表記)。
 - `config/manager/kustomization.yaml` の `newTag` を同期。
 - `dist/install.yaml` を再生成 (`make build-installer`) — イメージタグ
   0.3.0-alpha.1。

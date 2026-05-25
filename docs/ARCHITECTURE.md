@@ -58,17 +58,17 @@ ADR-0001 (`docs/kb/adr/0001-self-built-distributed-sql.md`) is the keystone — 
 - Role (per ns): StatefulSet / Service / Secret / ConfigMap / PVC / PDB / NetworkPolicy / Job / PgBouncer
 - ServiceAccount: `postgres-operator`
 
-## operator-commons import surface
+## Common library packages
 
 Adoption: **5/8 (63%)**.
 
 | Package | Status | Usage |
 |---|---|---|
 | `pkg/security` | ✅ | restricted PSA (it8) |
-| `pkg/version` | ⏳ | Local `version.Combo` richer than commons.MustList — delegation deferred |
+| `pkg/version` | ⏳ | Local `version.Combo` richer — delegation deferred |
 | `pkg/labels` | ✅ | Recommended labels (it28) |
-| `pkg/monitoring` | ⏳ | ServiceMonitor local impl — commons delegation pending |
-| `pkg/networkpolicy` | ⏳ | Local NetworkPolicy — commons delegation pending |
+| `pkg/monitoring` | ⏳ | ServiceMonitor local impl — delegation pending |
+| `pkg/networkpolicy` | ⏳ | Local NetworkPolicy — delegation pending |
 | `pkg/webhook` | ✅ | Validation helpers (it34) |
 | `pkg/finalizer` | ✅ | `Add` / `Remove` / `Has` |
 | `pkg/status` | ✅ | Condition reasons |
@@ -84,8 +84,6 @@ Adoption: **5/8 (63%)**.
 | G4 | Online resharding (`ShardSplitJob` 7-step) | 0% |
 | G5 | Distributed SQL (scatter-gather + 2PC/saga + isolation + benchmarks) | 0% |
 | G6 | 1.0.0 GA (soak ≥7d + chaos + SBOM + cosign + 6 runbooks) | 12% |
-
-Plan to 100% (G6): `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` (59 sub-tasks).
 
 ## Test layers
 
@@ -116,12 +114,12 @@ Plan to 100% (G6): `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` (59 su
 
 Notable:
 - ADR-0001: self-built distributed SQL (keystone)
-- ADR-0006: introduce the GitOps deploy overlay (3-repo alignment)
+- ADR-0006: introduce the GitOps deploy overlay
 - ADR-0007: hook tooling — pre-commit instead of lefthook
 - ADR-0009: webhook validate — accumulate-errors
 - ADR-0013: OperatorHub.io bundle scaffold cross-cut
 - ADR-0014: community-operators upstream sync automation
-- ADR-0019: GitHub Actions retention (operator family v2.0 dual-track)
+- ADR-0019: GitHub Actions retention (v2.0 dual-track)
 - ADR-0022: GHA narrow exception — 3 workflow (helm-publish + release + scorecard)
 - ADR-0023: v3.x-stable baseline 인정
 - ADR-0024: lefthook pre-push incremental lint + envtest

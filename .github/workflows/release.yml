@@ -257,7 +257,7 @@ jobs:
             assets/postgres-operator-${{ needs.preflight.outputs.tag }}.spdx.json.sig
             assets/postgres-operator-${{ needs.preflight.outputs.tag }}.spdx.json.pem
 
-  # ADR-0014 community-operators sync automation (RFC 0002 §7 예외 ③ 확장, mongodb ADR-0027 + valkey ADR-0047 sister).
+  # ADR-0014 community-operators sync automation (RFC 0002 §7 예외 ③).
   sync-community-operators:
     needs: [preflight, github-release]
     runs-on: ubuntu-latest

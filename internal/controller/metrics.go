@@ -4,8 +4,8 @@ Copyright 2026 Keiailab.
 
 // Package controller — Prometheus metrics 정의.
 //
-// controller-runtime 의 글로벌 metrics registry 자동 등록. valkey-operator PR #47
-// cross-operator 이식 — SLO 추적 (p50/p95/p99 reconcile latency).
+// controller-runtime 의 글로벌 metrics registry 자동 등록.
+// SLO 추적 (p50/p95/p99 reconcile latency).
 package controller
 
 import (

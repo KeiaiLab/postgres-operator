@@ -1,22 +1,29 @@
+<p align="center">
+  <b>English</b> |
+  <a href="UPGRADING.ko.md">한국어</a> |
+  <a href="UPGRADING.ja.md">日本語</a> |
+  <a href="UPGRADING.zh.md">中文</a>
+</p>
+
 # Upgrading postgres-operator
 
-본 문서는 postgres-operator 의 마이너/메이저 버전 업그레이드 시 필요한 마이그레이션
-작업을 정리한다. Helm 사용자는 chart 업그레이드만으로 모든 변경이 적용되지만,
-정적 manifest (`kubectl apply -f`) 사용자는 RBAC 등 일부 항목을 수동으로
-patch 해야 한다.
+This document covers the migration steps required when upgrading postgres-operator
+across minor or major versions. Helm users can apply all changes simply by upgrading
+the chart, but static manifest (`kubectl apply -f`) users must manually patch
+some items such as RBAC.
 
-## 0. 버전 정책 (semver)
+## 0. Version Policy (semver)
 
-| 변경 유형 | semver bump | 예시 |
+| Change Type | semver bump | Example |
 |---|---|---|
-| 신규 controller / CR / API 추가 | minor (v1.X → v1.X+1) | PostgresPooler 신설 |
-| 기존 API 시그니처 변경 (breaking) | major (v1.X → v2.0) | PostgresCluster.spec.storage struct 변경 |
-| bug fix / dependency bump | patch (v1.X.Y → v1.X.Y+1) | controller-runtime 0.19→0.20 |
-| operator-commons 의존 bump | minor (commons v0.X → v0.X+1) | pkg/reconcile 신규 채택 |
+| New controller / CR / API | minor (v1.X -> v1.X+1) | Add PostgresPooler |
+| Breaking API signature change | major (v1.X -> v2.0) | Change PostgresCluster.spec.storage struct |
+| Bug fix / dependency bump | patch (v1.X.Y -> v1.X.Y+1) | controller-runtime 0.19->0.20 |
+| operator-commons dependency bump | minor (commons v0.X -> v0.X+1) | Adopt pkg/reconcile |
 
-## 1. v0.1.x → v0.2.x
+## 1. v0.1.x -> v0.2.x
 
-### Helm 사용자
+### Helm Users
 
 ```bash
 helm repo update
@@ -25,83 +32,85 @@ helm upgrade postgres-operator <repo>/postgres-operator \
   --version 0.2.x
 ```
 
-차트 자체가 RBAC, CRD, Deployment 를 모두 동기화한다. 추가 작업 불필요.
+The chart synchronizes RBAC, CRD, and Deployment automatically. No additional steps required.
 
-### 정적 manifest 사용자 — RBAC 마이그레이션
+### Static Manifest Users -- RBAC Migration
 
-`make build-installer` 결과인 `dist/install.yaml` 의 차이 확인:
+Check differences in the `dist/install.yaml` output of `make build-installer`:
 
 ```bash
 kubectl diff -f dist/install.yaml
 kubectl apply -f dist/install.yaml
 ```
 
-기존 ClusterRole 의 신규 권한 (현재 없음 — 본 minor 는 RBAC 변경 없음):
+New permissions on the existing ClusterRole (none at present -- this minor has no RBAC changes):
 
-| API group | Resource | 사유 | 추가 시점 |
+| API group | Resource | Reason | Added In |
 |---|---|---|---|
-| (없음) | — | — | — |
+| (none) | -- | -- | -- |
 
-## 2. v0.2.x → v0.3.x (예정)
+## 2. v0.2.x -> v0.3.x (planned)
 
-### operator-commons v0.9.0 채택 (Sprint 1 + S5)
+### Adopt operator-commons v0.9.0 (Sprint 1 + S5)
 
 ```bash
-# go.mod 의 operator-commons 의존 bump 후
+# After bumping the operator-commons dependency in go.mod
 go mod tidy
 ```
 
-- **신규 import**: `github.com/keiailab/operator-commons/pkg/pvc`, `pkg/topology` (Sprint 1)
-- **추가 import 예정**: `pkg/reconcile`, `pkg/resources` (S5 후속)
-- **중복 코드 제거**: `internal/controller/` 의 자체 helper 가 operator-commons 의 helper 로 교체. 동작 동일.
+- **New imports**: `github.com/keiailab/operator-commons/pkg/pvc`, `pkg/topology` (Sprint 1)
+- **Additional imports planned**: `pkg/reconcile`, `pkg/resources` (S5 follow-up)
+- **Duplicate code removal**: Local helpers in `internal/controller/` are replaced by operator-commons helpers. Behavior is identical.
 
-마이그레이션 영향:
-- Reconcile 동작 동일 (refactor 만, 외부 동작 변경 없음)
-- CRD spec 변경 없음 (v1alpha2 conversion 별 cycle)
-- Helm chart 영향 없음
+Migration impact:
+- Reconcile behavior is unchanged (refactor only, no external behavior changes)
+- No CRD spec changes (v1alpha2 conversion is a separate cycle)
+- No Helm chart impact
 
-## 3. v0.3.x → v1.0.0 (예정 — v3.x-stable 선언 시점)
+## 3. v0.3.x -> v1.0.0 (planned -- production-grade milestone)
 
-CLAUDE.md §7 의 *상용 제품 수준* (P0+P1+P2+OP+C 모두 ✅) 도달 시.
+When CLAUDE.md section 7 *production-grade* criteria (P0+P1+P2+OP+C all pass) are met.
 
-- 모든 CR 의 API stability `Stable` 승격 (v1)
-- breaking change 없음 (v0.x → v1.0 은 *명명만* 변경)
-- 5 repo 일관성 보장: `commons/docs/quality/production-grade-checklist.md` 참조
+- Promote all CR API stability to `Stable` (v1)
+- No breaking changes (v0.x -> v1.0 is a *naming-only* change)
+- Production-grade quality verified via `make audit-quality`
 
-상세: operator-commons ADR-0013 (audit-production-grade.sh)
+## 4. GHA Dual-Track Policy (ADR-0019)
 
-## 4. GHA dual-track 정책 (ADR-0019)
+This repo is an *exception* to RFC-0002 (GitHub Actions permanent ban) -- as a public
+OSS operator it requires external trust gates, so it maintains 14 GHA workflows
+alongside the local 4-layer gates (lefthook) in a dual-track setup (ADR-0019).
 
-본 repo 는 RFC-0002 (GitHub Actions 영구 금지) 의 *예외* — public OSS operator 의
-external trust gate 필요로 GHA 14 workflow 유지 + 로컬 4계층 (lefthook) 과
-dual-track 운영 (ADR-0019).
+GHA workflow updates during upgrades are handled automatically via
+`dependabot/github_actions/*` PRs. Adding new files to `.github/workflows/`
+via *human PRs* requires a *separate ADR* plus user approval.
 
-업그레이드 시 GHA workflow 변경은 `dependabot/github_actions/*` PR 으로 자동.
-*사람 PR* 으로 `.github/workflows/` 신규 파일 추가는 *별 ADR* + 사용자 승인 필요.
+## 5. General Migration Checklist
 
-## 5. 일반 마이그레이션 체크리스트
+Before upgrading:
+- [ ] CRD changes (`api/v1alpha1/` ObjectMeta compatible with v1alpha2)
+- [ ] `make verify` (lint + test + build + audit) passes
+- [ ] Existing e2e suite passes (`make integration-test`)
+- [ ] Dependabot dependency bump PRs are integrated
 
-업그레이드 전:
-- [ ] CRD 변경 (`api/v1alpha1/` 의 ObjectMeta 가 v1alpha2 와 호환)
-- [ ] `make verify` (lint + test + build + audit) 통과
-- [ ] 기존 e2e 스위트 PASS (`make integration-test`)
-- [ ] dependabot 의존 bump PR 통합 확인
+After upgrading:
+- [ ] Update Helm chart `dependencies:` (keiailab-commons library chart)
+- [ ] Verify each CR spec compatibility (especially storage, resources)
+- [ ] Verify reconcile results (`kubectl get postgrescluster -A`)
+- [ ] Operational metrics (`Reconcile{Total,Latency,Errors}`) are normal
 
-업그레이드 후:
-- [ ] Helm chart 의 `dependencies:` (keiailab-commons library chart) 갱신
-- [ ] 각 CR 의 spec 호환성 검증 (특히 storage, resources)
-- [ ] reconcile 결과 verify (`kubectl get postgrescluster -A`)
-- [ ] 운영 메트릭 (`Reconcile{Total,Latency,Errors}`) 정상
+## 6. Breaking Change Notification Policy
 
-## 6. 비호환 변경 안내 정책
+- **Deprecation**: Mark with `// Deprecated:` comment in a new minor, remove after 2 minors
+- **Breaking**: Major version bump + dedicated section in this UPGRADING.md + ADR
+- **No post-hoc notification**: All breaking changes require *at least 1 minor* of prior deprecation
 
-- **Deprecation**: 신규 minor 에서 `// Deprecated:` 주석 + 2 minor 후 제거
-- **Breaking**: major bump + 본 UPGRADING.md 의 별 섹션 + ADR 작성
-- **사후 통보 안 함**: 모든 breaking 변경은 *최소 1 minor* 사전 deprecation
+## References
 
-## 참고
+- ADR index: `docs/kb/adr/INDEX.md`
 
-- ADR 목록: `docs/kb/adr/INDEX.md`
-- operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
-- audit: `make audit-quality` (5 repo 측정, commons ADR-0013)
-- i18n: `commons/docs/i18n/README.md`
+---
+
+<p align="center">
+  (c) 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+</p>

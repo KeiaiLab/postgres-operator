@@ -31,7 +31,7 @@ pre-commit:
     adr-phantom-check:
       # standards/adr.md §9.5 — HANDOFF.md staged 시 ADR-XXXX reference 의
       # 실 file 존재 검증 (docs/kb/adr/ + docs/adr/ 양 path union).
-      # governance-report `adr_phantom_count` (layer 4) 와 sister.
+      # governance-report `adr_phantom_count` (layer 4) 연동.
       # cycle 25 P10 root cause fix (양 path 인정).
       glob: "docs/internal/HANDOFF.md"
       run: |
@@ -53,7 +53,7 @@ pre-commit:
           exit 1
         fi
     orphan-plan-files-block:
-      # standards/workflow.md §2 종료 의식 + enforcement.md §3.1.2 sister.
+      # standards/workflow.md §2 종료 의식 + enforcement.md §3.1.2.
       # repo 루트의 임시 plan/scratch file commit 차단.
       # exemption: HANDOFF/TASKS/ROADMAP/README/CHANGELOG/CLAUDE/AGENTS (legitimate).
       # 우회: ORPHAN_OK=1 git commit ...
@@ -119,8 +119,7 @@ pre-push:
       run: command -v helm >/dev/null 2>&1 && helm lint charts/postgres-operator || true
     helm-template:
       # default values 로 render OK 인지 — clusterrole.yaml 가드 회귀 차단.
-      # postgres chart 에 valkey 의 feature flag (cluster/backup/autoscaling) 가 없을 수
-      # 있으므로 기본 render 만 검증. 향후 postgres feature flag 도입 시 --set 추가.
+      # 기본 values 로 render 만 검증. 향후 feature flag 도입 시 --set 추가.
       run: |
         command -v helm >/dev/null 2>&1 || exit 0
         helm template postgres-operator charts/postgres-operator >/dev/null

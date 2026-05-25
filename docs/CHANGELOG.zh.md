@@ -272,9 +272,8 @@
 
 ### Bug fixes (缺陷修复)
 
-- *(lint)* SA1019 + gocyclo nolint (与 mongodb ADR-0022 模式对齐)。
-- *(bundle)* 移除 generate-kustomize-manifests 步骤 (PR-B9.4,
-  与 mongodb ADR-0023 对齐) (#25)。
+- *(lint)* SA1019 + gocyclo nolint 指令已添加。
+- *(bundle)* 移除 generate-kustomize-manifests 步骤 (PR-B9.4) (#25)。
 
 ### Chores (杂项)
 
@@ -378,8 +377,7 @@
   (db 命名空间、`shardingMode=none`、`replicas=2`、ceph-block、
   monitoring on)。
 - `deploy/README.md` — 运维 runbook (前置条件、应用、回滚)。
-- ADR-0006 — GitOps deploy-overlay 采用决定 (与 mongodb-operator /
-  valkey-operator 的 3-repo 结构对齐)。
+- ADR-0006 — GitOps deploy-overlay 采用决定。
 
 ### Fixed (修复)
 
@@ -394,8 +392,7 @@
 ### Changed (变更)
 
 - Chart.yaml 的 `version` + `appVersion` 0.3.0-alpha → 0.3.0-alpha.1
-  (迭代式 pre-release 标记,与 mongodb-operator 的 beta.N +
-  valkey-operator 的 alpha.N 对齐)。
+  (迭代式 pre-release 标记)。
 - 同步 `config/manager/kustomization.yaml` 的 `newTag`。
 - 重新生成 `dist/install.yaml` (`make build-installer`) — 镜像标签
   0.3.0-alpha.1。

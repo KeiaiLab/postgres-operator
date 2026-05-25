@@ -305,7 +305,6 @@ Success criteria:
 
 ## §8 References
 
-- Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §3.4
 - PostgreSQL Two-Phase Commit: https://www.postgresql.org/docs/18/sql-prepare-transaction.html
 - 2PC original: Gray, Jim. *Notes on Database Operating Systems* (1978)
 - Saga: Garcia-Molina & Salem, *Sagas* (SIGMOD 1987)

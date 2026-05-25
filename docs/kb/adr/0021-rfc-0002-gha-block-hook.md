@@ -6,25 +6,17 @@
 | Date | 2026-05-21 |
 | Author | keiailab |
 | Supersedes | (none) |
-| Related | RFC-0002 (GitHub Actions Permanent Ban), ADR-0019 (GHA 유지 + operator family v2.0 dual-track), commons ADR-0012 (gha-block hook 패턴 SSOT) |
+| Related | RFC-0002 (GitHub Actions Permanent Ban), ADR-0019 (GHA 유지 + v2.0 dual-track) |
 
 ## Context
 
 `~/.codex/CLAUDE.md` §2 RFC-0002 (2026-04-29): "GitHub Actions 영구 금지 — `.github/workflows/` 디렉토리 추가 / 보존 **금지**".
 
-5 repo audit (2026-05-21) 측정 결과 P2-2 "GHA block hook" 가 모든 operator repo 에서 ❌:
-
-| repo | P2-2 |
-|---|---|
-| postgres-operator | ❌ (본 ADR) |
-| mongodb-operator | ❌ (sister ADR-0035) |
-| valkey-operator | ❌ |
-| operator-commons | ✅ (ADR-0012 SSOT) |
-| forgewise | ✅ |
+Audit 측정 결과 P2-2 "GHA block hook" 가 본 repo 에서 ❌:
 
 즉 *정책* (RFC-0002) 은 있지만 *자동 강제* (lefthook hook) 이 부재. 사람이 의도하지 않은 `.github/workflows/` 신규 추가 시 차단 불가.
 
-본 ADR 은 operator-commons ADR-0012 패턴을 postgres-operator 에 sync 한다.
+본 ADR 은 operator-commons 의 gha-block hook 패턴을 postgres-operator 에 적용한다.
 
 ### v2.0 정합 고려 (ADR-0019 dual-track)
 
@@ -39,7 +31,7 @@ ADR-0019 (Accepted, 2026-05-21) 결정: postgres-operator 는 v2.0 = GHA *유지
 
 ## Decision
 
-`.lefthook.yml` 의 `pre-commit.commands.gha-block` 신설 (commons ADR-0012 패턴):
+`.lefthook.yml` 의 `pre-commit.commands.gha-block` 신설 (operator-commons gha-block pattern):
 
 ```yaml
 gha-block:
@@ -81,7 +73,7 @@ GitHub branch protection 의 push rule 에서 `.github/workflows/**` 차단.
 
 기각:
 - pre-commit 이 *조기 차단* — 잘못 추가된 파일이 local history 에 남지 않음
-- commons ADR-0012 패턴이 pre-commit — sister consistency
+- operator-commons pattern uses pre-commit — consistency
 
 ### Alt 3 — modify 도 차단 (strict mode)
 
@@ -133,7 +125,6 @@ Accepted — 2026-05-21.
 
 ## References
 
-- RFC-0002: `~/.codex/CLAUDE.md` §2 (GitHub Actions 영구 금지)
+- RFC-0002: GitHub Actions 영구 금지 정책.
 - ADR-0019: `0019-gha-retention-for-public-oss.md` (GHA 유지 + dual-track)
-- commons ADR-0012: `~/Workspace/keiailab/operator-commons/docs/kb/adr/0012-rfc-0002-gha-block-hook.md` (SSOT 패턴)
-- audit script: `~/Workspace/keiailab/operator-commons/scripts/audit-production-grade.sh` (P2-2)
+- operator-commons gha-block hook pattern (SSOT).

@@ -101,4 +101,3 @@ saga 사용 시 application 은 *명시적* idempotency + compensating logic 을
 - Postgres docs — [Two-Phase Commit (`PREPARE TRANSACTION`)](https://www.postgresql.org/docs/current/sql-prepare-transaction.html)
 - Postgres docs — [Serializable Snapshot Isolation (§13.2.3)](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE)
 - ROADMAP L182 — G5 Distributed SQL isolation matrix sub-task
-- Plan: `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` §D.10.3

@@ -63,10 +63,6 @@ updates:
       otel:
         patterns:
           - "go.opentelemetry.io/*"
-      redis:
-        patterns:
-          - "github.com/redis/*"
-          - "github.com/valkey-io/*"
 
   # ─── Dockerfile base images ───────────────────────────────────────
   - package-ecosystem: docker

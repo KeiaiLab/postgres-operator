@@ -10,7 +10,6 @@ you may not use this file except in compliance with the License.
 // unit-level (postgrescluster_webhook_test.go) 와 보완 — *real apiserver*
 // 통한 round-trip (kube-apiserver → ValidatingWebhookConfiguration →
 // PostgresClusterWebhook → field.ErrorList → apierrors.NewInvalid → client).
-// mongodb-operator + valkey-operator 와 동일 패턴 (cross-cut UX, ADR-0016).
 
 package v1alpha1
 

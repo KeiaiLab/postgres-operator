@@ -270,9 +270,8 @@
 
 ### Bug fixes (버그 수정)
 
-- *(lint)* SA1019 + gocyclo nolint (mongodb ADR-0022 패턴 정합).
-- *(bundle)* generate-kustomize-manifests 단계 제거 (PR-B9.4, mongodb
-  ADR-0023 정합) (#25).
+- *(lint)* SA1019 + gocyclo nolint 지시문 추가.
+- *(bundle)* generate-kustomize-manifests 단계 제거 (PR-B9.4) (#25).
 
 ### Chores (정리)
 
@@ -375,8 +374,7 @@
   (db 네임스페이스, `shardingMode=none`, `replicas=2`, ceph-block,
   monitoring on).
 - `deploy/README.md` — 운영 runbook (사전 요구, 적용, 롤백).
-- ADR-0006 — GitOps deploy-overlay 채택 결정 (mongodb-operator /
-  valkey-operator 와 3-repo 구조 정합).
+- ADR-0006 — GitOps deploy-overlay 채택 결정.
 
 ### Fixed (수정됨)
 
@@ -391,8 +389,7 @@
 ### Changed (변경됨)
 
 - Chart.yaml `version` + `appVersion` 0.3.0-alpha → 0.3.0-alpha.1
-  (mongodb-operator beta.N + valkey-operator alpha.N 에 맞춘 반복적
-  pre-release 표기).
+  (반복적 pre-release 표기).
 - `config/manager/kustomization.yaml` `newTag` 동기화.
 - `dist/install.yaml` 재생성 (`make build-installer`) — 이미지 태그
   0.3.0-alpha.1.

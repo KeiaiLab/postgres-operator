@@ -144,7 +144,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 **현재 상태 (0.3.0-alpha.18)**: reference Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/postgres` 가 `Ready=True`.
 
 GA 거리:
-- **P1** — production-ready single-shard 는 HA Lease 분산 lock controller + BackupJob/ScheduledBackup live drill + PITR checksum drill + chaos-mesh failover suite 필요. sub-task tracking: `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`.
+- **P1** — production-ready single-shard 는 HA Lease 분산 lock controller + BackupJob/ScheduledBackup live drill + PITR checksum drill + chaos-mesh failover suite 필요.
 - **P2** — multi-shard 는 `ShardRange` CRD + pg-router PoC ([`docs/sharding/SHARDING.md`](sharding/SHARDING.md)) 필요.
 - 현 alpha 는 *자체 backup/restore 검증 없이는* production 데이터 권장 **안 함**.
 

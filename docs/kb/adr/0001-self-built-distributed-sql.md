@@ -153,4 +153,4 @@ Key parameters:
 - ADR-0005: alpha → beta → stable channels + CRD apiVersion evolution.
 - RFC-0001 through RFC-0005: the 5 core component RFCs (CRD v2 / `ShardRange` / `ShardSplitJob` / `pg-router` / distributed transactions).
 - Retired prior v0.x decisions (history preserved in git).
-- Org-wide references: `~/Documents/ai-dev/standards/principles.md` §1 (Think Before Coding), §2 (Simplicity First — *conflict* — this decision puts *long-term license-clean + differentiation* ahead of simplicity); `standards/adr.md` (ADR authoring rules).
+- Org-wide references: `standards/principles.md` §1 (Think Before Coding), §2 (Simplicity First — *conflict* — this decision puts *long-term license-clean + differentiation* ahead of simplicity); `standards/adr.md` (ADR authoring rules).

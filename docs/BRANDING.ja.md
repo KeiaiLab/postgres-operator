@@ -9,13 +9,13 @@
 
 > 英語原文: [BRANDING.md](BRANDING.md) — canonical / 正本
 
-> keiailab operator family の視覚的 identity、voice、tone。
+> `postgres-operator` の視覚的 identity、voice、tone。
 
 本ドキュメントは `postgres-operator` のブランディング決定に対する正本 (canonical) リファレンスです。README、リリースノート、マーケティング資料、およびプロジェクトを代表するあらゆる third-party コミュニケーションに適用されます。
 
 ## 1. Identity
 
-**組織**: [keiailab](https://keiailab.com) — Kubernetes ネイティブのデータプラットフォームオペレーター (Apache-2.0、license-clean、vanilla upstream 互換)。
+**組織**: [keiailab](https://keiailab.com) — Kubernetes ネイティブのデータプラットフォーム (Apache-2.0、license-clean、vanilla upstream 互換)。
 
 **プロジェクト**: `postgres-operator` — Kubernetes 向け Apache-2.0 PostgreSQL Operator — vanilla PG18+、license-clean、K8s ネイティブの自動シャーディングロードマップ。
 
@@ -65,7 +65,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 **Voice 原則**:
 - **ダイレクト (Direct)** — 可能な限り段落より bullet
 - **エビデンスベース (Evidence-based)** — 主張にはベンチマーク / SLA / リンクを伴う
-- **ベンダーニュートラル (Vendor-neutral)** — upstream (PostgreSQL、MongoDB、Valkey) を参照しつつ third-party operator を embed/wrap しない
+- **ベンダーニュートラル (Vendor-neutral)** — upstream PostgreSQL を参照しつつ third-party operator を embed/wrap しない
 - **License-aware** — Apache-2.0 + BSD/MIT/PG-license 依存のみ
 
 **避ける表現**:
@@ -117,7 +117,7 @@ README の shield.io バッジ並び順 (左→右):
 
 1. License (Apache-2.0)
 2. Go Version (1.25+)
-3. Database (例: PostgreSQL 18+ / MongoDB 7.0+ / Valkey 8.0+)
+3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
 5. Container Image (ghcr.io/keiailab)
 6. Helm Chart (Chart.yaml version + Artifact Hub link)

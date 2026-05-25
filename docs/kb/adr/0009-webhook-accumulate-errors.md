@@ -3,7 +3,7 @@
 - Date: 2026-05-07
 - Status: Accepted
 - Authors: @eightynine01
-- Refs: ADR-0008 (operator-commons adoption), valkey iteration 31 (`14be0db`) pattern
+- Refs: ADR-0008 (operator-commons adoption)
 
 ## Context
 
@@ -34,7 +34,7 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster)
 }
 ```
 
-The K8s ecosystem convention (valkey / mongodb / most operators) is to
+The K8s ecosystem convention (most operators) is to
 *accumulate every validation error into a `field.ErrorList` and return
 a single `NewInvalid`*. The user (kubectl users / GitOps operators)
 then sees *every invalid in one go*:
@@ -125,8 +125,8 @@ postgres operator-commons adoption count: 2/6 (security/labels) →
 
 - Users and `kubectl` see *every invalid at once* — fewer apply
   iterations.
-- The 3 operators (mongodb / valkey / postgres) all share the same
-  *accumulate pattern* — cross-operator drift is blocked.
+- All operators consuming commons share the same *accumulate pattern*
+  — cross-operator drift is blocked.
 - This is the 3rd consumer of `commons.ValidateWithPredicate` —
   raises operator-commons API stability.
 
@@ -181,8 +181,5 @@ go test ./... -count=1
 
 ## Refs
 
-- valkey iteration 31 (`14be0db`) — webhook → `commons.ValidateWithPredicate` delegation (example commit).
-- mongodb ADR-0013 (`3345f85`) — conditions `LastTransitionTime` pattern fix (deviation acknowledged + upstream delegation).
-- HANDOFF iteration 32 — 3-way boundary analysis (commons / upstream / kept locally).
 - ADR-0008 (operator-commons adoption).
 - `k8s.io/apimachinery/pkg/util/validation/field` (ErrorList pattern).
