@@ -266,13 +266,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout release repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: keiailab/postgres-operator
           ref: ${{ needs.preflight.outputs.tag }}
           path: source
       - name: Checkout community-operators fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: eightynine01/community-operators
           token: ${{ secrets.COMMUNITY_OPERATORS_PAT }}
