@@ -23,6 +23,7 @@ If you are curious about the *why* behind the design decisions, read [ADR-0001](
 - [Runbooks](runbooks/INDEX.md) — Operational procedures
 - [Deployment](operator-guide/deployment.md) — Installation and deployment
 - [Upgrading](UPGRADING.md) — Version migration guide
+- [Gap Analysis](gap-analysis/GAP-ANALYSIS.md) — CNPG feature comparison and migration roadmap
 
 ## License
 
