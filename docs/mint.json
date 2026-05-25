@@ -38,6 +38,12 @@
       ]
     },
     {
+      "group": "Gap Analysis",
+      "pages": [
+        "gap-analysis/GAP-ANALYSIS"
+      ]
+    },
+    {
       "group": "Operations",
       "pages": [
         "UPGRADING",
