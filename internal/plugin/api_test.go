@@ -158,28 +158,6 @@ func TestBackupOptions_ExecutionModeField(t *testing.T) {
 	}
 }
 
-// TestExtensions_PreloadOrder 는 SharedPreloadOrder 정렬 규약 (낮은 숫자가 앞쪽,
-// 동률은 사전순) 의 회귀 방지 테스트다.
-func TestExtensions_PreloadOrder(t *testing.T) {
-	r := NewRegistry()
-	// 등록 순서를 일부러 뒤섞어도 결과는 order 오름차순 + name 사전순이어야 한다.
-	r.RegisterExtension(&dummyExtension{name: "pg_cron", order: 200})
-	r.RegisterExtension(&dummyExtension{name: "pgaudit", order: 100})
-	r.RegisterExtension(&dummyExtension{name: "demo-ext", order: 0})
-	r.RegisterExtension(&dummyExtension{name: "pgvector", order: 100}) // pgaudit과 동률
-
-	got := r.Extensions()
-	wantNames := []string{"demo-ext", "pgaudit", "pgvector", "pg_cron"}
-	if len(got) != len(wantNames) {
-		t.Fatalf("expected %d extensions, got %d", len(wantNames), len(got))
-	}
-	for i, want := range wantNames {
-		if got[i].Name() != want {
-			t.Errorf("position %d: want %q, got %q", i, want, got[i].Name())
-		}
-	}
-}
-
 // RFC 0006 R1 — EnabledExtensions 가 names 필터링 + 정렬 + missing 보고를 모두
 // 수행하는지. cross-validation bug 2 영구 fix 의 회귀 차단.
 func TestEnabledExtensions_FilterAndSort(t *testing.T) {

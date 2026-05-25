@@ -177,30 +177,3 @@ func (r *Registry) EnabledExtensions(names []string) (enabled []ExtensionPlugin,
 	})
 	return enabled, missing
 }
-
-// Extensions는 등록된 모든 ExtensionPlugin을 SharedPreloadOrder() 오름차순,
-// 동률 시 Name() 사전순으로 정렬해 반환한다.
-//
-// 본 정렬 규약은 ExtensionPlugin 별 SharedPreloadOrder 가 강제하는 우선순위를
-// 그대로 직렬화한다. P10 reconciler 가 본 메서드 결과를 strings.Join 하면 우선순위가
-// 보장된다.
-//
-// Deprecated: per-cluster filtering 은 EnabledExtensions(names) 사용. 본 메서드는
-// 등록된 *모든* extension 을 반환 — 모든 cluster 에 강제 효과로 cross-validation
-// bug 2 의 원인. 신규 코드는 EnabledExtensions 우선.
-func (r *Registry) Extensions() []ExtensionPlugin {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]ExtensionPlugin, 0, len(r.extensions))
-	for _, p := range r.extensions {
-		out = append(out, p)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		oi, oj := out[i].SharedPreloadOrder(), out[j].SharedPreloadOrder()
-		if oi != oj {
-			return oi < oj
-		}
-		return out[i].Name() < out[j].Name()
-	})
-	return out
-}
