@@ -130,7 +130,7 @@
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 이미지 → StatefulSet init/main 컨테이너 이미지 + image-hash annotation rollout-drift 추적 + catalog watch / envtest 완료. Extension-image volume mount, official digest catalog 공급, live rollout 측정은 pending.
 - [~] **Replica cluster / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 표면, streaming standalone replica bootstrap, ordinal-0 외부 `pg_basebackup`, `standby.signal`/`primary_conninfo`, password passfile + TLS client/root cert conninfo, persistent-follower election (local promotion 차단), fail-closed status 모두 검증. WAL-archive / object-store hybrid, distributed-topology demotion/promotion-token, live cross-cluster drill 은 pending.
 - [~] **선언적 hibernation** — `postgres.keiailab.io/hibernation=on/off` annotation, shard StatefulSet/PVC-template preservation + `replicas=0`, native router `replicas=0`, `status.phase=Hibernated`, hibernation condition 모두 envtest 검증. `SMOKE_HIBERNATION=1` path 는 PVC-marker-row 보존 및 rehydration SQL round-trip drill 도 수행; live kind 검증 pending.
-- [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (mongodb sister 패턴 정합 — GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan). path 정정 (hack/→scripts/) + stage count "12" 가정 정정 (sister 표준 = 6).
+- [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan). path 정정 (hack/→scripts/).
 - Verify: PrometheusRule / Grafana dashboard rendering, Pooler Service 를 통한 `psql` 접근, live PgBouncer exporter scrape, upgrade rolling restart 성공.
 
 ### Gate G3 — 자체 sharding 기반 (~0% buffer)
@@ -186,7 +186,7 @@
 - [ ] **Chaos engineering** — pod kill / network partition / disk pressure. (multi-day drill) (multi-day chaos drill required)
 - [ ] **Restore rehearsal** — 주기적 자동 backup-restore + 검증. (monthly cron drill — out of single session)
 - [ ] **Upgrade matrix** — N → N+1 / N → N+2 / minor patches. (G2 D.6.3 dependency — substantial e2e)
-- [ ] **SBOM + signing** — SPDX SBOM + cosign signature. (commons sbom-attach.sh 도입 가능, P-C.7 sister)
+- [ ] **SBOM + signing** — SPDX SBOM + cosign signature.
 - [ ] **Docs / runbook 완비**.
   - [ ] HA / backup / restore / upgrade / security / migration runbook.
 - Verify: 7-day soak 통과 + N chaos 시나리오 통과 + SBOM 첨부 + 모든 runbook 존재.

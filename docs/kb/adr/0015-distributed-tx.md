@@ -69,6 +69,5 @@ skeleton 패키지: `internal/tx/` — `Coordinator` 인터페이스 + `TwoPhase
 ## Refs
 
 - RFC-0005 distributed-transactions (Draft) — `docs/rfcs/0005-distributed-transactions.md`
-- Plan §D.10.2 — `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`
 - ROADMAP G5 — `ROADMAP.md` L181
 - Future integration: D.2.2 (Lease election), D.10.1 (scatter-gather), D.10.3 (isolation matrix), D.10.4 (benchmarks)

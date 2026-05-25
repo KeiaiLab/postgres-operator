@@ -18,8 +18,7 @@ limitations under the License.
 Copyright 2026 keiailab.
 */
 
-// Admission round-trip — webhook_suite_test 의 envtest 통합. mongodb /
-// valkey-operator 와 동일 패턴 (cross-cut UX, ADR-0016).
+// Admission round-trip — webhook_suite_test 의 envtest 통합.
 
 package v1alpha1
 

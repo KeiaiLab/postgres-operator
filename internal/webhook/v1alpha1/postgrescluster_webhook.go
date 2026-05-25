@@ -125,8 +125,7 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 			"schedule must be non-empty when backup.enabled=true (cron expression, e.g. \"0 2 * * *\")"))
 	}
 
-	// shards.storage.size 하한 1Gi (cross-cut audit, ADR-0016 — mongodb-operator
-	// it46 step 7 + valkey-operator it46 step 12 와 동일 invariant). PVC 가 너무
+	// shards.storage.size 하한 1Gi — PVC 가 너무
 	// 작으면 PostgreSQL startup 실패 (data dir + WAL 영역 floor) 또는 즉시 disk
 	// full. CRD `+kubebuilder:validation:Required` 는 *field 존재* 만 강제 —
 	// resource.Quantity 의 zero value (빈 객체 {}) 통과 가능.

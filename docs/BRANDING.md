@@ -1,12 +1,19 @@
+<p align="center">
+  <b>English</b> |
+  <a href="BRANDING.ko.md">한국어</a> |
+  <a href="BRANDING.ja.md">日本語</a> |
+  <a href="BRANDING.zh.md">中文</a>
+</p>
+
 # Branding Guide — `postgres-operator`
 
-> Visual identity, voice, and tone for the keiailab operator family.
+> Visual identity, voice, and tone for `postgres-operator`.
 
 This document is the canonical reference for `postgres-operator` branding decisions. It applies to the README, release notes, marketing material, and any third-party communication that represents the project.
 
 ## 1. Identity
 
-**Organization**: [keiailab](https://keiailab.com) — Kubernetes-native data platform operators (Apache-2.0, license-clean, vanilla-upstream compatible).
+**Organization**: [keiailab](https://keiailab.com) — Kubernetes-native data platform (Apache-2.0, license-clean, vanilla-upstream compatible).
 
 **Project**: `postgres-operator` — Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap.
 
@@ -56,7 +63,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 **Voice principles**:
 - **Direct** — bullet-point over paragraph where possible
 - **Evidence-based** — claims include benchmark / SLA / link
-- **Vendor-neutral** — reference upstream (PostgreSQL, MongoDB, Valkey) but do not embed/wrap third-party operators
+- **Vendor-neutral** — reference upstream PostgreSQL but do not embed/wrap third-party operators
 - **License-aware** — Apache-2.0 + BSD/MIT/PG-license dependencies only
 
 **Avoid**:
@@ -108,7 +115,7 @@ README 의 shield.io badge 순서 (좌→우):
 
 1. License (Apache-2.0)
 2. Go Version (1.25+)
-3. Database (e.g. PostgreSQL 18+ / MongoDB 7.0+ / Valkey 8.0+)
+3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
 5. Container Image (ghcr.io/keiailab)
 6. Helm Chart (Chart.yaml version + Artifact Hub link)

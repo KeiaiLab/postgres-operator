@@ -2,8 +2,7 @@
 # 까지 default rules 비활성 (follow-up PR 으로 chart templates 의 security
 # context / probes / capabilities drop / resources 추가 후 rules 점진 활성).
 #
-# Reference: valkey-operator 의 .github/kube-linter-config.yaml (10 rule include)
-# 와 정합 필요 — alpha 단계 의 trade-off.
+# alpha 단계 — rules 점진 활성.
 checks:
   doNotAutoAddDefaults: true
   include: []

@@ -130,7 +130,7 @@
 - [~] **ImageCatalog / ClusterImageCatalog** — CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 画像 → StatefulSet init/main コンテナ画像 + image-hash annotation rollout-drift 追跡 + catalog watch / envtest 完了。Extension-image volume mount、公式 digest catalog 供給、live rollout 計測は pending。
 - [~] **Replica cluster / externalClusters** — `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 表面、streaming standalone replica bootstrap、ordinal-0 外部 `pg_basebackup`、`standby.signal`/`primary_conninfo`、password passfile + TLS client/root cert conninfo、persistent-follower election (local promotion をブロック)、fail-closed status すべて検証済み。WAL-archive / object-store ハイブリッド、distributed-topology demotion/promotion-token、live cross-cluster drill は pending。
 - [~] **宣言的 hibernation** — `postgres.keiailab.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保持 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、hibernation condition をすべて envtest で検証。`SMOKE_HIBERNATION=1` パスは PVC-marker-row 保持と rehydration SQL round-trip drill も実行。live kind 検証は pending。
-- [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (mongodb sister パターンと整合 — GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。path 修正 (hack/→scripts/) + stage count "12" 想定の修正 (sister 標準 = 6)。
+- [~] **Release smoke test** — `scripts/release-smoke-test.sh` 6-stage (GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。path 修正 (hack/→scripts/)。
 - Verify: PrometheusRule / Grafana ダッシュボード rendering、Pooler Service 経由の `psql` アクセス、live PgBouncer exporter scrape、upgrade rolling restart の成功。
 
 ### Gate G3 — 自前 sharding 基盤 (~0% buffer)
@@ -186,7 +186,7 @@
 - [ ] **Chaos engineering** — pod kill / network partition / disk pressure。(multi-day drill) (multi-day chaos drill required)
 - [ ] **Restore rehearsal** — 周期的な自動 backup-restore + 検証。(monthly cron drill — out of single session)
 - [ ] **Upgrade matrix** — N → N+1 / N → N+2 / minor patches。(G2 D.6.3 依存 — substantial e2e)
-- [ ] **SBOM + signing** — SPDX SBOM + cosign 署名。(commons sbom-attach.sh 導入可能、P-C.7 sister)
+- [ ] **SBOM + signing** — SPDX SBOM + cosign 署名。
 - [ ] **Docs / runbook 完備**。
   - [ ] HA / backup / restore / upgrade / security / migration runbook。
 - Verify: 7 日 soak 通過 + N 種類の chaos シナリオ通過 + SBOM 添付 + すべての runbook 存在。

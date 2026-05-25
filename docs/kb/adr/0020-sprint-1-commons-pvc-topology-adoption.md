@@ -3,13 +3,13 @@
 - Date: 2026-05-21
 - Status: Accepted
 - Authors: @eightynine01 (Codex Major #7 — Sprint 1 Phase 2)
-- Refs: operator-commons ADR-0012 (commons-side decisions), Sprint 1 분석 (~495 LOC cross-repo 중복 식별)
+- Refs: operator-commons ADR-0012 (commons-side decisions), Sprint 1 분석 (~495 LOC cross-operator 중복 식별)
 
 ## Context
 
 postgres-operator 의 `internal/controller/pvc_resize.go` (~120 LOC) +
 `internal/controller/topology_spread.go` (~48 LOC) + 각각의 테스트
-(146 + 62 LOC) 가 mongodb / valkey 와 거의 동일 (~495 LOC cross-repo
+(146 + 62 LOC) 가 다른 operators 와 거의 동일 (~495 LOC cross-operator
 중복). operator-commons Sprint 1 (commons ADR-0012) 에서 `pkg/pvc`
 + `pkg/topology` 신규 추출.
 
@@ -34,7 +34,7 @@ postgres-operator 의 `internal/controller/pvc_resize.go` (~120 LOC) +
    (commons PR #52 pre-merge commit). v0.9.0 tag 후 본 ADR 갱신.
 
 4. **Beta tier 어댑션 위험 인지**: commons pkg/pvc + pkg/topology 가 현재
-   Beta. 3 operator 동시 회귀 통과 후 Stable 격상 트리거.
+   Beta. All consuming operators 동시 회귀 통과 후 Stable 격상 트리거.
 
 ## Consequences
 

@@ -104,11 +104,11 @@ note in §Consequences applies).
    contributor trust loss; the Scorecard badge would disappear from
    Artifact Hub; CodeQL findings on the Security tab would empty; release
    automation regression. Once attempted by commit `3c69429` (per the
-   parallel history in sister `valkey-operator/ADR-0045`); the consequences
+   per the parallel history in another operator); the consequences
    were severe enough that the workflows were restored.
 2. **Partial removal (keep External Trust Gate only, remove `ci.yml` and
-   `helm-lint.yml`)** — Rejected. Inconsistency with sister operators
-   (`mongodb-operator`, `valkey-operator`) which retain the full set; the
+   `helm-lint.yml`)** — Rejected. Inconsistency with the established pattern
+   across other operators which retain the full set; the
    local 4-tier duplicate would add maintenance burden without clear
    benefit. Depth-defense value is small but non-zero and the cost is low.
 3. **GHA-only (drop the local 4-tier)** — Rejected. Re-introduces the
@@ -119,15 +119,12 @@ note in §Consequences applies).
 
 - **RFC-0002** (2026-04-29) — Global GHA permanent ban (internal-infra
   intent).
-- **Sister ADRs (this repo)**:
+- **Related ADRs (this repo)**:
   - [ADR-0014](0014-community-operators-sync-automation.md) — RFC-0002 §7
     Exception ③ extension for community-operators sync automation.
   - [ADR-0016](0016-former-adr-0015-force-reset-history.md) — codifies the
     14-workflow scoped deviation already in effect on `main` and its
     force-reset history.
-- **Cross-operator ADRs (consolidated rationale parity)**:
-  - `mongodb-operator/docs/kb/adr/0031-gha-retention-for-public-oss.md`
-  - `valkey-operator/docs/kb/adr/0048-gha-retention-for-public-oss.md`
 - **Incident KB**: I-2026-04-28 (GHA billing outage; RFC-0002 trigger).
 - **Related repo policy**: [ADR-0003](0003-license-policy-no-agpl-busl.md)
   is enforced in CI by the `go-licenses.yml` workflow listed in the

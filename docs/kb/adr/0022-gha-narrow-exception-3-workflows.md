@@ -6,11 +6,11 @@
 | Date | 2026-05-21 |
 | Author | keiailab |
 | Supersedes | (none) |
-| Related | postgres-ADR/0019 (GHA 유지 v2.0), postgres-ADR/0021 (gha-block hook), RFC-0002 §7 (narrow exception), valkey-ADR/0048 (sister) |
+| Related | postgres-ADR/0019 (GHA 유지 v2.0), postgres-ADR/0021 (gha-block hook), RFC-0002 §7 (narrow exception) |
 
 ## Context
 
-postgres-operator/0019 의 *원래 결정* = "14 workflow 모두 유지" (operator family v2.0 정합, 2026-05-21 사용자 결정).
+postgres-operator/0019 의 *원래 결정* = "14 workflow 모두 유지" (v2.0 정합, 2026-05-21 사용자 결정).
 
 그 후 다른 자동화 (PR #93) 가 RFC-0002 §7 narrow exception 노선 적용 — 14 → 3 workflow:
 - `helm-publish.yml` (RFC-0002 §7 예외 ① — GitHub Pages 정적 배포)
@@ -48,10 +48,7 @@ postgres-ADR/0019 의 "14 workflow" 결정을 *현 상태* (3 workflow) 로 *ame
 - ✅ postgres-ADR/0019 ↔ 실 main 상태 정합 (14 → 3 명시)
 - ✅ RFC-0002 §7 narrow exception 패턴 docs/kb/adr/ 에 영구 기록
 - ✅ helm-publish + release + scorecard 3 workflow 의 *유지 사유* 각각 ADR 본문에 명시 (감사 추적성)
-- ⚠️ 다른 operator (mongodb / valkey) 와 *비대칭* 가능:
-  - mongodb: 12 workflow 복원 (S7 revert PR #199/#204) — 본 ADR 의 narrow exception 패턴 미적용 (mongodb 의 별 ADR 결정)
-  - valkey: 14 workflow 유지 (valkey ralph-loop ADR-0048 v2.0)
-  - → operator family 내 *3 패턴 공존*. 다음 cycle 의 RFC 로 통합 검토 가능 (또는 trade-off 인정).
+- ⚠️ 다른 operator 와 GHA workflow 수가 *비대칭* 할 수 있음 — per-operator trade-off 차이 인정. 다음 cycle 의 RFC 로 통합 검토 가능.
 - ⚠️ scorecard.yml 은 *예외 ①/③ 가 아닌* "보안 메타데이터" — RFC-0002 §7 의 *공식 예외 목록* 에 없음. 본 ADR 이 *4번째 예외* (보안 외부 신뢰) 신설.
 
 ## Verification
@@ -77,5 +74,5 @@ grep -q "gha-block" .lefthook.yml
 
 본 ADR 채택 후 다음 단계:
 - postgres-ADR/0019 본문의 "14 workflow" 언급에 `(주: 2026-05-21 PR #93 으로 11 제거 → 3 잔존, postgres-ADR/0022 amendment)` annotation 추가 (선택)
-- 5 repo audit 의 postgres P0-6 ✅ 유지 (gha-retention ADR 첨부 인정)
+- audit 의 postgres P0-6 ✅ 유지 (gha-retention ADR 첨부 인정)
 - 후속 RFC 검토: RFC-0002 §7 의 *공식 예외 목록* 에 보안 메타데이터 (scorecard) 추가

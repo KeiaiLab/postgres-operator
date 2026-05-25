@@ -66,15 +66,13 @@ go mod tidy
 - CRD spec 변경 없음 (v1alpha2 conversion 별 cycle)
 - Helm chart 영향 없음
 
-## 3. v0.3.x → v1.0.0 (예정 — v3.x-stable 선언 시점)
+## 3. v0.3.x → v1.0.0 (예정 — 상용 제품 수준 마일스톤)
 
 CLAUDE.md §7 의 *상용 제품 수준* (P0+P1+P2+OP+C 모두 ✅) 도달 시.
 
 - 모든 CR 의 API stability `Stable` 승격 (v1)
 - breaking change 없음 (v0.x → v1.0 은 *명명만* 변경)
-- 5 repo 일관성 보장: `commons/docs/quality/production-grade-checklist.md` 참조
-
-상세: operator-commons ADR-0013 (audit-production-grade.sh)
+- 상용 제품 수준 품질 검증: `make audit-quality`
 
 ## 4. GHA dual-track 정책 (ADR-0019)
 
@@ -105,9 +103,6 @@ CLAUDE.md §7 의 *상용 제품 수준* (P0+P1+P2+OP+C 모두 ✅) 도달 시.
 ## 참고
 
 - ADR 목록: `docs/kb/adr/INDEX.md`
-- operator-commons UPGRADING: https://github.com/keiailab/operator-commons/blob/main/docs/UPGRADING.md
-- audit: `make audit-quality` (5 repo 측정, commons ADR-0013)
-- i18n: `commons/docs/i18n/README.md`
 
 ---
 

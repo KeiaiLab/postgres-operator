@@ -153,7 +153,6 @@ func TestValidate_BackupEnabled_WithSchedule_Accepted(t *testing.T) {
 }
 
 func TestValidate_StorageSize_BelowMin_Rejected(t *testing.T) {
-	// Cross-cut audit (ADR-0016) — mongodb-operator + valkey-operator 와 동일
 	// 1Gi 하한 invariant.
 	w := newWebhook(t)
 	c := validBaseCluster()

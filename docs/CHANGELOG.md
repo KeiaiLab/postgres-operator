@@ -274,9 +274,9 @@ This project follows SemVer.
 
 ### Bug fixes
 
-- *(lint)* SA1019 + gocyclo nolint (mongodb ADR-0022 pattern alignment).
-- *(bundle)* Dropped the generate-kustomize-manifests step (PR-B9.4,
-  mongodb ADR-0023 alignment) (#25).
+- *(lint)* SA1019 + gocyclo nolint directives added.
+- *(bundle)* Dropped the generate-kustomize-manifests step (PR-B9.4)
+  (#25).
 
 ### Chores
 
@@ -385,8 +385,7 @@ This project follows SemVer.
   monitoring on).
 - `deploy/README.md` — operational runbook (prerequisites, application,
   rollback).
-- ADR-0006 — GitOps deploy-overlay adoption decision (3-repo structural
-  alignment with mongodb-operator / valkey-operator).
+- ADR-0006 — GitOps deploy-overlay adoption decision.
 
 ### Fixed
 
@@ -402,8 +401,7 @@ This project follows SemVer.
 ### Changed
 
 - Chart.yaml `version` + `appVersion` 0.3.0-alpha → 0.3.0-alpha.1
-  (iterative pre-release notation, matching mongodb-operator beta.N +
-  valkey-operator alpha.N).
+  (iterative pre-release notation).
 - `config/manager/kustomization.yaml` `newTag` synced.
 - `dist/install.yaml` regenerated (`make build-installer`) — image tag
   0.3.0-alpha.1.

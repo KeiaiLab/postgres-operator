@@ -340,7 +340,6 @@ make test-driver-compat                              # libpq, JDBC, asyncpg, pq.
 
 ## §8 References
 
-- Plan: `~/.claude/plans/eager-wobbling-torvalds.md` §2.3 newly added components, §3.3 algorithm
 - pg_query_go: https://github.com/pganalyze/pg_query_go (PostgreSQL License)
 - pgx: https://github.com/jackc/pgx (MIT)
 - PostgreSQL Frontend/Backend Protocol: https://www.postgresql.org/docs/18/protocol.html

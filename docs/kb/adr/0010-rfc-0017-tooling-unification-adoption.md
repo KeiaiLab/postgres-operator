@@ -7,7 +7,7 @@
 
 ## Context
 
-ai-dev RFC-0017 (`~/Documents/ai-dev/rfcs/0017-operator-tooling-unification.md`) proposes tooling unification across the 4 keiailab operator repos. This ADR records the adoption decision on the postgres-operator side and the changes scoped to this repo.
+RFC-0017 (operator tooling unification) proposes tooling unification across operator repos. This ADR records the adoption decision on the postgres-operator side and the changes scoped to this repo.
 
 Current state of this repo (2026-05-09 audit):
 - Hook: `.pre-commit-config.yaml` (not lefthook) — violates RFC-0017 §3.1
@@ -21,7 +21,7 @@ Current state of this repo (2026-05-09 audit):
 
 Adopt RFC-0017 as **Accepted** and in this repo:
 
-1. Add a new `.lefthook.yml` (valkey pattern + this repo's postgres-specific hook integration)
+1. Add a new `.lefthook.yml` (standard lefthook pattern + this repo's postgres-specific hook integration)
 2. Remove `.pre-commit-config.yaml` (DAY 2)
 3. No changes to `.golangci.yml` / `.custom-gcl.yml` (already the standard)
 4. **Introduce the EventRecorder** — `mgr.GetEventRecorderFor("postgres-cluster-controller")` + Eventf calls inside the Reconciler to eliminate the FakeRecorder TODO
@@ -30,7 +30,7 @@ Adopt RFC-0017 as **Accepted** and in this repo:
 ## Consequences
 
 ### Positive
-- This repo's linter is promoted to the 4-repo standard source → the existing ADR-0005 (depguard rule blocking Plugin SDK bypass) is elevated to *part of the cross-repo standard*
+- This repo's linter is promoted to the standard source → the existing ADR-0005 (depguard rule blocking Plugin SDK bypass) is elevated to *part of the cross-operator standard*
 - With the EventRecorder introduced, the K8s standard operational signal (Events in kubectl describe) is exposed — eases operator debugging
 - govulncheck / gitleaks / go-mod-tidy drift enter pre-push
 
@@ -53,6 +53,5 @@ Adopt RFC-0017 as **Accepted** and in this repo:
 
 ## References
 
-- Global RFC: `~/Documents/ai-dev/rfcs/0017-operator-tooling-unification.md`
-- Related audit: `~/.claude/plans/mongodb-operator-operator-commons-postgr-tranquil-horizon.md`
+- RFC-0017: operator tooling unification.
 - Related ADR: ADR-0005 (Plugin SDK bypass blocking — depguard rule preserved)

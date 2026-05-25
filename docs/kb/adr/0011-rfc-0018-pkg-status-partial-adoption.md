@@ -3,7 +3,7 @@
 - Date: 2026-05-09
 - Status: Accepted (PR-A7 first cut — Ready type only; domain types + Progressing/Degraded/Available are follow-up)
 - Authors: @eightynine01
-- Refs: RFC-0018 (operator-commons/docs/kb/rfc/0018-status-finalizer-standard.md), ADR-0003 (commons), v0.x ADR-0008 (Finalizer avoidance), Plan §2 D11
+- Refs: RFC-0018 (status-finalizer-standard), ADR-0003 (commons), v0.x ADR-0008 (Finalizer avoidance), Plan §2 D11
 
 ## Context
 
@@ -16,7 +16,7 @@ decides the *partial adoption* pattern.
 Also *preserves the asymmetry on pkg/finalizer*: per the *Finalizer avoidance
 policy (Cascade Delete via OwnerReference)* of postgres v0.x ADR-0008, and the
 BackupCleanupJob CRD's separate handling of external-resource cleanup — this
-is the *intended asymmetry* of RFC-0018 §3.2. Even though mongodb / valkey
+is the *intended asymmetry* of RFC-0018 §3.2. Even though other operators
 adopt finalizer.Add, postgres preserves non-adoption.
 
 ## Decision
@@ -39,16 +39,16 @@ adopt finalizer.Add, postgres preserves non-adoption.
 
 4. **pkg/finalizer not adopted**: the *cascade-delete-by-OwnerReference*
    decision in v0.x ADR-0008 is *kept*. postgres's finalizer asymmetry is
-   the *intended variant* of RFC-0018 §3.2 Migration stage 2. A different
-   path from mongodb/valkey.
+   the *intended variant* of RFC-0018 §3.2 Migration stage 2. This is the
+   postgres-specific path justified by the BackupCleanupJob CRD design.
 
 ## Consequences
 
 ### Positive
 
-- 4-repo alignment of the *Ready type* begins — the `kubectl describe postgrescluster/...`
-  output's `Reason="Available"` / `"Reconciling"` etc. is now the same catalog
-  as mongodb/valkey/commons.
+- Alignment of the *Ready type* begins — the `kubectl describe postgrescluster/...`
+  output's `Reason="Available"` / `"Reconciling"` etc. now uses the standard
+  operator-commons catalog.
 - Domain ConditionTypes (ShardsReady, etc.) are preserved — zero learning cost
   for postgres operators.
 - Asymmetry preservation is preserved as an *explicit decision* — follow-up
@@ -59,7 +59,7 @@ adopt finalizer.Add, postgres preserves non-adoption.
 - observedGeneration=0 temporary — the `observedGeneration` field in the
   Conditions output of `kubectl get postgrescluster -o yaml` will always be 0.
   Resolved in PR-A7.2.
-- Progressing / Degraded / Available types are not delegated — 4-repo alignment
+- Progressing / Degraded / Available types are not delegated — commons alignment
   is *partial*.
 
 ### Trade-offs

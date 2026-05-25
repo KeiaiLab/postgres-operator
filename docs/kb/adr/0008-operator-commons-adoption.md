@@ -7,8 +7,8 @@
 
 ## Context
 
-The 3 keiailab Kubernetes operators (`mongodb-operator`, `valkey-operator`,
-`postgres-operator`) were defining the same PodSecurity *restricted* SecurityContext invariant *inline in each*. To prevent drift, the `keiailab/operator-commons`
+The keiailab Kubernetes operators were defining the same PodSecurity *restricted*
+SecurityContext invariant *inline in each*. To prevent drift, the `keiailab/operator-commons`
 shared library v0.1.2 was introduced (operator-commons ADR-0001).
 
 At the iteration 8 ship-4 timepoint, this repo's `dataplaneContainerSecurityContext`
@@ -42,8 +42,8 @@ will consider delegating it after extending commons.RestrictedPod
 
 ### Positive
 - The PodSecurity restricted invariant is permanently regression-guarded by
-  the 100% line-coverage unit tests in commons. The 3 operators have the same
-  guarantee.
+  the 100% line-coverage unit tests in commons. All operators consuming commons
+  have the same guarantee.
 - Explicit container-level definition — eliminates the assumption of Pod-level
   inherit. The *explicit check* of PodSecurity admission now passes (previously
   it slipped through via the inherit path).
@@ -68,7 +68,7 @@ will consider delegating it after extending commons.RestrictedPod
    user-explicit decision (iteration 8 plan AskUserQuestion response).
 2. **Defer commons adoption, keep our own function** — rejected: contradicts the
    commonization policy of operator-commons ADR-0001 + the goal of preventing
-   drift across 3 operators.
+   drift across operators.
 3. **Add a new container-level function (without delegation)** — rejected: a
    3rd inline copy. Negates the value of adopting operator-commons.
 
@@ -87,6 +87,5 @@ explicitly applied.
 ## Refs
 
 - operator-commons v0.1.2 (github.com/keiailab/operator-commons)
-- iteration 8 plan: ~/.claude/plans/iridescent-squishing-locket.md
 
 <!-- live-verified: 2026-05-09 -->

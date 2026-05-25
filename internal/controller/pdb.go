@@ -17,7 +17,7 @@ func ShardPDBName(clusterName string, shardOrdinal int32) string {
 	return ShardStatefulSetName(clusterName, shardOrdinal) + "-pdb"
 }
 
-// shouldAutoCreatePDB — HA defaults. valkey-operator PR #49 패턴 이식.
+// shouldAutoCreatePDB — HA defaults.
 //
 // 진리표:
 //

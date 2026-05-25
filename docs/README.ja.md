@@ -147,7 +147,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 **現状 (0.3.0-alpha.18)**: リファレンス Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/postgres` は `Ready=True` を報告しています。
 
 GA までの距離:
-- **P1** — 本番対応のシングルシャードには、HA Lease 分散ロックコントローラー、BackupJob/ScheduledBackup の実機 drill、PITR チェックサム drill、および chaos-mesh failover スイートが必要です。サブタスクは `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md` で追跡しています。
+- **P1** — 本番対応のシングルシャードには、HA Lease 分散ロックコントローラー、BackupJob/ScheduledBackup の実機 drill、PITR チェックサム drill、および chaos-mesh failover スイートが必要です。
 - **P2** — マルチシャードには `ShardRange` CRD + pg-router PoC が必要です ([`docs/sharding/SHARDING.md`](sharding/SHARDING.md))。
 - 現在の alpha は、ユーザー自身による backup/restore 検証なしでは本番データに対して**推奨されません**。
 

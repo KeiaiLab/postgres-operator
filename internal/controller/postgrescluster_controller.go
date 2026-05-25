@@ -113,7 +113,7 @@ type PostgresClusterReconciler struct {
 func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (rresult ctrl.Result, rerr error) {
 	logger := log.FromContext(ctx).WithValues("postgrescluster", req.NamespacedName)
 
-	// SLO observability — reconcile latency Histogram (valkey PR #47 이식).
+	// SLO observability — reconcile latency Histogram.
 	MetricReconcileTotal.WithLabelValues(req.Namespace, req.Name).Inc()
 	timer := prometheus.NewTimer(prometheus.ObserverFunc(func(v float64) {
 		result := "success"
@@ -246,7 +246,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
 		}
 
-		// shard PDB (PR #31): members>=2 시 자동 생성. valkey-operator PR #49 패턴.
+		// shard PDB (PR #31): members>=2 시 자동 생성.
 		if !hibernating && shouldAutoCreatePDB(members) {
 			pdb := BuildShardPDB(&cluster, ord, members)
 			if err := r.upsert(ctx, &cluster, pdb); err != nil {
@@ -341,7 +341,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// 2.5. PVC online expansion (PR #33): Spec.Shards.Storage.Size 증가 시
-	// 기존 PVC 직접 patch. valkey-operator PR #39 패턴 cross-operator 이식.
+	// 기존 PVC 직접 patch.
 	stsNamesForResize := make([]string, 0, shardCount)
 	for ord := range shardCount {
 		stsNamesForResize = append(stsNamesForResize, ShardStatefulSetName(cluster.Name, ord))

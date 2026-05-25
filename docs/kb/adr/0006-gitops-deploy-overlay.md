@@ -1,4 +1,4 @@
-# ADR-0006: Introducing the GitOps deploy overlay (3-repo alignment)
+# ADR-0006: Introducing the GitOps deploy overlay
 
 - Date: 2026-05-06 (revised 2026-05-08: reflect live GitOps deployment status)
 - Status: Accepted
@@ -6,11 +6,11 @@
 
 ## Context
 
-The 3 repos `keiailab/{mongodb,postgresql,valkey}-operator` were bootstrapped from Operator SDK / kubebuilder and all carry a `config/{crd,rbac,manager,default,...}` kustomize tree. `config/default` forces the namespace to `<op>-operator-system` and the namePrefix to `<op>-operator-`. This is appropriate for *one-shot cluster pushes* such as `make deploy`, but in a GitOps scenario (ArgoCD does git → cluster one-way sync) it has the following problems:
+This operator was bootstrapped from Operator SDK / kubebuilder and carries a `config/{crd,rbac,manager,default,...}` kustomize tree. `config/default` forces the namespace to `postgres-operator-system` and the namePrefix to `postgres-operator-`. This is appropriate for *one-shot cluster pushes* such as `make deploy`, but in a GitOps scenario (ArgoCD does git → cluster one-way sync) it has the following problems:
 
-1. The ArgoCD Application's `destination.namespace` is operated as `prod`, but `config/default` says `namespace: <op>-operator-system` — they disagree → drift becomes permanent.
-2. ArgoCD repeatedly tries to create the Namespace resource (`<op>-operator-system`) that `config/default` auto-generates → conflicts with the prod cluster's *pre-created prod ns* policy.
-3. Of the 3 repos, only mongodb-operator has the `deploy/overlays/prod/` entry point, so the structures are inconsistent.
+1. The ArgoCD Application's `destination.namespace` is operated as `prod`, but `config/default` says `namespace: postgres-operator-system` — they disagree → drift becomes permanent.
+2. ArgoCD repeatedly tries to create the Namespace resource (`postgres-operator-system`) that `config/default` auto-generates → conflicts with the prod cluster's *pre-created prod ns* policy.
+3. The `deploy/overlays/prod/` entry point was missing from this repo.
 
 ### Current operating state (2026-05-06 inventory, direct kubectl queries)
 
@@ -27,22 +27,22 @@ ceph-fs              rook-ceph.cephfs.csi.ceph.com   Retain   Immediate   11d
 cold-rbd             rook-ceph.rbd.csi.ceph.com   Retain   Immediate   9d
 $ kubectl get application -n argocd -l argocd.argoproj.io/sync-wave=1
 platform-data-postgres   OutOfSync   Degraded
-platform-data-mongodb    OutOfSync   Healthy
-platform-data-valkey     OutOfSync   Degraded
+platform-data-<service-A>    OutOfSync   Healthy
+platform-data-<service-B>     OutOfSync   Degraded
 ```
 
 <!-- live-verified: 2026-05-06 -->
 
 Derived decisions:
 
-- **Apply ns unification policy**: per the 2026-05-06 user-explicit cycle, unify all 5 data-tier charts (postgres/mongodb/valkey/nats/clickhouse) into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
+- **Apply ns unification policy**: per the 2026-05-06 user-explicit cycle, unify all data-tier charts into the single `data` ns. The `deploy/overlays/prod/kustomization.yaml` of this ADR also aligns with `namespace: data` (envName=prod is kept only as an identifier).
 - **StorageClass alignment**: `ceph-block` is absent. The default of the production cluster is `ceph-rbd`. The `storageClass` in CR samples is also changed to `ceph-rbd`.
 - **postgresql deployment status update (2026-05-08)**: at the initial 2026-05-06 inventory, postgresql was not in the ApplicationSet path, but the platform-data Helm wrapper (`platform/data/postgres-operator`) was subsequently adopted as the production source of truth. Currently `platform-data-postgres-operator` is `Synced/Healthy`, the controller Deployment is `1/1`, and `PostgresCluster/postgres` is `Ready=True`. This `deploy/` is retained as an alternative direct-apply entry point.
-- **mongodb / valkey**: operated via the platform-data umbrella chart and the bitnami chart, respectively. This `deploy/` is an *alternative/standby entry point*. Applying both simultaneously will cause a helm release conflict.
+- **Other data-tier operators**: operated via the platform-data umbrella chart. This `deploy/` is an *alternative/standby entry point*. Applying both simultaneously will cause a helm release conflict.
 
 ## Decision
 
-Introduce, in each operator repo, a GitOps overlay layer with the same structure as in mongodb-operator.
+Introduce a GitOps overlay layer following the established kustomize overlay pattern.
 
 ```
 deploy/
@@ -61,14 +61,14 @@ deploy/
 Positive:
 - The ArgoCD application source candidate is made explicit as `deploy/overlays/prod` — either the platform-data umbrella chart absorbs this path as a dependency, or this path can be registered *directly* as the ApplicationSet generator path.
 - `config/default` is preserved for *local development*, so the `make deploy` workflow does not regress.
-- The 3 repos share the same structure, reducing operator cognitive load.
+- Follows the established kustomize overlay pattern, reducing cognitive load.
 
 Negative:
 - Depends on the raw name `system` in `config/manager/manager.yaml`. If the kubebuilder scaffold changes in the future, the patch target must be updated.
-- In mongodb-operator, `config/manager/manager.yaml` has been manually changed to use the full name (`mongodb-operator-system`), so the patch target name has a 1-line asymmetry. This repo chooses to leave the kubebuilder scaffold as-is (prioritizing regeneration safety).
+- This repo chooses to leave the kubebuilder scaffold as-is (prioritizing regeneration safety) rather than manually changing the deployment name to the full name.
 
 ## Alternatives Considered
 
 1. **Use `config/default` directly as the ArgoCD source** — hard to forcibly change the namespace, and the auto-generated Namespace resource issue remains. Rejected.
-2. **Manually change the Namespace name in `config/manager/manager.yaml` to the full name, like mongodb-operator** — requires a patch on every regeneration. Degraded operator-sdk regenerate compatibility. Rejected.
-3. **Use a Helm chart (`charts/`) as the GitOps source** — the mongodb umbrella chart in platform-data already follows this pattern (absorbing the operator chart as a dependency). postgres-operator could do the same. This ADR is about introducing a *separate entry point*, not negating the helm path. The two entry points (helm wrapper / kustomize overlay) must yield the same cluster state — a parity invariant (analogous to valkey ADR-0028) must be introduced in the future. Covered in a follow-up ADR.
+2. **Manually change the Namespace name in `config/manager/manager.yaml` to the full name** — requires a patch on every regeneration. Degraded operator-sdk regenerate compatibility. Rejected.
+3. **Use a Helm chart (`charts/`) as the GitOps source** — the platform-data umbrella chart already follows this pattern (absorbing the operator chart as a dependency). postgres-operator could do the same. This ADR is about introducing a *separate entry point*, not negating the helm path. The two entry points (helm wrapper / kustomize overlay) must yield the same cluster state — a parity invariant must be introduced in the future. Covered in a follow-up ADR.

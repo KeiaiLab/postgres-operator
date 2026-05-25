@@ -6,12 +6,10 @@
 
 ## Context
 
-keiailab/{valkey,mongodb,postgres}-operator 3 repo 모두 OLM bundle scaffold (bundle/manifests + metadata) 적용됨 (valkey ADR-0037 + PR-B9 / mongodb + postgres 동일 패턴). 그러나 *bundle CSV (ClusterServiceVersion) 의 version field 가 chart version 과 drift*:
+All operator repos have OLM bundle scaffold (bundle/manifests + metadata) applied (standard OperatorHub scaffold pattern). 그러나 *bundle CSV (ClusterServiceVersion) 의 version field 가 chart version 과 drift*:
 
 | Repo | Chart.yaml | Bundle CSV | Latest tag |
 |---|---|---|---|
-| valkey | 1.0.12 | 1.0.9 | v1.0.13 |
-| mongodb | 1.4.23 | 1.4.19 | v1.5.0 |
 | postgres | 0.3.0-alpha.18 | (TBD, 신규 file) | v0.3.0-alpha.16 |
 
 OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-operators repo 의 PR) 시 bundle CSV 가 사용자 가시 — *stale 버전* 등록되면 *manual update 의무*.
@@ -36,11 +34,11 @@ OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-o
 ### 긍정
 - bundle CSV 가 *항상 최신 chart version 과 sync*
 - OperatorHub.io 등록 시 *manual update 의무 0*
-- 3 repo 모두 *동일 mechanism* — consistency
+- All operators use *동일 mechanism* — consistency
 
 ### 부정
 - release.yml 의 *job 수 +2~3* — release pipeline 길어짐
-- *operator-sdk + kustomize* dependency (현재 valkey Makefile 에 이미 의존, 다른 repo 도 동일 추가)
+- *operator-sdk + kustomize* dependency (Makefile 의존 추가)
 
 ### Trade-off
 - *bundle CSV 별 PR* vs *release commit 안에 inline* — PR 분리가 review 용이.
@@ -54,15 +52,14 @@ OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-o
 ## Implementation Path
 
 1. **Phase A** (각 repo 별 PR):
-   - Makefile 의 `make bundle VERSION=$(VERSION)` target 검증 (valkey 이미 활성, mongodb + postgres 추가)
+   - Makefile 의 `make bundle VERSION=$(VERSION)` target 검증
    - release.yml 에 `bundle-regen + bundle-commit` job 추가
 2. **Phase B**: community-operators submission token 환경 변수 등록 (사용자 admin 영역)
 3. **Phase C**: 첫 release (v1.5.1 / v1.0.14 / v0.3.0-alpha.19) 시 mechanism 검증
 
 ## References
 
-- valkey ADR-0037 OperatorHub.io bundle scaffold
-- valkey PR-B9 (#21) + PR-B9.2 (#22) — alm-examples + bundle 초기 setup
+- Standard OperatorHub scaffold pattern (ADR-0013).
 - OperatorHub.io community-operators repo: https://github.com/k8s-operatorhub/community-operators
 - operator-sdk bundle docs: https://sdk.operatorframework.io/docs/olm-integration/quickstart-bundle/
 

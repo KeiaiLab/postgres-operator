@@ -130,7 +130,7 @@
 - [~] **ImageCatalog / ClusterImageCatalog** —— CRD + `spec.imageCatalogRef.{apiGroup,kind,name,major}` + catalog 镜像 → StatefulSet init/main 容器镜像 + image-hash annotation rollout-drift 跟踪 + catalog watch / envtest 完成。Extension 镜像 volume mount、官方 digest catalog 供给、live rollout 测量仍 pending。
 - [~] **Replica cluster / externalClusters** —— `externalClusters[].connectionParameters` + `password` + `sslKey/sslCert/sslRootCert` + `bootstrap.pg_basebackup.source` + `replica.enabled/source` 表面、streaming standalone replica bootstrap、ordinal-0 外部 `pg_basebackup`、`standby.signal`/`primary_conninfo`、password passfile + TLS client/root cert conninfo、persistent-follower election (阻塞 local promotion)、fail-closed status 全部验证。WAL-archive / object-store hybrid、distributed-topology demotion/promotion-token、live cross-cluster drill 仍 pending。
 - [~] **声明式 hibernation** —— `postgres.keiailab.io/hibernation=on/off` annotation、shard StatefulSet/PVC-template 保留 + `replicas=0`、native router `replicas=0`、`status.phase=Hibernated`、hibernation condition 全部通过 envtest 验证。`SMOKE_HIBERNATION=1` 路径还会执行 PVC-marker-row 保留与 rehydration SQL round-trip drill;live kind 验证仍 pending。
-- [~] **Release smoke test** —— `scripts/release-smoke-test.sh` 6-stage (与 mongodb sister 模式对齐 —— GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。修正 path (hack/→scripts/) + 修正 stage count "12" 的假设 (sister 标准 = 6)。
+- [~] **Release smoke test** —— `scripts/release-smoke-test.sh` 6-stage (GH Release tag + GHCR manifest + GH Pages + helm index + helm pull/template + trivy post-publish scan)。修正 path (hack/→scripts/)。
 - Verify: PrometheusRule / Grafana dashboard 渲染、通过 Pooler Service 的 `psql` 访问、live PgBouncer exporter scrape、upgrade rolling restart 成功。
 
 ### Gate G3 — 自建 sharding 基础 (~0% buffer)
@@ -186,7 +186,7 @@
 - [ ] **Chaos engineering** —— pod kill / network partition / disk pressure。(multi-day drill) (multi-day chaos drill required)
 - [ ] **Restore 演练** —— 周期性自动 backup-restore + 验证。(monthly cron drill — out of single session)
 - [ ] **Upgrade matrix** —— N → N+1 / N → N+2 / minor patches。(G2 D.6.3 依赖 —— substantial e2e)
-- [ ] **SBOM + 签名** —— SPDX SBOM + cosign 签名。(可引入 commons sbom-attach.sh,P-C.7 sister)
+- [ ] **SBOM + 签名** —— SPDX SBOM + cosign 签名。
 - [ ] **Docs / runbook 完整**。
   - [ ] HA / backup / restore / upgrade / security / migration runbook。
 - Verify: 7 天 soak 通过 + N 个 chaos 场景通过 + SBOM 附带 + 所有 runbook 存在。

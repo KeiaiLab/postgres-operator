@@ -12,7 +12,7 @@ ADR-0013 'operatorhub-bundle-scaffold' bundle infrastructure 완비. 본 ADR 가
 
 ## Decision
 
-mongodb ADR-0027 + valkey ADR-0047 sister parity. `.github/workflows/release.yml` 의 `github-release` job 후속에 `sync-community-operators` job 신설.
+Following the established community-operators sync pattern. `.github/workflows/release.yml` 의 `github-release` job 후속에 `sync-community-operators` job 신설.
 
 조건:
 - release tag push trigger
@@ -24,7 +24,7 @@ mongodb ADR-0027 + valkey ADR-0047 sister parity. `.github/workflows/release.yml
 
 긍정:
 - bundle drift 영구 차단
-- sister operator (mongodb ADR-0027, valkey ADR-0047) 일관 패턴
+- Consistent automation pattern across all operators
 
 부정:
 - RFC 0002 §2 충돌 (§7 예외 ③ 확장 해석으로 정당화)
@@ -34,4 +34,3 @@ mongodb ADR-0027 + valkey ADR-0047 sister parity. `.github/workflows/release.yml
 
 - RFC 0002 (no-github-actions)
 - ADR-0013 (operatorhub-bundle-scaffold)
-- sister: mongodb ADR-0027 (PR #169 MERGED), valkey ADR-0047 (PR #133)

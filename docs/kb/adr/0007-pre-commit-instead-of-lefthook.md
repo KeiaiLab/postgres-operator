@@ -6,7 +6,7 @@
 
 ## Context
 
-The global standard `~/Documents/ai-dev/standards/enforcement.md §1.1` specifies **lefthook** (Go single-binary, language-neutral) as the git-hook management tool. This repo operates **pre-commit** (Python-based) via `.pre-commit-config.yaml`, diverging from the standard; the two repos `mongodb-operator` / `postgres-operator` use the same pattern (of the 3 repos, only valkey-operator uses lefthook).
+The global standard `standards/enforcement.md §1.1` specifies **lefthook** (Go single-binary, language-neutral) as the git-hook management tool. This repo operates **pre-commit** (Python-based) via `.pre-commit-config.yaml`, diverging from the standard.
 <!-- live-verified: 2026-05-09 -->
 
 This repo's `.pre-commit-config.yaml` is explicitly mapped to the 4-tier gates of RFC 0002 (`standards/ci.md §1`) (L1 pre-commit → golangci-lint, L2 pre-push → test/audit/secrets/go-mod-tidy-drift); see the active GHA-removal ADRs ([0018](0018-gha-to-local-4-layer.md), [0021](0021-rfc-0002-gha-block-hook.md)) for the canonical record.
@@ -30,13 +30,13 @@ This repo **keeps pre-commit**. Migration schedule is undecided (see the Consequ
 
 ### Negative
 - Divergence from the global `enforcement.md §1.1` — divergence may be flagged in the P0 alignment column of `governance-report`.
-- Of the 3 repos, only valkey uses lefthook → new contributors must learn both tools.
+- Divergence from the org-wide lefthook standard → new contributors may need to learn both tools.
 
 ### Migration trigger (when to switch to lefthook)
 
 Switch this ADR to *Superseded* and migrate to lefthook if any of the following occurs:
 
-1. valkey-operator's lefthook operations have been stable for 6+ months and a *clear advantage* is found.
+1. The org-wide lefthook operations have been stable for 6+ months and a *clear advantage* is found.
 2. pre-commit itself develops a security issue / maintenance-discontinuation signal.
 3. The global RFC is updated to mandate lefthook.
 4. When adding a new hook, a feature only supported by lefthook becomes required.
@@ -54,8 +54,7 @@ Switch this ADR to *Superseded* and migrate to lefthook if any of the following 
 
 ## Global references
 
-- Standard: `~/Documents/ai-dev/standards/enforcement.md §1.1`
-- Aligned example: `valkey-operator/.lefthook.yml`
+- Standard: `standards/enforcement.md §1.1`
 - Operation in this repo: `.pre-commit-config.yaml`
 - Related ADRs: [ADR-0018](0018-gha-to-local-4-layer.md), [ADR-0021](0021-rfc-0002-gha-block-hook.md) (current canonical records for the 4-tier gate mapping)
 

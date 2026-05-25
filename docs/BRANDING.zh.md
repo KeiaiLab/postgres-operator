@@ -9,13 +9,13 @@
 
 > 英文原文: [BRANDING.md](BRANDING.md) — canonical / 正本
 
-> keiailab operator family 的视觉 identity、voice 与 tone。
+> `postgres-operator` 的视觉 identity、voice 与 tone。
 
 本文档为 `postgres-operator` 品牌决策的正本 (canonical) 参考。它适用于 README、发布说明、市场材料,以及代表本项目的所有 third-party 沟通。
 
 ## 1. Identity
 
-**组织**: [keiailab](https://keiailab.com) —— Kubernetes 原生数据平台 operator (Apache-2.0、license-clean、与 vanilla upstream 兼容)。
+**组织**: [keiailab](https://keiailab.com) —— Kubernetes 原生数据平台 (Apache-2.0、license-clean、与 vanilla upstream 兼容)。
 
 **项目**: `postgres-operator` —— Kubernetes 上的 Apache-2.0 PostgreSQL Operator —— vanilla PG18+、license-clean、K8s 原生自动分片路线图。
 
@@ -65,7 +65,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 **Voice 原则**:
 - **直接 (Direct)** —— 尽可能用 bullet 代替段落
 - **基于证据 (Evidence-based)** —— 主张需附带基准测试 / SLA / 链接
-- **厂商中立 (Vendor-neutral)** —— 参考上游 (PostgreSQL、MongoDB、Valkey),但不嵌入或封装 third-party operator
+- **厂商中立 (Vendor-neutral)** —— 参考上游 PostgreSQL,但不嵌入或封装 third-party operator
 - **License-aware** —— 仅依赖 Apache-2.0 + BSD/MIT/PG-license
 
 **应避免**:
@@ -117,7 +117,7 @@ README 的 shield.io 徽章排列 (左→右):
 
 1. License (Apache-2.0)
 2. Go Version (1.25+)
-3. Database (例如 PostgreSQL 18+ / MongoDB 7.0+ / Valkey 8.0+)
+3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
 5. Container Image (ghcr.io/keiailab)
 6. Helm Chart (Chart.yaml 版本 + Artifact Hub 链接)

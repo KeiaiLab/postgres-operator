@@ -6,7 +6,7 @@
 | Date | 2026-05-21 |
 | Author | keiailab |
 | Supersedes | (none) |
-| Related | postgres-ADR/0021 (RFC-0002 GHA block hook), postgres-ADR/0018 (GHA → 로컬 4계층), postgres-ADR/0023 (v3.x-stable baseline), commons-ADR/0013 (audit SSOT) |
+| Related | postgres-ADR/0021 (RFC-0002 GHA block hook), postgres-ADR/0018 (GHA → 로컬 4계층), postgres-ADR/0023 (v3.x-stable baseline) |
 
 ## Context
 
@@ -43,7 +43,7 @@ Err: <syscall.Errno>0x2,
 
 - `README.md`: `https://keiailab.github.io/postgres-operator` 404 (GitHub Pages 미배포), `https://keiailab.com/assets/logo.svg` 404
 - `CHANGELOG.md`: `CHANGELOG.{ko,ja,zh}.md` placeholder 미생성
-- `docs/family.md`: `family.{ko,ja,zh}.md` placeholder + `keiailab.com` 503 (전이 실패)
+- `docs/project-overview.md`: `project-overview.{ko,ja,zh}.md` placeholder + `keiailab.com` 503 (전이 실패)
 - `docs/index.md`: 모든 내부 링크 (`/tutorials/quickstart`, `/adr/`, `/rfcs/`, ...) — mkdocs 사이트 라우팅, markdown-link-check 의 file-system 기반 검사로는 본질적 미지원
 - `docs/operator-guide/community-operators-onboarding.md`: 옛 archive ADR path
 - `docs/rfcs/0003-shardsplitjob-7step.md`: PG 18 docs URL 이동
@@ -120,7 +120,7 @@ full-lint:
 - **호스트 환경 무관 통과**: envtest binary 가 없는 호스트도 hook 자동 setup 후 통과. 신규 contributor 의 onboarding 마찰 ↓
 - **PR scope 명확화**: 문서 PR / 리팩토링 PR / 기능 PR 모두 *해당 PR 의 변경* 으로만 lint / link check 평가. 기존 부채와 분리
 - **CI bypass 정책 (RFC-0002) 준수**: GHA 폐지 후에도 *모든 PR 의 신규 이슈* 는 여전히 차단됨 (incremental 이지 disabling 이 아님)
-- **operator family 정합**: mongodb-operator / valkey-operator 도 동일 lefthook 패턴 운영 — 본 fix 의 sister-port 가 family 일관성 회복
+- **Operator 정합**: 동일 lefthook 패턴이 다른 operator 에서도 운영됨 — 일관성 유지
 - **markdown 부채 가시화**: ADR Context 섹션에 22 dead link 의 *목록* 을 남겨 별개 PR 의 진행 우선순위 결정 자료가 됨
 
 ### Negative
@@ -135,7 +135,7 @@ full-lint:
 
 ## Alternatives Considered
 
-1. **8개 기존 이슈를 즉시 fix**: scope 명확하나 (a) modernize 가 단순 텍스트 치환이 아니고 controller-runtime API 영향 (`scheme.Builder` deprecated 대체) → 더 큰 careful 작업, (b) family 3개 레포 (postgres + mongodb + valkey) 가 동일 패턴 가능성 → fix 시간 3배. 본 ADR 의 incremental 화는 *근본 fix* 이며 후속 modernize 와 병행 가능.
+1. **8개 기존 이슈를 즉시 fix**: scope 명확하나 (a) modernize 가 단순 텍스트 치환이 아니고 controller-runtime API 영향 (`scheme.Builder` deprecated 대체) → 더 큰 careful 작업, (b) 동일 패턴이 다른 operator 에도 존재할 가능성 → fix 시간 증가. 본 ADR 의 incremental 화는 *근본 fix* 이며 후속 modernize 와 병행 가능.
 
 2. **GHA 복원**: RFC-0002 (2026-04-28 사고 RCA) 시행 정책 위반. 거버넌스 위배.
 
@@ -146,5 +146,5 @@ full-lint:
 ## Status
 
 - 2026-05-21 — Accepted (worktree-fix+lefthook-pre-push-incremental-2026-05-21).
-- 후속: mongodb-operator / valkey-operator 동일 패턴 sister-port (Phase 2/3).
+- 후속: 동일 패턴을 다른 operator 에도 적용 (Phase 2/3).
 - 후속: 8개 modernize 이슈 별도 PR (scope: api/v1alpha1 + internal/controller). 본 ADR 의 incremental gate 통과 후 점진 진행.

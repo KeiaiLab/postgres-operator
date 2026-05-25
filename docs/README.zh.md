@@ -147,7 +147,7 @@ helm upgrade postgres-operator charts/postgres-operator \
 **当前状态(0.3.0-alpha.18)**:在参考 Kubernetes 集群上,ArgoCD Application `platform-data-postgres-operator` 处于 `Synced/Healthy` 状态,`PostgresCluster/postgres` 报告 `Ready=True`。
 
 距离 GA 的差距:
-- **P1** —— 生产就绪的单分片需要 HA Lease 分布式锁控制器、BackupJob/ScheduledBackup 实战演练、PITR 校验和演练以及 chaos-mesh 故障切换套件。相关子任务跟踪于 `~/.claude/plans/2026-05-14-4-operators-100pct/P-D.md`。
+- **P1** —— 生产就绪的单分片需要 HA Lease 分布式锁控制器、BackupJob/ScheduledBackup 实战演练、PITR 校验和演练以及 chaos-mesh 故障切换套件。
 - **P2** —— 多分片需要 `ShardRange` CRD + pg-router PoC([`docs/sharding/SHARDING.md`](sharding/SHARDING.md))。
 - 当前 alpha 版本 **不** 建议在没有您自行进行备份/恢复验证的情况下用于生产数据。
 
