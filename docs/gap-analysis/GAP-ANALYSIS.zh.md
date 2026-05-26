@@ -23,21 +23,21 @@ keiailab/postgres-operator v0.3.0-alpha.18的功能。
 
 | # | 差距 | CNPG等价 | 工作量 | Sprint |
 |---|------|---------|--------|--------|
-| 1 | WAL归档 + 对象存储 | barmanObjectStore | 2周 | S3 |
+| 1 | WAL归档 + 对象存储 | barmanObjectStore | ✅ Done (#127) | S3 |
 | 2 | 对象存储PITR | spec.backup.recovery | 1周 | S4 |
 | 3 | TLS Phase 3 (挂载 + ssl=on) | 默认行为 | 3天 | S1 |
-| 4 | postgresql.conf热重载 | pg_reload_conf() | 2天 | S2 |
-| 5 | 备份保留清理 | retentionPolicy | 3天 | S5 |
+| 4 | postgresql.conf热重载 | pg_reload_conf() | ✅ Done (#126) | S2 |
+| 5 | 备份保留清理 | retentionPolicy | ✅ Done (#130) | S5 |
 
 ### P1 — 运营可靠性
 
 | # | 差距 | CNPG等价 | 工作量 | Sprint |
 |---|------|---------|--------|--------|
-| 6 | Switchover | cnpg promote | 3天 | S5 |
+| 6 | Switchover | cnpg promote | ✅ Done (#130) | S5 |
 | 7 | Fencing | cnpg fencing | 3天 | S6 |
 | 8 | 同步复制 | syncReplicas | 2天 | S6 |
-| 9 | pg_hba.conf重载 | Config重载 | 1天 | S2 |
-| 10 | 自定义PG参数 | spec.postgresql.parameters | 2天 | S2 |
+| 9 | pg_hba.conf重载 | Config重载 | ✅ Done (#126) | S2 |
+| 10 | 自定义PG参数 | spec.postgresql.parameters | ✅ Done (#126) | S2 |
 
 ---
 

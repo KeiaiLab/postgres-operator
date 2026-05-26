@@ -60,10 +60,10 @@ All assessments based on source code audit (2026-05-25).
 | TLS | 🟡 Partial | Certificate CR generation; STS mounts pending |
 | Router | 🟡 Partial | Resources created; image placeholder |
 | Backup Store | ❌ Missing | Plugin interface only; zero store code |
-| WAL Archiving | ❌ Missing | archive_mode=on but archive_command empty |
+| WAL Archiving | ✅ Complete | archive_command wired to pgbackrest archive-push (PR #127) |
 | PITR (full) | ❌ Missing | targetTime only; no object store restore |
-| Retention Cleanup | ❌ Missing | Records but never deletes old backups |
-| Config Hot-Reload | ❌ Missing | No pg_reload_conf() trigger |
+| Retention Cleanup | ✅ Complete | enforceRetention() deletes old BackupJobs exceeding keepFull (PR #130) |
+| Config Hot-Reload | ✅ Complete | pg_reload_conf() on ConfigMap change (PR #126) |
 | Volume Snapshots | ❌ Missing | No VolumeSnapshot integration |
 | Major Upgrade | ❌ Missing | No pg_upgrade orchestration |
 
@@ -75,20 +75,20 @@ All assessments based on source code audit (2026-05-25).
 
 | # | Gap | CNPG Equivalent | Effort | Sprint |
 |---|-----|-----------------|--------|--------|
-| 1 | WAL archiving + object store | barmanObjectStore + CNPG-I | 2 weeks | S3 |
+| 1 | WAL archiving | ~~barmanObjectStore~~ | ✅ Done (PR #127) | S3 |
 | 2 | PITR from object store | spec.backup.recovery | 1 week | S4 |
 | 3 | TLS Phase 3 (mounts + ssl=on) | Default behavior | 3 days | S1 |
-| 4 | postgresql.conf hot-reload | pg_reload_conf() on change | 2 days | S2 |
-| 5 | Backup retention cleanup | retentionPolicy | 3 days | S5 |
+| 4 | postgresql.conf hot-reload | ~~pg_reload_conf()~~ | ✅ Done (PR #126) | S2 |
+| 5 | Backup retention cleanup | ~~retentionPolicy~~ | ✅ Done (PR #130) | S5 |
 
 ### P1 — Operational Confidence
 
 | # | Gap | CNPG Equivalent | Effort | Sprint |
 |---|-----|-----------------|--------|--------|
-| 6 | Switchover | cnpg promote | 3 days | S5 |
+| 6 | Switchover | ~~cnpg promote~~ | ✅ Done (PR #129) | S5 |
 | 7 | Fencing | cnpg fencing on/off | 3 days | S6 |
 | 8 | Synchronous replication | syncReplicas | 2 days | S6 |
-| 9 | pg_hba.conf reload | Config reload | 1 day | S2 |
+| 9 | pg_hba.conf reload | ~~Config reload~~ | ✅ Done (PR #126) | S2 |
 | 10 | Custom PG parameters | spec.postgresql.parameters | 2 days | S2 |
 
 ### P2 — Enhancement (not blocking)

@@ -23,21 +23,21 @@ keiailab/postgres-operator v0.3.0-alpha.18の機能を比較します。
 
 | # | ギャップ | CNPG相当 | 工数 | スプリント |
 |---|---------|---------|------|-----------|
-| 1 | WALアーカイブ + オブジェクトストア | barmanObjectStore | 2週間 | S3 |
+| 1 | WALアーカイブ + オブジェクトストア | barmanObjectStore | ✅ Done (#127) | S3 |
 | 2 | オブジェクトストアからPITR | spec.backup.recovery | 1週間 | S4 |
 | 3 | TLS Phase 3 (マウント + ssl=on) | デフォルト動作 | 3日 | S1 |
-| 4 | postgresql.confホットリロード | pg_reload_conf() | 2日 | S2 |
-| 5 | バックアップ保持クリーンアップ | retentionPolicy | 3日 | S5 |
+| 4 | postgresql.confホットリロード | pg_reload_conf() | ✅ Done (#126) | S2 |
+| 5 | バックアップ保持クリーンアップ | retentionPolicy | ✅ Done (#130) | S5 |
 
 ### P1 — 運用信頼性
 
 | # | ギャップ | CNPG相当 | 工数 | スプリント |
 |---|---------|---------|------|-----------|
-| 6 | Switchover | cnpg promote | 3日 | S5 |
+| 6 | Switchover | cnpg promote | ✅ Done (#130) | S5 |
 | 7 | Fencing | cnpg fencing | 3日 | S6 |
 | 8 | 同期レプリケーション | syncReplicas | 2日 | S6 |
-| 9 | pg_hba.confリロード | Configリロード | 1日 | S2 |
-| 10 | カスタムPGパラメータ | spec.postgresql.parameters | 2日 | S2 |
+| 9 | pg_hba.confリロード | Configリロード | ✅ Done (#126) | S2 |
+| 10 | カスタムPGパラメータ | spec.postgresql.parameters | ✅ Done (#126) | S2 |
 
 ---
 

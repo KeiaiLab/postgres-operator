@@ -23,21 +23,21 @@ keiailab/postgres-operator v0.3.0-alpha.18의 기능을 비교합니다.
 
 | # | 격차 | CNPG 해당 기능 | 소요 | 스프린트 |
 |---|------|---------------|------|----------|
-| 1 | WAL 아카이빙 + 오브젝트 스토어 | barmanObjectStore + CNPG-I | 2주 | S3 |
+| 1 | WAL 아카이빙 + 오브젝트 스토어 | barmanObjectStore + CNPG-I | ✅ Done (#127) | S3 |
 | 2 | 오브젝트 스토어 PITR | spec.backup.recovery | 1주 | S4 |
 | 3 | TLS Phase 3 (마운트 + ssl=on) | 기본 동작 | 3일 | S1 |
-| 4 | postgresql.conf 핫 리로드 | pg_reload_conf() | 2일 | S2 |
-| 5 | 백업 보존 정리 | retentionPolicy | 3일 | S5 |
+| 4 | postgresql.conf 핫 리로드 | pg_reload_conf() | ✅ Done (#126) | S2 |
+| 5 | 백업 보존 정리 | retentionPolicy | ✅ Done (#130) | S5 |
 
 ### P1 — 운영 신뢰성
 
 | # | 격차 | CNPG 해당 기능 | 소요 | 스프린트 |
 |---|------|---------------|------|----------|
-| 6 | Switchover | cnpg promote | 3일 | S5 |
+| 6 | Switchover | cnpg promote | ✅ Done (#130) | S5 |
 | 7 | Fencing | cnpg fencing on/off | 3일 | S6 |
 | 8 | 동기 복제 | syncReplicas | 2일 | S6 |
-| 9 | pg_hba.conf 리로드 | Config 리로드 | 1일 | S2 |
-| 10 | 커스텀 PG 파라미터 | spec.postgresql.parameters | 2일 | S2 |
+| 9 | pg_hba.conf 리로드 | Config 리로드 | ✅ Done (#126) | S2 |
+| 10 | 커스텀 PG 파라미터 | spec.postgresql.parameters | ✅ Done (#126) | S2 |
 
 ### P2 — 개선 (교체 비차단)
 
