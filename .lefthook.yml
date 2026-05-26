@@ -142,7 +142,7 @@ pre-push:
       # newTag + dist/install.yaml image tag). standards/enforcement.md §3.1.4
       # (`version-ssot-drift` rule) + standards/checklist.md PR row 정합.
       # 트리거 사고: 2026-05-20 RCA — CITATION.cff `v0.3.0-alpha.15` ↔ Chart
-      # `0.4.0-alpha.1` 3 release silent drift.
+      # `0.4.0-beta.1` 3 release silent drift.
       # 우회: VERSION_SYNC_SKIP=1 환경변수.
       run: bash scripts/check-version-sync.sh
     go-mod-tidy:

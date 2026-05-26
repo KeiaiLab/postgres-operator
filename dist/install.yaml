@@ -31242,7 +31242,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/keiailab/postgres-operator:0.4.0-alpha.1
+        image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
         livenessProbe:
           httpGet:
             path: /healthz

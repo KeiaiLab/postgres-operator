@@ -20,4 +20,4 @@ keywords:
   - high-availability
   - pgbackrest
 license: Apache-2.0
-version: v0.4.0-alpha.1
+version: v0.4.0-beta.1
