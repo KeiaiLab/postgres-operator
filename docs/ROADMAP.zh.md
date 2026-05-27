@@ -33,7 +33,7 @@
 |---|---|---|
 | 项目 / chart 名称 | `postgres-operator` | GitHub repo、Helm chart 与 GitOps path 一致 |
 | 许可证 | Apache-2.0 | `LICENSE`、ADR-0003 |
-| 最新发布 | `0.3.0-alpha.18` | GHCR 镜像 + Helm chart 发布 + OLM bundle (community-operators PR pending) |
+| 最新发布 | `0.4.0-beta.1` | GHCR 镜像 + Helm chart 发布 + OLM bundle — Level 4 Deep Insights |
 | OLM bundle | `bundle/manifests/` 与 8 CRD + alm-examples + CSV 描述一致 | `operator-sdk bundle validate --select-optional suite=operatorframework` 干净 (T26) |
 | 声明式 DB 表面 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 周期完成;live kind smoke 自动化 (T27) 进行中 |
 | 本地 4-layer 网关 | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002;version-drift assertion 与 bundle validate 自动化 (T26) |

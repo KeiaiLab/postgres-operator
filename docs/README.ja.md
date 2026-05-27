@@ -70,7 +70,7 @@ operator manager
 
 ## Features (機能)
 
-### 現在出荷中 (v0.3.0-alpha.18)
+### 現在出荷中 (v0.4.0-beta.1)
 
 helm チャートおよび OperatorHub バンドルでは **8 つの所有 CRD** を出荷しています。CRD のステータスは、本番クラスターにおいて現時点で reconcile されている内容を反映します:
 
@@ -144,12 +144,12 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness (本番運用準備)
 
-**現状 (0.3.0-alpha.18)**: リファレンス Kubernetes クラスターにおいて、ArgoCD Application `platform-data-postgres-operator` は `Synced/Healthy` であり、`PostgresCluster/postgres` は `Ready=True` を報告しています。
+**現状 (0.4.0-beta.1)**: Level 4 Deep Insights 達成。PrometheusRule (8 alerts)、Grafana ダッシュボード、ServiceMonitor、WAL アーカイブ、バックアップリテンション、config ホットリロード、アノテーションベース switchover が運用中です。
 
 GA までの距離:
 - **P1** — 本番対応のシングルシャードには、HA Lease 分散ロックコントローラー、BackupJob/ScheduledBackup の実機 drill、PITR チェックサム drill、および chaos-mesh failover スイートが必要です。
 - **P2** — マルチシャードには `ShardRange` CRD + pg-router PoC が必要です ([`docs/sharding/SHARDING.md`](sharding/SHARDING.md))。
-- 現在の alpha は、ユーザー自身による backup/restore 検証なしでは本番データに対して**推奨されません**。
+- 現在の beta は、ユーザー自身による backup/restore 検証なしでは本番データに対して**推奨されません**。
 
 ## Known limitations (既知の制限)
 

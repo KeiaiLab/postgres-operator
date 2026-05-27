@@ -45,7 +45,7 @@ file.
 |---|---|---|
 | Project / chart name | `postgres-operator` | GitHub repo, Helm chart, and GitOps path are aligned |
 | License | Apache-2.0 | `LICENSE`, ADR-0003 |
-| Latest release | `0.3.0-alpha.18` | GHCR image + Helm chart publish + OLM bundle (community-operators PR pending) |
+| Latest release | `0.4.0-beta.1` | GHCR image + Helm chart publish + OLM bundle — Level 4 Deep Insights |
 | OLM bundle | `bundle/manifests/` aligned with 8 CRDs + alm-examples + CSV descriptions | `operator-sdk bundle validate --select-optional suite=operatorframework` is clean (T26) |
 | Declarative DB surface | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycles completed; live kind smoke automation (T27) in progress |
 | Local 4-layer gate | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002; version-drift assertion and bundle validate are automated (T26) |

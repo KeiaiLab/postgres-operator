@@ -33,7 +33,7 @@
 |---|---|---|
 | 프로젝트 / chart 이름 | `postgres-operator` | GitHub repo, Helm chart, GitOps path 모두 정합 |
 | 라이선스 | Apache-2.0 | `LICENSE`, ADR-0003 |
-| 최신 릴리스 | `0.3.0-alpha.18` | GHCR 이미지 + Helm chart publish + OLM bundle (community-operators PR pending) |
+| 최신 릴리스 | `0.4.0-beta.1` | GHCR 이미지 + Helm chart publish + OLM bundle — Level 4 Deep Insights |
 | OLM bundle | `bundle/manifests/` 가 8 CRD + alm-examples + CSV description 과 정합 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
 | 선언적 DB 표면 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycle 완료; live kind smoke 자동화 (T27) 진행 중 |
 | 로컬 4-layer gate | L1 lefthook pre-commit + L2 pre-push + L3 make validate/audit + L4 PR evidence | ADR-0009 / RFC-0002; version-drift assertion 및 bundle validate 자동화 (T26) |

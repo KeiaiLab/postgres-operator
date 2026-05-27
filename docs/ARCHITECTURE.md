@@ -13,7 +13,7 @@
 
 - **Purpose**: Apache-2.0 PostgreSQL Kubernetes Operator delivering production-grade operational quality and distributed SQL via *self-built* code — no external PostgreSQL operator fork or wrapper.
 - **Scope**: vanilla PostgreSQL 18+ on K8s, single-shard HA → sharding → online resharding → distributed SQL → GA.
-- **Stability tier**: v0.3.0-alpha.16 (G0 100% / G1 81% / G2 72% / G3 37% / G4-G5 0% / G6 12%)
+- **Stability tier**: v0.4.0-beta.1 — Level 4 Deep Insights (metrics, alerts, dashboards, WAL archiving, backup retention, switchover)
 - **License**: Apache-2.0 (deps: BSD/Apache/MIT/PG-License only — no copyleft on SaaS)
 - **Module path**: `github.com/keiailab/postgres-operator`
 
@@ -97,7 +97,7 @@ Adoption: **5/8 (63%)**.
 
 ## Build / deploy
 
-- Container image: `ghcr.io/keiailab/postgres-operator:v0.3.0-alpha.16`
+- Container image: `ghcr.io/keiailab/postgres-operator:v0.4.0-beta.1`
 - Helm chart: `charts/postgres-operator/` (`keiailab.github.io/postgres-operator`)
 - OLM bundle: `bundle/`
 - ArtifactHub: `keiailab-postgres-operator`
