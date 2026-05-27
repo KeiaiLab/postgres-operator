@@ -11,7 +11,7 @@
 
 本文档为在生产环境或评估环境中使用 `keiailab/postgres-operator` 的组织和项目的 *公开* 列表。欢迎自助登记 —— 请发起 PR 添加一行。
 
-> 本 operator 当前处于 **0.3.0-alpha** 阶段。生产部署前请先查阅 SLA 指南 (ROADMAP.md)。
+> 本 operator 当前处于 **0.4.0-beta** 阶段。生产部署前请先查阅 SLA 指南 (ROADMAP.md)。
 
 ## 生产用户
 

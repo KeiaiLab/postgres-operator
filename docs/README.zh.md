@@ -70,7 +70,7 @@ operator manager
 
 ## Features (功能)
 
-### 当前发布版本(v0.3.0-alpha.18)
+### 当前发布版本(v0.4.0-beta.1)
 
 Helm chart 和 OperatorHub bundle 包含 **8 个自有 CRD**。CRD 状态反映了当前在生产集群上已 reconcile 的内容:
 
@@ -144,12 +144,12 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness (生产就绪)
 
-**当前状态(0.3.0-alpha.18)**:在参考 Kubernetes 集群上,ArgoCD Application `platform-data-postgres-operator` 处于 `Synced/Healthy` 状态,`PostgresCluster/postgres` 报告 `Ready=True`。
+**当前状态(0.4.0-beta.1)**:Level 4 Deep Insights 达成。PrometheusRule(8条告警规则)、Grafana dashboard、ServiceMonitor、WAL归档、备份保留策略、配置热加载、基于注解的switchover均已运行。
 
 距离 GA 的差距:
 - **P1** —— 生产就绪的单分片需要 HA Lease 分布式锁控制器、BackupJob/ScheduledBackup 实战演练、PITR 校验和演练以及 chaos-mesh 故障切换套件。
 - **P2** —— 多分片需要 `ShardRange` CRD + pg-router PoC([`docs/sharding/SHARDING.md`](sharding/SHARDING.md))。
-- 当前 alpha 版本 **不** 建议在没有您自行进行备份/恢复验证的情况下用于生产数据。
+- 当前 beta 版本 **不** 建议在没有您自行进行备份/恢复验证的情况下用于生产数据。
 
 ## Known limitations (已知限制)
 

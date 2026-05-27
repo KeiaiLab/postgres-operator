@@ -67,7 +67,7 @@ operator manager
 
 ## 기능
 
-### 현재 출하 (v0.3.0-alpha.18)
+### 현재 출하 (v0.4.0-beta.1)
 
 helm chart 와 OperatorHub bundle 은 **8 owned CRD** 출하. CRD 상태는 production 클러스터에서 *오늘 reconcile 되는 범위* 반영:
 
@@ -141,12 +141,12 @@ helm upgrade postgres-operator charts/postgres-operator \
 
 ## Production readiness
 
-**현재 상태 (0.3.0-alpha.18)**: reference Kubernetes 클러스터에서 ArgoCD Application `platform-data-postgres-operator` 가 `Synced/Healthy`, `PostgresCluster/postgres` 가 `Ready=True`.
+**현재 상태 (0.4.0-beta.1)**: Level 4 Deep Insights 달성. PrometheusRule (8 alerts), Grafana dashboard, ServiceMonitor, WAL archiving, backup retention, config hot-reload, annotation-based switchover 운영 중.
 
 GA 거리:
 - **P1** — production-ready single-shard 는 HA Lease 분산 lock controller + BackupJob/ScheduledBackup live drill + PITR checksum drill + chaos-mesh failover suite 필요.
 - **P2** — multi-shard 는 `ShardRange` CRD + pg-router PoC ([`docs/sharding/SHARDING.md`](sharding/SHARDING.md)) 필요.
-- 현 alpha 는 *자체 backup/restore 검증 없이는* production 데이터 권장 **안 함**.
+- 현 beta 는 *자체 backup/restore 검증 없이는* production 데이터 권장 **안 함**.
 
 ## 알려진 제약
 

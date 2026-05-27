@@ -11,7 +11,7 @@ This is the *public* list of organizations and projects that use
 `keiailab/postgres-operator` in production or evaluation environments.
 Self-registration is welcome — please open a PR to add a row.
 
-> The operator is currently in **0.3.0-alpha**. For production deployments,
+> The operator is currently in **0.4.0-beta**. For production deployments,
 > consult the SLA guide (ROADMAP.md) first.
 
 ## Production users

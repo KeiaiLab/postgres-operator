@@ -274,7 +274,7 @@ metadata:
           }
         }
       ]
-    capabilities: Seamless Upgrades
+    capabilities: Deep Insights
     categories: Database, Storage
     containerImage: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
     createdAt: "2026-05-12T13:53:44Z"
@@ -696,7 +696,7 @@ spec:
   maintainers:
   - email: help@masblue.studio
     name: Keiailab
-  maturity: alpha
+  maturity: beta
   minKubeVersion: 1.26.0
   provider:
     name: Keiailab

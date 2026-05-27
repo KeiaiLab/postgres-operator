@@ -63,7 +63,7 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Features
 
-### Currently shipping (v0.3.0-alpha.18)
+### Currently shipping (v0.4.0-beta.1)
 
 The helm chart and OperatorHub bundle ship **8 owned CRDs**:
 
@@ -138,13 +138,13 @@ See [`docs/operator-guide/deployment.md`](docs/operator-guide/deployment.md) and
 
 ## Production readiness
 
-**Current state (0.3.0-alpha.18)**: on the reference Kubernetes cluster, the ArgoCD Application `platform-data-postgres-operator` is `Synced/Healthy` and `PostgresCluster/postgres` reports `Ready=True`.
+**Current state (0.4.0-beta.1)**: Level 4 Deep Insights capability achieved. PrometheusRule (8 alerts), Grafana dashboard, ServiceMonitor, WAL archiving, backup retention, config hot-reload, and annotation-based switchover all operational.
 
 GA distance:
 
 - **P1** — production-ready single-shard requires the HA Lease distributed-lock controller, the `BackupJob` / `ScheduledBackup` live drill, the PITR checksum drill, and the chaos failover suite.
 - **P2** — multi-shard requires the `ShardRange` CRD + `pg-router` PoC (see [`docs/sharding/SHARDING.md`](docs/sharding/SHARDING.md)).
-- The current alpha is **not** recommended for production data without your own backup/restore verification.
+- The current beta is **not** recommended for production data without your own backup/restore verification.
 
 ## Known limitations
 
