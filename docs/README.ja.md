@@ -170,14 +170,14 @@ kubectl delete scheduledbackup --all -A
 helm uninstall postgres-operator
 
 # 3. CRD を削除 (オプション; helm はクラスター状態保全のためデフォルトで CRD を残します)
-kubectl delete crd postgresclusters.postgres.keiailab.com \
-                  backupjobs.postgres.keiailab.com \
-                  scheduledbackups.postgres.keiailab.com \
-                  poolers.postgres.keiailab.com \
-                  postgresdatabases.postgres.keiailab.com \
-                  postgresusers.postgres.keiailab.com \
-                  imagecatalogs.postgres.keiailab.com \
-                  clusterimagecatalogs.postgres.keiailab.com
+kubectl delete crd postgresclusters.postgres.keiailab.io \
+                  backupjobs.postgres.keiailab.io \
+                  scheduledbackups.postgres.keiailab.io \
+                  poolers.postgres.keiailab.io \
+                  postgresdatabases.postgres.keiailab.io \
+                  postgresusers.postgres.keiailab.io \
+                  imagecatalogs.postgres.keiailab.io \
+                  clusterimagecatalogs.postgres.keiailab.io
 ```
 
 ## Contributing (コントリビューション)

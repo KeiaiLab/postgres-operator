@@ -21,13 +21,13 @@
 
 | CRD | apiVersion | Scope | Description |
 |---|---|---|---|
-| `PostgresCluster` | `postgres.keiailab.com/v1alpha1` | Namespaced | Primary HA controller — StatefulSet + WAL + failover |
-| `BackupJob` | `postgres.keiailab.com/v1alpha1` | Namespaced | pgBackRest backup / restore / PITR |
-| `ScheduledBackup` | `postgres.keiailab.com/v1alpha1` | Namespaced | Cron-based BackupJob trigger |
-| `PostgresDatabase` | `postgres.keiailab.com/v1alpha1` | Namespaced | Declarative database + schema + privilege |
-| `PostgresUser` | `postgres.keiailab.com/v1alpha1` | Namespaced | Declarative role + password rotation |
-| `Pooler` | `postgres.keiailab.com/v1alpha1` | Namespaced | PgBouncer connection pooler |
-| `ImageCatalog` / `ClusterImageCatalog` | `postgres.keiailab.com/v1alpha1` | Namespaced / Cluster | Image catalog for declarative upgrades |
+| `PostgresCluster` | `postgres.keiailab.io/v1alpha1` | Namespaced | Primary HA controller — StatefulSet + WAL + failover |
+| `BackupJob` | `postgres.keiailab.io/v1alpha1` | Namespaced | pgBackRest backup / restore / PITR |
+| `ScheduledBackup` | `postgres.keiailab.io/v1alpha1` | Namespaced | Cron-based BackupJob trigger |
+| `PostgresDatabase` | `postgres.keiailab.io/v1alpha1` | Namespaced | Declarative database + schema + privilege |
+| `PostgresUser` | `postgres.keiailab.io/v1alpha1` | Namespaced | Declarative role + password rotation |
+| `Pooler` | `postgres.keiailab.io/v1alpha1` | Namespaced | PgBouncer connection pooler |
+| `ImageCatalog` / `ClusterImageCatalog` | `postgres.keiailab.io/v1alpha1` | Namespaced / Cluster | Image catalog for declarative upgrades |
 | (G3+ planned) `ShardRange` / `ShardSplitJob` | — | — | Sharding metadata + 7-step online resharding |
 
 ## Self-built distributed SQL architecture

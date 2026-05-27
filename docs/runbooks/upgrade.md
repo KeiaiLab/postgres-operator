@@ -10,7 +10,7 @@
 | **Patch** | 18.1 → 18.2 | LOW | 0 (rolling) | §4 minor patch |
 | **Minor** (N → N+1) | 18 → 19 | MEDIUM | 0 (rolling) | §5 minor major |
 | **Major** (N → N+2+) | 18 → 20 | HIGH | 1-5 min cutover | §6 major upgrade |
-| **Operator binary** | v0.3.0-alpha.18 → next | LOW (replica) / MEDIUM (primary) | 0 | §7 operator upgrade |
+| **Operator binary** | v0.4.0-beta.1 → next | LOW (replica) / MEDIUM (primary) | 0 | §7 operator upgrade |
 
 ## 2. Pre-upgrade 체크리스트 (MUST, 모든 분류)
 
@@ -108,7 +108,7 @@ cluster 크기가 크면 (≥ 1TB) §5 절차 + 다음:
 - **shard 별 순차 upgrade** — G3+ 환경에서 `ShardRange` 의 shard 분기로 차례로 진행
 - **사전 vacuum freeze** — `VACUUM FREEZE` 사전 실행으로 transaction id wraparound 위험 해소
 
-## 7. Operator binary upgrade (v0.3.0-alpha.18 → next)
+## 7. Operator binary upgrade (v0.4.0-beta.1 → next)
 
 operator manager 자체 image 교체. Helm chart 의 `appVersion` 갱신.
 

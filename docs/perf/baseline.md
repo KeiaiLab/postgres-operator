@@ -13,7 +13,7 @@
 | date | 2026-MM-DD | UTC ISO 8601 |
 | cluster | keiailab-prod / dev-kind / 등 | `kubectl config current-context` |
 | postgres version | 16.4 | `SELECT version()` |
-| operator version | v0.3.0-alpha.NN | helm chart appVersion |
+| operator version | v0.4.0-beta.1 | helm chart appVersion |
 | shard count | 1 / 4 / 16 | ShardPlane spec.shards |
 | client host | 동일 cluster / 외부 / 동일 node | network locality 영향 |
 | client cores / RAM | 8C / 16G | bench 클라이언트 자원 |

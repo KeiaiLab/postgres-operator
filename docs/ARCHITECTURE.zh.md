@@ -23,13 +23,13 @@
 
 | CRD | apiVersion | Scope | 描述 |
 |---|---|---|---|
-| `PostgresCluster` | `postgres.keiailab.com/v1alpha1` | Namespaced | Primary HA controller — StatefulSet + WAL + failover |
-| `BackupJob` | `postgres.keiailab.com/v1alpha1` | Namespaced | pgBackRest backup / restore / PITR |
-| `ScheduledBackup` | `postgres.keiailab.com/v1alpha1` | Namespaced | 基于 Cron 的 BackupJob 触发器 |
-| `PostgresDatabase` | `postgres.keiailab.com/v1alpha1` | Namespaced | 声明式 database + schema + privilege |
-| `PostgresUser` | `postgres.keiailab.com/v1alpha1` | Namespaced | 声明式 role + password rotation |
-| `Pooler` | `postgres.keiailab.com/v1alpha1` | Namespaced | PgBouncer 连接池 |
-| `ImageCatalog` / `ClusterImageCatalog` | `postgres.keiailab.com/v1alpha1` | Namespaced / Cluster | 声明式升级用 image catalog |
+| `PostgresCluster` | `postgres.keiailab.io/v1alpha1` | Namespaced | Primary HA controller — StatefulSet + WAL + failover |
+| `BackupJob` | `postgres.keiailab.io/v1alpha1` | Namespaced | pgBackRest backup / restore / PITR |
+| `ScheduledBackup` | `postgres.keiailab.io/v1alpha1` | Namespaced | 基于 Cron 的 BackupJob 触发器 |
+| `PostgresDatabase` | `postgres.keiailab.io/v1alpha1` | Namespaced | 声明式 database + schema + privilege |
+| `PostgresUser` | `postgres.keiailab.io/v1alpha1` | Namespaced | 声明式 role + password rotation |
+| `Pooler` | `postgres.keiailab.io/v1alpha1` | Namespaced | PgBouncer 连接池 |
+| `ImageCatalog` / `ClusterImageCatalog` | `postgres.keiailab.io/v1alpha1` | Namespaced / Cluster | 声明式升级用 image catalog |
 | (G3+ 计划) `ShardRange` / `ShardSplitJob` | — | — | Sharding 元数据 + 7-step online resharding |
 
 ## 自建 distributed SQL 架构

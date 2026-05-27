@@ -5,7 +5,7 @@
 ## Executive Summary
 
 This document compares CloudNativePG (CNPG) v1.29 — currently running in the keiailab
-production cluster — with keiailab/postgres-operator v0.3.0-alpha.18. The goal is to
+production cluster — with keiailab/postgres-operator v0.4.0-beta.1. The goal is to
 identify feature gaps that must be closed before replacing CNPG in production.
 
 **Key findings:**

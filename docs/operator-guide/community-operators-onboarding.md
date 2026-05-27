@@ -11,12 +11,12 @@ OperatorHub.io and the
 
 | Item | Status |
 |---|---|
-| OLM bundle generation (operator-sdk) | ✅ `make bundle VERSION=0.3.0-alpha.18` |
+| OLM bundle generation (operator-sdk) | ✅ `make bundle VERSION=0.4.0-beta.1` |
 | bundle validate (default suite) | ✅ `operator-sdk bundle validate ./bundle` |
 | bundle validate (operatorframework suite) | ✅ Run automatically by the `make validate` gate |
 | CSV `alm-examples` aligned with 7 owned CRDs | ✅ T26 (2026-05-12) |
 | CSV `customresourcedefinitions.owned` descriptions for 8 CRDs | ✅ T26 (2026-05-12) |
-| CHANGELOG `[0.3.0-alpha.N]` entry | ✅ kept in sync at release-tag time |
+| CHANGELOG `[0.4.0-beta.N]` entry | ✅ kept in sync at release-tag time |
 | Chart `appVersion` ↔ kustomize `newTag` ↔ dist image-tag | ✅ Drift asserted by `make validate` |
 | LICENSE / SECURITY / SUPPORT / CONTRIBUTING / CODE_OF_CONDUCT | ✅ Standards-compliant |
 
@@ -26,10 +26,10 @@ The bundle image is built from `bundle.Dockerfile` for a single `linux/amd64`
 platform (multi-arch is forbidden per RFC-0002 §2).
 
 ```bash
-make bundle VERSION=0.3.0-alpha.18
-make bundle-build VERSION=0.3.0-alpha.18
+make bundle VERSION=0.4.0-beta.1
+make bundle-build VERSION=0.4.0-beta.1
 
-docker push ghcr.io/keiailab/postgres-operator-bundle:0.3.0-alpha.18
+docker push ghcr.io/keiailab/postgres-operator-bundle:0.4.0-beta.1
 ```
 
 `bundle-build` runs `docker buildx build --platform linux/amd64 -f
@@ -50,9 +50,9 @@ cd community-operators
 #    bundle's package name; the unqualified `postgres-operator` slot is
 #    already taken in community-operators, so we register under
 #    `keiailab-postgres-operator`).
-mkdir -p operators/keiailab-postgres-operator/0.3.0-alpha.18
+mkdir -p operators/keiailab-postgres-operator/0.4.0-beta.1
 cp -r /path/to/postgres-operator/bundle/* \
-      operators/keiailab-postgres-operator/0.3.0-alpha.18/
+      operators/keiailab-postgres-operator/0.4.0-beta.1/
 
 # 3. ci.yaml (community-operators metadata)
 cat <<'YAML' > operators/keiailab-postgres-operator/ci.yaml
@@ -62,11 +62,11 @@ reviewers:
   - eightynine01
 YAML
 
-# 4. PR body — copy the CHANGELOG[0.3.0-alpha.N] section from this repo
+# 4. PR body — copy the CHANGELOG[0.4.0-beta.N] section from this repo
 gh pr create \
   --repo k8s-operatorhub/community-operators \
   --base main \
-  --title "operator keiailab-postgres-operator (0.3.0-alpha.18)" \
+  --title "operator keiailab-postgres-operator (0.4.0-beta.1)" \
   --body-file /path/to/postgres-operator/.github/PULL_REQUEST_TEMPLATE.md
 ```
 
@@ -86,12 +86,12 @@ The bundle metadata already carries
 `operators.operatorframework.io.bundle.channels.v1=alpha` and
 `default-channel=alpha` in `metadata.annotations`. From the next release
 on, declare `spec.replaces` (or `spec.skips`) in the CSV so OLM can track
-the upgrade path 0.3.0-alpha.18 → 0.3.0-alpha.19.
+the upgrade path 0.4.0-beta.1 → 0.4.0-beta.2.
 
 ```yaml
 # config/manifests/bases/postgres-operator.clusterserviceversion.yaml
 spec:
-  replaces: postgres-operator.v0.3.0-alpha.18
+  replaces: postgres-operator.v0.4.0-beta.1
 ```
 
 ## Verification

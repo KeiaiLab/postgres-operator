@@ -1,7 +1,7 @@
-# Deployment Guide — keiailab/postgres-operator (alpha)
+# Deployment Guide — keiailab/postgres-operator (beta)
 
-> Kubernetes deployment guide for 0.3.0-alpha. RFC 0001 v2 schema.
-> Acknowledge the alpha-stage limits (e2e not fully verified, no secret
+> Kubernetes deployment guide for 0.4.0-beta. RFC 0001 v2 schema.
+> Acknowledge the beta-stage limits (e2e not fully verified, no secret
 > rotation yet) before adopting in production.
 
 ## Prerequisites
@@ -366,7 +366,7 @@ See `docs/operator-guide/pooler-monitoring.md` for the full example.
 
 `PG_MAJOR` selects the base major of the runtime image to build;
 `POSTGRES_VERSION` is wired into `PostgresCluster.spec.postgresVersion`.
-The 0.3.0-alpha smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
+The 0.4.0-beta smoke matrix is PG17 + PG18. `SHARD_REPLICAS` is mapped
 1:1 to `spec.shards.replicas`.
 
 ## 7. Alpha-stage caveats (read before adopting in production)

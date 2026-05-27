@@ -11,7 +11,7 @@
 
 ```bash
 kubectl apply -f - <<YAML
-apiVersion: postgres.keiailab.com/v1alpha1
+apiVersion: postgres.keiailab.io/v1alpha1
 kind: BackupRestore
 metadata:
   name: smoke-restore

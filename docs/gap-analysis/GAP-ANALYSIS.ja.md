@@ -5,7 +5,7 @@
 ## 概要
 
 本ドキュメントはkeiailabプロダクションクラスタで現在運用中のCloudNativePG (CNPG) v1.29と
-keiailab/postgres-operator v0.3.0-alpha.18の機能を比較します。
+keiailab/postgres-operator v0.4.0-beta.1の機能を比較します。
 目標: CNPGを本番で置き換える前に解決すべき機能ギャップの特定。
 
 **主な結果:**

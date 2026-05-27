@@ -5,7 +5,7 @@
 ## 概述
 
 本文档比较keiailab生产集群中当前运行的CloudNativePG (CNPG) v1.29与
-keiailab/postgres-operator v0.3.0-alpha.18的功能。
+keiailab/postgres-operator v0.4.0-beta.1的功能。
 目标: 在生产环境中替换CNPG之前识别必须解决的功能差距。
 
 **主要发现:**

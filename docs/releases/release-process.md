@@ -59,11 +59,11 @@ Expected outcomes:
 
 5. OLM bundle regeneration + community-operators PR (optional, after the
    alpha tag).
-   - Run: `make bundle VERSION=0.3.0-alpha.N` and
-     `make bundle-build VERSION=0.3.0-alpha.N`.
+   - Run: `make bundle VERSION=0.4.0-beta.N` and
+     `make bundle-build VERSION=0.4.0-beta.N`.
    - Verify: `operator-sdk bundle validate ./bundle --select-optional
      suite=operatorframework` is clean and
-     `docker push ghcr.io/keiailab/postgres-operator-bundle:0.3.0-alpha.N`
+     `docker push ghcr.io/keiailab/postgres-operator-bundle:0.4.0-beta.N`
      succeeds.
    - Procedure detail:
      [docs/operator-guide/community-operators-onboarding.md](../operator-guide/community-operators-onboarding.md).

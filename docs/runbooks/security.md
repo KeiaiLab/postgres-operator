@@ -10,7 +10,7 @@
 
 ```bash
 kubectl annotate postgrescluster <name> \
-    postgres.keiailab.com/rotate-secrets=$(date +%s)
+    postgres.keiailab.io/rotate-secrets=$(date +%s)
 # operator reconcile → new Secret → rolling restart
 ```
 

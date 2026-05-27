@@ -119,7 +119,7 @@ annotations:
         namespace: default
       spec:
         imageCatalogRef:
-          apiGroup: postgresql.cnpg.io
+          apiGroup: postgres.keiailab.io
           kind: ImageCatalog
           name: postgresql
           major: 18
