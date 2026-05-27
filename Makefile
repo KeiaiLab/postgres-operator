@@ -254,9 +254,9 @@ validate: manifests generate kustomize build-installer test-scripts ## CRD, Kust
 	@grep -q '^kind: PrometheusRule' /tmp/postgres-operator-helm-monitoring.yaml
 	@grep -q 'postgres_operator_backupjob_phase' /tmp/postgres-operator-helm-monitoring.yaml
 	@grep -q 'postgres_operator_pooler_phase' /tmp/postgres-operator-helm-monitoring.yaml
-	@grep -q 'PostgresPoolerExporterCollectionFailed' /tmp/postgres-operator-helm-monitoring.yaml
-	@grep -q 'PostgresPoolerClientWaiting' /tmp/postgres-operator-helm-monitoring.yaml
-	@grep -q 'PostgresPoolerClientMaxWaitHigh' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresClusterReplicationLagHigh' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresClusterPrimaryDown' /tmp/postgres-operator-helm-monitoring.yaml
+	@grep -q 'PostgresClusterBackupFailed' /tmp/postgres-operator-helm-monitoring.yaml
 	@grep -q 'cnpg_pgbouncer_last_collection_error' /tmp/postgres-operator-helm-monitoring.yaml
 	@grep -q 'cnpg_pgbouncer_pools_cl_waiting' /tmp/postgres-operator-helm-monitoring.yaml
 	@grep -q 'cnpg_pgbouncer_pools_maxwait' /tmp/postgres-operator-helm-monitoring.yaml
@@ -272,9 +272,13 @@ validate: manifests generate kustomize build-installer test-scripts ## CRD, Kust
 	else \
 		echo "kubectl API server 미연결: dist/install.yaml client dry-run 생략"; \
 	fi
-	@if [ -d .github/workflows ] && [ -n "$$(ls .github/workflows/ 2>/dev/null)" ]; then \
-		echo "[error] .github/workflows/ 가 비어 있지 않음 — ADR-0009 / RFC-0002 GitHub Actions 영구 금지 정책 위반"; \
-		ls -la .github/workflows/; \
+	@ALLOWED="helm-publish.yml release.yml scorecard.yml"; \
+	UNEXPECTED=$$(ls .github/workflows/ 2>/dev/null | while read f; do \
+		echo "$$ALLOWED" | grep -qw "$$f" || echo "$$f"; \
+	done); \
+	if [ -n "$$UNEXPECTED" ]; then \
+		echo "[error] .github/workflows/ 에 허용되지 않은 파일 발견 (ADR-0022 예외: $$ALLOWED):"; \
+		echo "$$UNEXPECTED"; \
 		exit 1; \
 	fi
 	@APP_VERSION="$$(grep -E '^appVersion:' charts/postgres-operator/Chart.yaml | sed -E 's/^appVersion:[[:space:]]*\"?([^\"]*)\"?$$/\1/')"; \
