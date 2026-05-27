@@ -26,7 +26,7 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["index", "ARCHITECTURE", "ROADMAP"]
+      "pages": ["index", "ARCHITECTURE", "ROADMAP", "AGENTS"]
     },
     {
       "group": "Operator Guide",
@@ -39,16 +39,31 @@
     },
     {
       "group": "Gap Analysis",
-      "pages": [
-        "gap-analysis/GAP-ANALYSIS"
-      ]
+      "pages": ["gap-analysis/GAP-ANALYSIS"]
     },
     {
       "group": "Operations",
       "pages": [
         "UPGRADING",
         "CHANGELOG",
-        "sharding/SHARDING"
+        "sharding/SHARDING",
+        "releases/release-process",
+        "perf/baseline",
+        "sql/isolation-matrix",
+        "kb/deps/2026-05"
+      ]
+    },
+    {
+      "group": "Runbooks",
+      "pages": [
+        "runbooks/INDEX",
+        "runbooks/backup",
+        "runbooks/restore",
+        "runbooks/ha",
+        "runbooks/pvc-fence",
+        "runbooks/upgrade",
+        "runbooks/security",
+        "runbooks/migration"
       ]
     },
     {
@@ -58,7 +73,28 @@
         "kb/adr/0002-single-chart-with-flags",
         "kb/adr/0003-license-policy-no-agpl-busl",
         "kb/adr/0004-crd-managed-by-operator",
-        "kb/adr/0005-versioning-and-channels"
+        "kb/adr/0005-versioning-and-channels",
+        "kb/adr/0006-gitops-deploy-overlay",
+        "kb/adr/0007-pre-commit-instead-of-lefthook",
+        "kb/adr/0008-operator-commons-adoption",
+        "kb/adr/0009-webhook-accumulate-errors",
+        "kb/adr/0010-rfc-0017-tooling-unification-adoption",
+        "kb/adr/0011-rfc-0018-pkg-status-partial-adoption",
+        "kb/adr/0012-pkg-version-matrix-commons-delegation",
+        "kb/adr/0013-operatorhub-bundle-scaffold",
+        "kb/adr/0014-community-operators-sync-automation",
+        "kb/adr/0015-distributed-tx",
+        "kb/adr/0016-former-adr-0015-force-reset-history",
+        "kb/adr/0017-gha-retention-for-public-oss",
+        "kb/adr/0018-gha-to-local-4-layer",
+        "kb/adr/0019-gha-retention-for-public-oss",
+        "kb/adr/0020-sprint-1-commons-pvc-topology-adoption",
+        "kb/adr/0021-rfc-0002-gha-block-hook",
+        "kb/adr/0022-gha-narrow-exception-3-workflows",
+        "kb/adr/0023-v3x-stable-baseline",
+        "kb/adr/0024-lefthook-pre-push-incremental-lint-envtest",
+        "kb/adr/0025-repmgr-pgbouncer-barman-integration",
+        "kb/adr/0026-operatorhub-io-version-sync"
       ]
     },
     {
@@ -68,7 +104,9 @@
         "rfcs/0002-shardrange-crd",
         "rfcs/0003-shardsplitjob-7step",
         "rfcs/0004-pg-router-architecture",
-        "rfcs/0005-distributed-transactions"
+        "rfcs/0005-distributed-transactions",
+        "rfcs/0006-higher-level-database-5r",
+        "rfcs/0007-ha-election-and-fencing"
       ]
     },
     {
@@ -77,7 +115,11 @@
         "CONTRIBUTING",
         "CODE_OF_CONDUCT",
         "GOVERNANCE",
-        "SECURITY"
+        "SECURITY",
+        "ADOPTERS",
+        "BRANDING",
+        "MAINTAINERS",
+        "SUPPORT"
       ]
     }
   ],
