@@ -9,15 +9,15 @@
 /api/                       @keiailab/maintainers
 /internal/controller/       @keiailab/maintainers
 /internal/instance/         @keiailab/maintainers
-/internal/citus/            @keiailab/maintainers
-/internal/backup/           @keiailab/maintainers
-/internal/balancer/         @keiailab/maintainers
+/internal/plugin/           @keiailab/maintainers
+/internal/postgres/         @keiailab/maintainers
 /internal/version/          @keiailab/maintainers
+/internal/webhook/          @keiailab/maintainers
 
 # 빌드/배포
 /build/                     @keiailab/maintainers
 /charts/                    @keiailab/maintainers
-/bundles/                   @keiailab/maintainers
+/bundle/                    @keiailab/maintainers
 /.github/                   @keiailab/maintainers
 
 # 문서/거버넌스

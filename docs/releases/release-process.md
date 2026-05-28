@@ -1,7 +1,8 @@
 # Local release process
 
-Per ADR 0009 this repository does not use GitHub Actions. Release
-verification and publishing run as local Makefile targets.
+Per ADR-0019 / ADR-0022 this repository restricts GitHub Actions to three
+narrowly scoped workflows (release.yml, helm-publish.yml, scorecard.yml).
+All other release verification and publishing run as local Makefile targets.
 
 ## Success criteria
 
@@ -23,17 +24,18 @@ Expected outcomes:
   leading `v` stripped.
 - `CHANGELOG.md` has a matching version entry.
 - The Helm `--include-crds` render and `dist/install.yaml` contain
-  **8 CRDs** (`postgresclusters`, `backupjobs`, `scheduledbackups`,
+  **10 CRDs** (`postgresclusters`, `backupjobs`, `scheduledbackups`,
   `poolers`, `postgresdatabases`, `postgresusers`, `imagecatalogs`,
-  `clusterimagecatalogs`).
-- `bundle/manifests/postgres.keiailab.io_*.yaml` count ≥ 8 and
+  `clusterimagecatalogs`, `shardranges`, `shardsplitjobs`).
+- `bundle/manifests/postgres.keiailab.io_*.yaml` count ≥ 10 and
   `operator-sdk bundle validate --select-optional suite=operatorframework`
   is clean.
 - `kube-linter lint dist/install.yaml` and the helm template both return
   0 lint errors.
 - Chart `appVersion` ↔ kustomize `newTag` ↔ dist image tag are all
   aligned.
-- `.github/workflows/` is empty (ADR-0009 forbidden permanently).
+- `.github/workflows/` contains only ADR-0022 approved files
+  (helm-publish.yml, release.yml, scorecard.yml).
 - The worktree is clean before release.
 
 ## Step → verify
@@ -47,13 +49,13 @@ Expected outcomes:
    - Verify: lint, test, audit, and validate all pass.
 
 3. Push-less release verification.
-   - Run: `make release-preflight VERSION=v0.1.1-alpha`.
+   - Run: `make release-preflight VERSION=v0.4.0-beta.2`.
    - Verify: the Helm package is created under
      `/tmp/postgres-operator-release`, cleaned up, and the worktree-clean
      check passes.
 
 4. Actual release.
-   - Run: `make release VERSION=v0.1.1-alpha`.
+   - Run: `make release VERSION=v0.4.0-beta.2`.
    - Verify: GHCR image push, Git tag push, GitHub Release creation, and
      the `gh-pages` Helm index refresh all succeed.
 
