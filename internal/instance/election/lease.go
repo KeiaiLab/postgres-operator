@@ -186,12 +186,12 @@ var _ Election = (*Real)(nil)
 //
 // router 는 stateless 이므로 lease 가 존재하지 않는다 — role 이 "shard" 가
 // 아니면 panic 하여 호출자 측 misuse 를 즉시 노출한다(단일 진실 강제).
-func PrimaryLeaseName(cluster, role string, shardOrdinal int32) string {
+func PrimaryLeaseName(cluster, role string, shardOrdinal int32) (string, error) {
 	if role != "shard" {
-		panic(fmt.Sprintf("PrimaryLeaseName: only role=\"shard\" is supported, got %q (router has no lease)", role))
+		return "", fmt.Errorf("PrimaryLeaseName: only role=\"shard\" is supported, got %q (router has no lease)", role)
 	}
 	if shardOrdinal < 0 {
-		panic(fmt.Sprintf("PrimaryLeaseName: shardOrdinal must be >=0, got %d", shardOrdinal))
+		return "", fmt.Errorf("PrimaryLeaseName: shardOrdinal must be >=0, got %d", shardOrdinal)
 	}
-	return fmt.Sprintf("%s-shard-%d-primary", cluster, shardOrdinal)
+	return fmt.Sprintf("%s-shard-%d-primary", cluster, shardOrdinal), nil
 }

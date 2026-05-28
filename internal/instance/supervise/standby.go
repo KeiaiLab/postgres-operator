@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,8 +187,12 @@ func replaceDataDirWithBasebackup(ctx context.Context, runner CommandRunner, bin
 		if restored {
 			return
 		}
-		_ = os.RemoveAll(dataDir)
-		_ = os.Rename(quarantine, dataDir)
+		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+			slog.Warn("quarantine rollback: RemoveAll failed", "path", dataDir, "error", rmErr)
+		}
+		if mvErr := os.Rename(quarantine, dataDir); mvErr != nil {
+			slog.Warn("quarantine rollback: Rename failed", "from", quarantine, "to", dataDir, "error", mvErr)
+		}
 	}()
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("create fresh dataDir %s: %w", dataDir, err)

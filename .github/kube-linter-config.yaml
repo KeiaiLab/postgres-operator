@@ -1,9 +1,9 @@
-# Initial kube-linter config — chart 의 production-grade security baseline 충족
-# 까지 default rules 비활성 (follow-up PR 으로 chart templates 의 security
-# context / probes / capabilities drop / resources 추가 후 rules 점진 활성).
+# kube-linter config — chart 의 production-grade security baseline.
+# NOTE: lefthook 의 kube-linter hook 은 이 config 를 참조하지 않고
+# 기본 규칙으로 실행한다. 이 파일은 향후 CI 통합 시 사용할 예정.
 #
-# alpha 단계 — rules 점진 활성.
+# beta 단계 — rules 점진 활성 중.
 checks:
-  doNotAutoAddDefaults: true
+  doNotAutoAddDefaults: false
   include: []
   exclude: []

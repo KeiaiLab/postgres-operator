@@ -375,8 +375,7 @@ spec:
                 type: object
               postgresVersion:
                 default: "18"
-                description: PostgresVersion 은 메이저 버전 문자열. 0.3.0-alpha 는 18 만 GA,
-                  17 호환 유지.
+                description: PostgresVersion 은 메이저 버전 문자열. 18 은 GA, 17 호환 유지.
                 enum:
                 - "17"
                 - "18"
@@ -432,12 +431,12 @@ spec:
                   primary:
                     description: |-
                       Primary 는 distributed topology 에서 현재 global primary cluster 이름이다.
-                      0.3.0-alpha 에서는 API 표면만 제공하고 controlled switchover 는 후속 구현이다.
+                      API 표면만 제공하고 controlled switchover 는 후속 구현이다.
                     type: string
                   promotionToken:
                     description: |-
                       PromotionToken 은 controlled switchover/promotion 토큰이다.
-                      0.3.0-alpha 에서는 API 표면만 제공한다.
+                      API 표면만 제공한다. 구현은 후속.
                     type: string
                   self:
                     description: Self 는 resource name 과 다른 topology-local 이름을 쓸 때
@@ -1804,7 +1803,7 @@ spec:
               tls:
                 description: |-
                   TLS 는 PostgreSQL server-side TLS 설정 (Pillar P7 §7).
-                  0.3.0-alpha.5+ Phase 1 facade — CRD field 만 정의. Phase 2 에서 cert-manager
+                  Phase 1 facade — CRD field 만 정의. Phase 2 에서 cert-manager
                   Certificate CR 통합 + Phase 3 에서 reconciler 의 server.crt/server.key emit
                   만 의미 있음 — true 설정 시 webhook reject (NotImplemented Phase 1).
                 properties:

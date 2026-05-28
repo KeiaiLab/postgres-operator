@@ -80,29 +80,28 @@ func TestPrimaryLeaseName_Shard(t *testing.T) {
 		{42, "orders-shard-42-primary"},
 	}
 	for _, c := range cases {
-		got := PrimaryLeaseName("orders", "shard", c.ordinal)
+		got, err := PrimaryLeaseName("orders", "shard", c.ordinal)
+		if err != nil {
+			t.Fatalf("ordinal=%d: unexpected error: %v", c.ordinal, err)
+		}
 		if got != c.want {
 			t.Errorf("ordinal=%d: got %q, want %q", c.ordinal, got, c.want)
 		}
 	}
 }
 
-func TestPrimaryLeaseName_RouterPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("PrimaryLeaseName(role=router) must panic — router has no lease")
-		}
-	}()
-	_ = PrimaryLeaseName("orders", "router", 0)
+func TestPrimaryLeaseName_RouterReturnsError(t *testing.T) {
+	_, err := PrimaryLeaseName("orders", "router", 0)
+	if err == nil {
+		t.Fatal("PrimaryLeaseName(role=router) must return error — router has no lease")
+	}
 }
 
-func TestPrimaryLeaseName_NegativeOrdinalPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("PrimaryLeaseName(shardOrdinal<0) must panic")
-		}
-	}()
-	_ = PrimaryLeaseName("orders", "shard", -1)
+func TestPrimaryLeaseName_NegativeOrdinalReturnsError(t *testing.T) {
+	_, err := PrimaryLeaseName("orders", "shard", -1)
+	if err == nil {
+		t.Fatal("PrimaryLeaseName(shardOrdinal<0) must return error")
+	}
 }
 
 // ----------------------------------------------------------------------------

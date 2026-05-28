@@ -739,7 +739,10 @@ func copySpec(dst, src client.Object) {
 		}
 		d.SetLabels(s.GetLabels())
 	default:
-		panic(fmt.Sprintf("copySpec: unsupported type %T", dst))
+		log.FromContext(context.TODO()).Error(
+			fmt.Errorf("copySpec: unsupported type %T", dst),
+			"BUG: unknown object type in copySpec — skipping spec copy",
+		)
 	}
 }
 

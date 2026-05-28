@@ -63,7 +63,7 @@ spec:
                     extensions:
                       description: |-
                         Extensions 는 이 이미지와 함께 사용할 수 있는 extension image 후보 목록이다.
-                        0.3.0-alpha 에서는 저장/검증 표면만 제공하고, 실제 volume-extension mount 는
+                        저장/검증 표면만 제공하고, 실제 volume-extension mount 는
                         후속 단계에서 연결한다.
                       items:
                         description: ImageCatalogExtension 은 catalog entry 에 연결된 extension

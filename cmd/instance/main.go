@@ -124,7 +124,11 @@ func main() {
 		"replicaClusterMode", replicaClusterMode,
 	)
 
-	leaseName := election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
+	leaseName, err := election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
+	if err != nil {
+		logger.Error("Failed to resolve lease name", "error", err)
+		os.Exit(1)
+	}
 	logger.Info("Resolved lease name", "lease", leaseName)
 
 	// Fencing — Null(disabled) 또는 Real. fencer는 election callback에서

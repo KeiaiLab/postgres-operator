@@ -17,7 +17,7 @@ import (
 )
 
 // This file expresses the spec/status definitions of RFC 0001 (PostgresCluster CRD v2) §3
-// as Go types. As of 0.3.0-alpha, the schema has been redefined without compatibility
+// as Go types. The schema has been redefined without compatibility
 // guarantees under the alpha-channel policy (the breaking change is documented in the
 // CHANGELOG). The earlier v0.x schema
 // (`coordinator/workers/routers/extensions/sharding.backend`) is preserved in the
@@ -335,7 +335,7 @@ type BootstrapSpec struct {
 }
 
 // ReplicaClusterSpec is the declarative surface for CloudNativePG standalone/distributed
-// replica clusters. In 0.3.0-alpha the continuous-recovery path for a standalone streaming
+// replica clusters. The continuous-recovery path for a standalone streaming
 // replica cluster is prioritized.
 type ReplicaClusterSpec struct {
 	// Enabled activates continuous recovery for a standalone replica cluster.
@@ -347,7 +347,8 @@ type ReplicaClusterSpec struct {
 	Source string `json:"source,omitempty"`
 
 	// Primary is the name of the current global primary cluster in a distributed topology.
-	// In 0.3.0-alpha only the API surface is provided; controlled switchover is implemented later.
+	// Primary is the name of the current global primary cluster in a distributed topology.
+	// Only the API surface is provided; controlled switchover is implemented later.
 	// +optional
 	Primary string `json:"primary,omitempty"`
 
@@ -356,7 +357,7 @@ type ReplicaClusterSpec struct {
 	Self string `json:"self,omitempty"`
 
 	// PromotionToken is the token used for controlled switchover/promotion.
-	// In 0.3.0-alpha only the API surface is provided.
+	// Only the API surface is provided; implementation follows.
 	// +optional
 	PromotionToken string `json:"promotionToken,omitempty"`
 }
@@ -370,7 +371,7 @@ type ReplicaClusterSpec struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.autoSplit) || self.autoSplit.enabled == false || self.shardingMode == 'native'",message="autoSplit requires shardingMode=native"
 // +kubebuilder:validation:XValidation:rule="!has(self.postgresql) || !has(self.postgresql.synchronous) || self.shards.replicas >= self.postgresql.synchronous.number",message="postgresql.synchronous.number must be <= shards.replicas"
 type PostgresClusterSpec struct {
-	// PostgresVersion is the major-version string. 0.3.0-alpha makes 18 GA while keeping 17 compatible.
+	// PostgresVersion is the major-version string. 18 is GA while 17 remains compatible.
 	// +kubebuilder:validation:Enum="17";"18"
 	// +kubebuilder:default="18"
 	// +optional
@@ -442,9 +443,9 @@ type PostgresClusterSpec struct {
 	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
 
 	// TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).
-	// 0.3.0-alpha.5+ Phase 1 facade — only the CRD field is defined. Phase 2 integrates
+	// Phase 1 facade — only the CRD field is defined. Phase 2 integrates
 	// the cert-manager Certificate CR; Phase 3 has the reconciler emit server.crt/server.key
-	// and finalize ssl=on in postgresql.conf. In this alpha release only enabled=false
+	// and finalize ssl=on in postgresql.conf. Currently only enabled=false
 	// (the default) is meaningful — setting true causes the webhook to reject with
 	// NotImplemented (Phase 1).
 	// +optional

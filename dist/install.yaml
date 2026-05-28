@@ -9339,7 +9339,7 @@ spec:
                     extensions:
                       description: |-
                         Extensions is the list of extension image candidates available with this image.
-                        In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+                        Only the storage and validation surfaces are provided; the actual
                         volume-extension mount path is wired up in a later phase.
                       items:
                         description: ImageCatalogExtension is the metadata for an
@@ -9456,7 +9456,7 @@ spec:
                     extensions:
                       description: |-
                         Extensions is the list of extension image candidates available with this image.
-                        In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+                        Only the storage and validation surfaces are provided; the actual
                         volume-extension mount path is wired up in a later phase.
                       items:
                         description: ImageCatalogExtension is the metadata for an
@@ -19166,8 +19166,8 @@ spec:
                 type: object
               postgresVersion:
                 default: "18"
-                description: PostgresVersion is the major-version string. 0.3.0-alpha
-                  makes 18 GA while keeping 17 compatible.
+                description: PostgresVersion is the major-version string. 18 is GA
+                  while 17 remains compatible.
                 enum:
                 - "17"
                 - "18"
@@ -19223,12 +19223,13 @@ spec:
                   primary:
                     description: |-
                       Primary is the name of the current global primary cluster in a distributed topology.
-                      In 0.3.0-alpha only the API surface is provided; controlled switchover is implemented later.
+                      Primary is the name of the current global primary cluster in a distributed topology.
+                      Only the API surface is provided; controlled switchover is implemented later.
                     type: string
                   promotionToken:
                     description: |-
                       PromotionToken is the token used for controlled switchover/promotion.
-                      In 0.3.0-alpha only the API surface is provided.
+                      Only the API surface is provided; implementation follows.
                     type: string
                   self:
                     description: Self specifies the topology-local name when it differs
@@ -20604,9 +20605,9 @@ spec:
               tls:
                 description: |-
                   TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).
-                  0.3.0-alpha.5+ Phase 1 facade — only the CRD field is defined. Phase 2 integrates
+                  Phase 1 facade — only the CRD field is defined. Phase 2 integrates
                   the cert-manager Certificate CR; Phase 3 has the reconciler emit server.crt/server.key
-                  and finalize ssl=on in postgresql.conf. In this alpha release only enabled=false
+                  and finalize ssl=on in postgresql.conf. Currently only enabled=false
                   (the default) is meaningful — setting true causes the webhook to reject with
                   NotImplemented (Phase 1).
                 properties:

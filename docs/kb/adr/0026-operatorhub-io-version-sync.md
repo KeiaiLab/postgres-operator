@@ -10,7 +10,7 @@ All operator repos have OLM bundle scaffold (bundle/manifests + metadata) applie
 
 | Repo | Chart.yaml | Bundle CSV | Latest tag |
 |---|---|---|---|
-| postgres | 0.3.0-alpha.18 | (TBD, 신규 file) | v0.3.0-alpha.16 |
+| postgres | 0.4.0-beta.1 | keiailab-postgres-operator.v0.4.0-beta.1 | v0.4.0-beta.1 |
 
 OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-operators repo 의 PR) 시 bundle CSV 가 사용자 가시 — *stale 버전* 등록되면 *manual update 의무*.
 
@@ -55,7 +55,7 @@ OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-o
    - Makefile 의 `make bundle VERSION=$(VERSION)` target 검증
    - release.yml 에 `bundle-regen + bundle-commit` job 추가
 2. **Phase B**: community-operators submission token 환경 변수 등록 (사용자 admin 영역)
-3. **Phase C**: 첫 release (v1.5.1 / v1.0.14 / v0.3.0-alpha.19) 시 mechanism 검증
+3. **Phase C**: 첫 release (v0.4.0-beta.2+) 시 mechanism 검증
 
 ## References
 
@@ -66,4 +66,4 @@ OperatorHub.io 의 *community-operators submission* (k8s-operatorhub/community-o
 ## Related ADRs
 
 - ADR-0001 self-built distributed SQL keystone (postgres)
-- ADR-0006 Repmgr/PgBouncer/Barman integration (postgres bitnami parity 100%)
+- ADR-0025 Repmgr/PgBouncer/Barman integration (postgres bitnami parity 100%)

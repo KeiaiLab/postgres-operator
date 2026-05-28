@@ -50,7 +50,7 @@ type ImageCatalogEntry struct {
 	Image string `json:"image"`
 
 	// Extensions is the list of extension image candidates available with this image.
-	// In 0.3.0-alpha only the storage and validation surfaces are provided; the actual
+	// Only the storage and validation surfaces are provided; the actual
 	// volume-extension mount path is wired up in a later phase.
 	// +optional
 	Extensions []ImageCatalogExtension `json:"extensions,omitempty"`

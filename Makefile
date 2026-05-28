@@ -211,7 +211,7 @@ audit: ## govulncheck + trivy + gosec — RFC 0002 L3 security 게이트 (3-repo
 	trivy fs --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --skip-dirs vendor,bin,tmp .
 	@echo "=== gosec (HIGH only) ==="
 	@command -v $(GOBIN)/gosec >/dev/null 2>&1 || go install github.com/securego/gosec/v2/cmd/gosec@latest
-	$(GOBIN)/gosec -quiet -severity high ./internal/... || true
+	$(GOBIN)/gosec -quiet -severity high ./internal/...
 
 .PHONY: test-scripts
 test-scripts: ## shell 스크립트 문법과 smoke helper 동작을 검증.
@@ -366,7 +366,7 @@ release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.
 		syft scan ghcr.io/keiailab/postgres-operator:$(VERSION) -o spdx-json -q > "/tmp/postgres-operator-$(VERSION).spdx.json" 2>/dev/null && \
 			SBOM_ASSET="/tmp/postgres-operator-$(VERSION).spdx.json"; \
 	fi; \
-	eval gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
+	gh release create "$(VERSION)" -R keiailab/postgres-operator $$PREFLAG \
 		--title "$(VERSION)" \
 		$$NOTES_FLAG \
 		"$(RELEASE_TMP)/postgres-operator-$$(echo "$(VERSION)" | sed 's/^v//').tgz" \

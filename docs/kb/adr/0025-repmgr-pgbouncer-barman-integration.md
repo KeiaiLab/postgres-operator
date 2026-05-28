@@ -11,13 +11,13 @@ bitnami/postgresql-ha chart 는 다음 3 component 를 *single chart* 로 통합
 2. **PgBouncer** — connection pooling (transaction-level + session-level mode)
 3. **Barman** — backup/restore (full + incremental + PITR)
 
-keiailab/postgres-operator (v0.3.0-alpha) 는 *self-built distributed SQL* (ADR-0001) keystone 기반으로 *coordinator + worker pool + stateless router* 토폴로지를 자체 구현 중. 다만 *operational quality* 측면에서 bitnami parity 도달 위해 위 3 component 동등 또는 초과 기능 필요.
+keiailab/postgres-operator (v0.4.0-beta) 는 *self-built distributed SQL* (ADR-0001) keystone 기반으로 *coordinator + worker pool + stateless router* 토폴로지를 자체 구현 중. 다만 *operational quality* 측면에서 bitnami parity 도달 위해 위 3 component 동등 또는 초과 기능 필요.
 
-본 ADR 는 v0.3.0-beta 격상 시 통합 계획 결정.
+본 ADR 는 beta 격상 시 통합 계획 결정.
 
 ## Decision
 
-**Phase A** (v0.3.0-beta 진입): Repmgr + PgBouncer + Barman 등가 기능을 *PostgresCluster CR + 자체 controller* 으로 구현.
+**Phase A** (beta 진입): Repmgr + PgBouncer + Barman 등가 기능을 *PostgresCluster CR + 자체 controller* 으로 구현.
 
 ### Repmgr 등가 (Phase A.1)
 - `internal/controller/failover/` (T29 진행) 의 *Promoter interface* 확장
