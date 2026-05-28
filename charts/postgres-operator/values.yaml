@@ -25,7 +25,7 @@ fullnameOverride: ""
 # Deployment topology
 # ============================================================================
 # Operator manager Pod replica 수. HA를 위해 2+ 권장 (leader election 자동).
-# alpha 단계는 1로 시작 (단일 인스턴스도 reconcile 정합성 보장).
+# beta 단계는 1로 시작 (단일 인스턴스도 reconcile 정합성 보장).
 replicas: 1
 
 # Pod-level SecurityContext (operator manager 자체).
@@ -42,7 +42,7 @@ containerSecurityContext:
   capabilities:
     drop: [ALL]
 
-# Resource requests/limits. alpha 기본값은 *작음*. production은 측정 후 조정.
+# Resource requests/limits. beta 기본값은 *작음*. production은 측정 후 조정.
 resources:
   limits:
     cpu: 500m

@@ -1,5 +1,5 @@
 ============================================================================
-keiailab/postgres-operator alpha (Chart {{ .Chart.Version }} / App {{ .Chart.AppVersion }}) installed!
+keiailab/postgres-operator beta (Chart {{ .Chart.Version }} / App {{ .Chart.AppVersion }}) installed!
 ============================================================================
 
 📦 Operator Manager:
@@ -23,7 +23,7 @@ CRD lifecycle을 별도로 관리하려면 설치 시 Helm 기본 옵션을 사�
 {{- end }}
 
 {{ if eq (int .Values.replicas) 1 -}}
-⚠️  replicas=1 — alpha default. For HA (P2-M1 leader election), set replicas=2+:
+⚠️  replicas=1 — beta default. For HA (P2-M1 leader election), set replicas=2+:
   helm upgrade {{ .Release.Name }} keiailab/postgres-operator --set replicas=3
 {{- end }}
 
