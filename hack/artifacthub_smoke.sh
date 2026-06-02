@@ -104,3 +104,29 @@ fi
 
 "$jq_bin" -e --arg name "$artifacthub_package_name" '.name == $name' "$tmpdir/package.json" >/dev/null
 echo "Artifact Hub package OK: https://artifacthub.io/packages/helm/${artifacthub_repository_name}/${artifacthub_package_name}"
+
+echo "=== Provenance (.prov) 도달성 ==="
+# VERSION: Chart.yaml에서 추출 (TAG 환경변수가 없을 때 fallback)
+VERSION="${TAG:-}"
+if [[ -z "$VERSION" ]]; then
+	chart_yaml="$(dirname "$0")/../charts/${artifacthub_package_name}/Chart.yaml"
+	if [[ -f "$chart_yaml" ]]; then
+		VERSION="$(grep '^version:' "$chart_yaml" | awk '{print $2}' | tr -d '"')"
+	fi
+fi
+
+verify_provenance() {
+	local prov="${helm_repo_url%/}/${artifacthub_package_name}-${VERSION}.tgz.prov"
+	echo "→ provenance 확인: ${prov}"
+	if "$curl_bin" -fsSL -o "$tmpdir/chart.tgz.prov" "${prov}" 2>/dev/null; then
+		echo "✓ .prov 도달 가능 (Signed badge 전제 충족)"
+	else
+		echo "::warning::.prov 부재 — Signed badge 미달성(로컬 helm-publish.sh --sign 필요). warn-only, 통과."
+	fi
+}
+
+if [[ -n "$VERSION" ]]; then
+	verify_provenance
+else
+	echo "WARN: VERSION 미확인 — .prov 검증 건너뜀" >&2
+fi
