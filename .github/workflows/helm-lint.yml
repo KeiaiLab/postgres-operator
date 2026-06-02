@@ -1,0 +1,40 @@
+name: Helm chart lint
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+      - '.github/workflows/helm-lint.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+        with:
+          version: latest
+      - uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
+      - name: Run ct lint
+        run: ct lint --target-branch=main --charts charts/postgres-operator
+      - name: Helm template smoke
+        # render INSIDE GITHUB_WORKSPACE so the kubeconform docker action (which
+        # only mounts GITHUB_WORKSPACE) can read the file.
+        run: helm template test charts/postgres-operator --debug > render.yaml
+      - name: kubeconform validate
+        # invoked via `run` rather than `uses: docker://…` because the action's
+        # `args:` input mishandles single-quoted URL templates — the quotes get
+        # baked into the path string ("first path segment cannot contain colon").
+        # bash quoting via `run:` resolves the escaping cleanly.
+        run: |
+          docker run --rm -v "$PWD":/workdir -w /workdir \
+            ghcr.io/yannh/kubeconform:latest \
+            -strict -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            render.yaml

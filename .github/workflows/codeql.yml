@@ -1,0 +1,47 @@
+name: CodeQL
+
+# Static-analysis security scanning. Satisfies the OpenSSF Scorecard
+# `SAST` check and uploads alerts to the GitHub code-scanning
+# dashboard.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, offset from other security crons.
+    - cron: '41 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write     # required to upload SARIF results
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        with:
+          languages: ${{ matrix.language }}
+          # The default + security-extended query suite catches the
+          # full set of OpenSSF-relevant patterns (injection,
+          # path-traversal, weak crypto, unsafe deserialization, etc.)
+          # without the noisy security-and-quality bloat.
+          queries: security-extended
+
+      - uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+
+      - uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        with:
+          category: "/language:${{ matrix.language }}"

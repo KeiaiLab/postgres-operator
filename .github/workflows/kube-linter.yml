@@ -1,0 +1,69 @@
+name: kube-linter
+
+# Static analysis of rendered Helm + kustomize manifests. Catches
+# security and operational antipatterns (privileged containers,
+# missing resource limits, `latest` tag, missing read-only-rootfs,
+# etc.) before they reach a cluster.
+#
+# Pairs with:
+# - helm-lint.yml      (chart structural validation)
+# - codeql.yml         (Go SAST)
+# - security-scan.yml  (image CVE scan)
+
+on:
+  # Run on every PR so the job functions as a `required_status_check`
+  # context. Paths-filtered required checks stay pending forever on
+  # PRs that don't touch the filtered paths, which blocks otherwise
+  # legitimate merges.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '53 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  helm-chart:
+    name: kube-linter (helm chart render)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+        with: { version: latest }
+
+      - name: Render helm chart with default values
+        run: |
+          mkdir -p /tmp/rendered
+          helm template postgres-operator charts/postgres-operator \
+            --namespace postgres-operator-system \
+            > /tmp/rendered/default.yaml
+          # Render with optional features ON — exercise NetworkPolicy,
+          # webhook, monitoring, etc. paths.
+          helm template postgres-operator charts/postgres-operator \
+            --namespace postgres-operator-system \
+            --set webhook.enabled=true \
+            --set metrics.enabled=true \
+            --set networkPolicy.enabled=true \
+            > /tmp/rendered/all-features.yaml
+
+      - uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1.0.7
+        with:
+          directory: /tmp/rendered
+          config: .github/kube-linter-config.yaml
+          format: sarif
+          output-file: kube-linter.sarif
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
+        with:
+          sarif_file: kube-linter.sarif
+          category: kube-linter-helm

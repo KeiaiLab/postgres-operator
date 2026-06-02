@@ -6,6 +6,73 @@
 # repository 를 재생성하면 이 값을 새 ID 로 교체해야 한다.
 repositoryID: e7f6b661-08c3-44bf-a2e6-d87eae0e8c69
 
+signingKey:
+  fingerprint: "89A409476828CB992338C378651E51AF520BCB78"
+  armored: |
+    -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+    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
+    =Rd/K
+    -----END PGP PUBLIC KEY BLOCK-----
+
 owners:
   - name: keiailab
     email: support@keiailab.com
