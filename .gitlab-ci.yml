@@ -5,7 +5,6 @@ stages: [lint, test, build]
 
 default:
   image: golang:1.23
-  tags: [keiailab]
 
 variables:
   GOFLAGS: "-mod=mod"
