@@ -878,15 +878,16 @@ if [ "$REPLICA_CLUSTER_ENABLED" = "1" ]; then
   exit 0
 fi
 
-# pod ordinal 0 = primary slot (initdb on first cluster boot, primary thereafter via election).
-# pod ordinal != 0 = standby slot (basebackup from current primary if available).
-# PRIMARY_ENDPOINT empty = no live primary observed yet → fallback to initdb (cold-start of cluster).
-if [ "$POD_ORDINAL" = "0" ] || [ -z "$PRIMARY_ENDPOINT" ]; then
-  mkdir -p "$DATA"
-  chmod 0700 "$DATA"
-  ` + binDir + `/initdb -D "$DATA" --auth-local=trust --auth-host=scram-sha-256 --username=postgres --encoding=UTF8 --locale=C
-  echo "initdb completed at $DATA"
-else
+# Bootstrap decision (deterministic, #221). PRIMARY_ENDPOINT is one shared value
+# for every pod of the shard and is empty on the cluster's first reconcile (no
+# primary observed yet). A replica (ordinal != 0) created in that window must
+# NEVER initdb — that produced an independent second primary with no
+# standby.signal → split-brain (both pods read-write, no streaming). Decision:
+#   1. live primary elsewhere (PRIMARY_ENDPOINT set, not self) → basebackup standby
+#   2. ordinal 0 with no/other-self primary → initdb (the cluster seed)
+#   3. replica with no usable primary yet → fail closed, let the StatefulSet retry
+#      once the operator propagates the primary endpoint into the pod template.
+if [ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]; then
   prepare_primary_conninfo
   mkdir -p "$DATA"
   chmod 0700 "$DATA"
@@ -894,6 +895,14 @@ else
   touch "$DATA/standby.signal"
   printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$DATA/postgresql.auto.conf"
   echo "pg_basebackup completed; standby.signal + primary_conninfo configured"
+elif [ "$POD_ORDINAL" = "0" ]; then
+  mkdir -p "$DATA"
+  chmod 0700 "$DATA"
+  ` + binDir + `/initdb -D "$DATA" --auth-local=trust --auth-host=scram-sha-256 --username=postgres --encoding=UTF8 --locale=C
+  echo "initdb completed at $DATA"
+else
+  echo "replica $POD_NAME has no usable primary endpoint yet (PRIMARY_ENDPOINT='$PRIMARY_ENDPOINT'); failing for StatefulSet retry to avoid split-brain initdb (#221)" >&2
+  exit 1
 fi
 `
 	return corev1.Container{

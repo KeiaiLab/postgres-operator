@@ -387,7 +387,7 @@ func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 	// 연산자 반전 가드: bash 분기 조건의 `||` 연산자가 `&&` 등으로 뒤집히면
 	// ENV 기반 검증만으로는 잡히지 않으므로 리터럴 substring 으로 고정한다.
 	// POD_ORDINAL 키잉 (SHARD_ORDINAL 아님) — 같은 shard 의 pod 별 분기 보장.
-	const wantBranchOperator = `[ "$POD_ORDINAL" = "0" ] || [ -z "$PRIMARY_ENDPOINT" ]`
+	const wantBranchOperator = `[ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]`
 	if !strings.Contains(script, wantBranchOperator) {
 		t.Errorf("script must contain branch operator %q (operator inversion guard)", wantBranchOperator)
 	}
@@ -412,6 +412,23 @@ func TestBuildBootstrapContainer_OrdinalZero_RunsInitdb(t *testing.T) {
 	if pn.ValueFrom == nil || pn.ValueFrom.FieldRef == nil ||
 		pn.ValueFrom.FieldRef.FieldPath != "metadata.name" {
 		t.Errorf("POD_NAME must use ValueFrom.FieldRef{FieldPath: \"metadata.name\"}, got %+v", pn.ValueFrom)
+	}
+}
+
+// #221: a replica (ordinal != 0) created before the primary endpoint is known
+// (empty PRIMARY_ENDPOINT) must FAIL CLOSED — never initdb itself into an
+// independent split-brain primary. The StatefulSet retries the pod until the
+// operator propagates the real primary endpoint into the pod template.
+func TestBuildBootstrapContainer_ReplicaNoEndpoint_FailsClosedNotInitdb(t *testing.T) {
+	t.Parallel()
+
+	c := buildBootstrapContainer("img:18", "18", 1, "", 2, false, "", "", "", nil)
+	script := c.Args[0]
+	if !strings.Contains(script, "to avoid split-brain initdb (#221)") {
+		t.Errorf("replica with empty PRIMARY_ENDPOINT must fail closed (#221), got script:\n%s", script)
+	}
+	if !strings.Contains(script, "exit 1") {
+		t.Error("fail-closed replica path must exit 1, not initdb")
 	}
 }
 
@@ -480,7 +497,7 @@ func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
 	if !strings.Contains(script, `POD_ORDINAL="${POD_NAME##*-}"`) {
 		t.Error(`script must contain POD_ORDINAL extraction: POD_ORDINAL="${POD_NAME##*-}"`)
 	}
-	const wantBranchOperator = `[ "$POD_ORDINAL" = "0" ] || [ -z "$PRIMARY_ENDPOINT" ]`
+	const wantBranchOperator = `[ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]`
 	if !strings.Contains(script, wantBranchOperator) {
 		t.Errorf("script must contain branch operator %q (operator inversion guard)", wantBranchOperator)
 	}
