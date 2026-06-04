@@ -280,10 +280,16 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		shardStat := aggregateShardStatus(ctx, r.Client, &cluster, ord, svcName)
 		if shardStat.Primary == nil || shardStat.Primary.Pod == "" {
 			// fallback — STS-time 근사값 (annotation 미수집 / Pod 부팅 전 일시).
+			// Ready 는 fallbackPrimaryReady 로 산출한다: STS readyReplicas proxy
+			// 는 HA shard 에서 standby readiness 까지 합산하므로, primary 가 죽고
+			// standby 만 Ready 인 상황을 Ready=true 로 마스킹해 DetectPrimaryFailure
+			// 를 ReasonNone 으로 만들어 자동 failover 를 영영 막았다 (live RCA
+			// 2026-06-04 pg-ha-drill cordon chaos). Ready replica 가 관측되면
+			// primary 부재 = outage 로 보고 Ready=false 를 강제한다.
 			shardStat.Primary = &postgresv1alpha1.ShardEndpoint{
 				Pod:      fmt.Sprintf("%s-0", stsName),
 				Endpoint: fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort),
-				Ready:    primaryReady,
+				Ready:    fallbackPrimaryReady(primaryReady, shardStat.Replicas),
 			}
 		}
 		shardStatuses = append(shardStatuses, shardStat)
@@ -525,6 +531,29 @@ func clusterFailoverDecision(shards []postgresv1alpha1.ShardStatus) (string, fai
 		}
 	}
 	return "", failover.Decision{Reason: failover.ReasonNone}
+}
+
+// fallbackPrimaryReady 는 어떤 Pod 도 primary role 을 보고하지 않을 때 합성하는
+// fallback primary endpoint 의 Ready 값을 결정한다. STS readyReplicas proxy 는
+// genuine early boot (아직 Ready replica 0) 구간에만 신뢰한다. Ready replica 가
+// 하나라도 관측되면 — primary 가 보고되지 않는데 standby 는 살아있는 — 실제
+// primary outage 이므로 Ready=false 를 반환해 DetectPrimaryFailure 가 자동
+// failover 를 발동하게 한다 (live RCA 2026-06-04 pg-ha-drill: STS readyReplicas
+// 가 standby 를 합산해 primary outage 를 가렸다). 부팅 중 standby 가 primary
+// annotation 보다 먼저 Ready 가 되는 false-positive 는 reconcile 의
+// prevPhase==Ready 게이트가 걸러낸다 (steady state 도달 전엔 promote 안 함).
+func fallbackPrimaryReady(stsReadyProxy bool, replicas []postgresv1alpha1.ShardEndpoint) bool {
+	return stsReadyProxy && !hasReadyReplica(replicas)
+}
+
+// hasReadyReplica 는 replica 목록에 Ready=true 가 하나라도 있는지 반환한다.
+func hasReadyReplica(replicas []postgresv1alpha1.ShardEndpoint) bool {
+	for i := range replicas {
+		if replicas[i].Ready {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *PostgresClusterReconciler) managedRolesStatus(
