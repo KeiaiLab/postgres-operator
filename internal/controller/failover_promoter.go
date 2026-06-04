@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -82,6 +83,15 @@ func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.Promotio
 	if p.Client == nil {
 		return nil
 	}
+	// Fence every other shard member so a former primary that boots back before
+	// the operator propagates the new PRIMARY_ENDPOINT finds its PVC fenced and
+	// fails closed at VerifyNotFenced (exit 2) instead of re-acquiring the lease
+	// and rewinding away the new primary's post-failover writes (#220 failback
+	// data loss). Pairs with unfenceTargetPVC to realize the "all members fenced
+	// except the single promoted primary" model.
+	if err := p.fenceNonTargetMembers(ctx, plan.Target.Pod); err != nil {
+		return fmt.Errorf("fence non-target members of %q: %w", plan.Target.Pod, err)
+	}
 	return p.patchPromotedPodStatus(ctx, plan)
 }
 
@@ -139,6 +149,59 @@ func (p *clusterPodPromoter) unfenceTargetPVC(ctx context.Context, podName strin
 	before := pvc.DeepCopy()
 	delete(pvc.Labels, fencing.FenceLabelKey)
 	return p.Client.Patch(ctx, &pvc, client.MergeFrom(before))
+}
+
+// fenceNonTargetMembers fences the data PVC of every member of the target's
+// StatefulSet except the promotion target. The fence is inert for a healthy
+// standby (its Follower election never reaches the promote path) and is cleared
+// by unfenceTargetPVC if that member is later chosen as a promotion target, so
+// the steady state remains "exactly one un-fenced primary". See #220.
+func (p *clusterPodPromoter) fenceNonTargetMembers(ctx context.Context, targetPod string) error {
+	stsName := statefulSetNameFromPod(targetPod)
+	if stsName == "" {
+		return fmt.Errorf("cannot derive statefulset name from target pod %q", targetPod)
+	}
+	pvcPrefix := "data-" + stsName + "-"
+	targetPVCName := "data-" + targetPod
+
+	var pvcs corev1.PersistentVolumeClaimList
+	if err := p.Client.List(ctx, &pvcs, client.InNamespace(p.Namespace)); err != nil {
+		return fmt.Errorf("list pvcs: %w", err)
+	}
+	for i := range pvcs.Items {
+		pvc := &pvcs.Items[i]
+		if pvc.Name == targetPVCName || !strings.HasPrefix(pvc.Name, pvcPrefix) {
+			continue
+		}
+		if pvc.Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
+			continue
+		}
+		before := pvc.DeepCopy()
+		if pvc.Labels == nil {
+			pvc.Labels = map[string]string{}
+		}
+		pvc.Labels[fencing.FenceLabelKey] = fencing.FenceLabelValue
+		if err := p.Client.Patch(ctx, pvc, client.MergeFrom(before)); err != nil {
+			return fmt.Errorf("fence non-target pvc %q: %w", pvc.Name, err)
+		}
+	}
+	return nil
+}
+
+// statefulSetNameFromPod strips the trailing "-<ordinal>" from a StatefulSet pod
+// name (e.g. "demo-shard-0-1" → "demo-shard-0"). Returns "" when the suffix is
+// not a non-negative integer.
+func statefulSetNameFromPod(pod string) string {
+	idx := strings.LastIndex(pod, "-")
+	if idx <= 0 || idx == len(pod)-1 {
+		return ""
+	}
+	for _, c := range pod[idx+1:] {
+		if c < '0' || c > '9' {
+			return ""
+		}
+	}
+	return pod[:idx]
 }
 
 func postgresPromotionCommand() []string {
