@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/instance/fencing"
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
@@ -62,6 +63,26 @@ func aggregateShardStatus(
 		return out
 	}
 
+	// #220: a fenced member is a known-failed primary. It must never be selected as
+	// ShardStatus.Primary — otherwise its stale endpoint propagates into the
+	// StatefulSet PRIMARY_ENDPOINT, and on a restart the bootstrap init container
+	// restores standby.signal pointing at it, rewinding the real primary's
+	// post-failover writes. (A returning old primary briefly self-reports Primary
+	// before the fence stops it; this keeps it out of the status primary slot.)
+	fencedPVC := map[string]bool{}
+	{
+		var pvcs corev1.PersistentVolumeClaimList
+		if err := c.List(ctx, &pvcs, &client.ListOptions{Namespace: cluster.Namespace}); err != nil {
+			logger.V(1).Info("aggregateShardStatus: pvc list for fence check failed", "error", err)
+		} else {
+			for i := range pvcs.Items {
+				if pvcs.Items[i].Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
+					fencedPVC[pvcs.Items[i].Name] = true
+				}
+			}
+		}
+	}
+
 	now := time.Now().UTC()
 	var primaryCandidate *postgresv1alpha1.ShardEndpoint
 	var replicas []postgresv1alpha1.ShardEndpoint
@@ -93,8 +114,13 @@ func aggregateShardStatus(
 			Reason:   st.Reason,
 			Message:  st.Message,
 		}
-		switch st.Role {
-		case statusapi.RolePrimary:
+		switch {
+		case st.Role == statusapi.RolePrimary && fencedPVC["data-"+pod.Name]:
+			// #220: fenced known-failed primary (e.g. a returning old primary that
+			// self-reports Primary before its fence stops it) — never the shard primary.
+			logger.Info("ignoring Primary self-report from fenced member", "pod", pod.Name)
+			replicas = append(replicas, ep)
+		case st.Role == statusapi.RolePrimary:
 			if primaryCandidate != nil {
 				// split-brain 신호 — election 합의가 깨졌거나 patch race. 첫 후보 유지 + 경고.
 				logger.Info("multiple primaries detected (split-brain signal)",
