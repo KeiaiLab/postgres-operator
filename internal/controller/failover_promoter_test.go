@@ -70,7 +70,7 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 		t.Fatalf("target = %+v, want promotion candidate postgres container", executor.target)
 	}
 	command := strings.Join(executor.command, " ")
-	for _, want := range []string{"standby.signal", "pg_ctl", "promote", "pg_is_in_recovery"} {
+	for _, want := range []string{"standby.signal", ".keiailab-restart-primary-as-standby", "pg_ctl", "promote", "pg_is_in_recovery"} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("promotion command %q missing %q", command, want)
 		}

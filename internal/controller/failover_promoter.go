@@ -278,7 +278,11 @@ if is_primary; then
   exit 0
 fi
 
-rm -f "$DATA/standby.signal"
+# #220: clear both standby artifacts before promoting. Leaving the rejoin marker
+# in place would make this newly-promoted primary rewind itself back to its STALE
+# bootstrap PRIMARY_ENDPOINT (the old primary) on any future restart — discarding
+# its own post-failover writes. A primary must never carry a rejoin-as-standby marker.
+rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
 "$BIN/pg_ctl" promote -D "$DATA"
 
 i=0
