@@ -170,7 +170,8 @@ spec:
             - message: postgres and pg_* are reserved role names
               rule: self.name != 'postgres' && !self.name.startsWith('pg_')
             - message: passwordSecretRef and disablePassword cannot both be set
-              rule: '!(has(self.passwordSecretRef) && self.disablePassword)'
+              rule: '!(has(self.passwordSecretRef) && has(self.disablePassword) &&
+                self.disablePassword)'
           status:
             description: PostgresUserStatus is the observed reconcile state of the
               role.
