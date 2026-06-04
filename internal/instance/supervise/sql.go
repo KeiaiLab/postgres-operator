@@ -143,6 +143,20 @@ func (r *Real) IsReady(ctx context.Context) bool {
 	return one == 1
 }
 
+// IsInRecovery 는 pg_is_in_recovery() 를 질의한다. connection/query 실패 시
+// (false, false) 를 반환해 호출자가 판정 불가로 처리하도록 한다 (#220 failback).
+func (r *Real) IsInRecovery(ctx context.Context) (bool, bool) {
+	db, err := r.connect()
+	if err != nil {
+		return false, false
+	}
+	var inRecovery bool
+	if err := db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery); err != nil {
+		return false, false
+	}
+	return inRecovery, true
+}
+
 // LagBytes 는 WAL lag 를 bytes 단위로 측정한다. primary / replica 분기는
 // pg_is_in_recovery() 결과로 결정.
 //

@@ -574,6 +574,19 @@ func runStatusReporter(
 			lagCtx, lagCancel := context.WithTimeout(ctx, 1*time.Second)
 			lag = sup.LagBytes(lagCtx)
 			lagCancel()
+			// #220 failback: operator-driven failover promotes postgres via exec
+			// without the instance-manager re-electing, so the manager stays a
+			// Follower (reports Replica) while postgres is actually primary. Report
+			// Primary from the real recovery state so PRIMARY_ENDPOINT stays stable
+			// and a returning former primary rewinds to this node instead of
+			// grabbing the free lease (which rewinds away post-failover writes).
+			if role != statusapi.RolePrimary {
+				recCtx, recCancel := context.WithTimeout(ctx, 1*time.Second)
+				if inRecovery, ok := sup.IsInRecovery(recCtx); ok && !inRecovery {
+					role = statusapi.RolePrimary
+				}
+				recCancel()
+			}
 		} else {
 			ready = role == statusapi.RolePrimary || role == statusapi.RoleReplica
 		}

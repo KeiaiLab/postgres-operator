@@ -108,6 +108,12 @@ type Supervisor interface {
 	// IsReady 는 SELECT 1 round-trip 으로 postgres 응답 확인. 실패 = false.
 	IsReady(ctx context.Context) bool
 
+	// IsInRecovery 는 pg_is_in_recovery() 로 postgres 가 standby(WAL recovery)
+	// 인지 보고한다. 두 번째 반환값 ok=false 면 판정 불가 (connection/query 실패).
+	// status reporter 가 election Follower 임에도 postgres 가 실제 primary 일 때
+	// Primary 로 보고해 PRIMARY_ENDPOINT 안정화하기 위해 사용 (#220 failback).
+	IsInRecovery(ctx context.Context) (inRecovery bool, ok bool)
+
 	// LagBytes 는 PostgreSQL 의 WAL lag (bytes) 를 측정한다.
 	//
 	// primary: pg_stat_replication 의 max(pg_wal_lsn_diff(current, flush_lsn)).
