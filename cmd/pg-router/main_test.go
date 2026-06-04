@@ -12,6 +12,7 @@ package main
 
 import (
 	"encoding/binary"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -77,5 +78,43 @@ func TestBackendForUsesEnvMapping(t *testing.T) {
 	}
 	if got := backendFor("shard-9"); got != "127.0.0.1:5432" {
 		t.Fatalf("backendFor(shard-9) default = %q, want 127.0.0.1:5432", got)
+	}
+}
+
+// TestReadStartupHandlesSSLRequest pins the live-found bug: a real psql client
+// sends SSLRequest before the StartupMessage; readStartup must decline ('N') and
+// parse the StartupMessage that follows (else params are empty → all-shard-0).
+func TestReadStartupHandlesSSLRequest(t *testing.T) {
+	t.Parallel()
+
+	ssl := make([]byte, 8)
+	binary.BigEndian.PutUint32(ssl[0:4], 8)
+	binary.BigEndian.PutUint32(ssl[4:8], 80877103)
+
+	paramBytes := []byte("database\x00shop\x00\x00")
+	body := make([]byte, 4+len(paramBytes))
+	binary.BigEndian.PutUint32(body[0:4], 196608)
+	copy(body[4:], paramBytes)
+	startup := make([]byte, 4+len(body))
+	binary.BigEndian.PutUint32(startup[0:4], uint32(4+len(body)))
+	copy(startup[4:], body)
+
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
+	go func() {
+		_, _ = c2.Write(ssl)
+		decline := make([]byte, 1)
+		_, _ = io.ReadFull(c2, decline) // the 'N' reply
+		_, _ = c2.Write(startup)
+		_ = c2.Close()
+	}()
+
+	_ = c1.SetDeadline(time.Now().Add(2 * time.Second))
+	_, params, err := readStartup(c1)
+	if err != nil {
+		t.Fatalf("readStartup after SSLRequest: %v", err)
+	}
+	if params["database"] != "shop" {
+		t.Fatalf("database = %q, want shop (SSLRequest must be skipped)", params["database"])
 	}
 }

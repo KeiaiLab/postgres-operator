@@ -105,6 +105,17 @@ func readStartup(conn net.Conn) ([]byte, map[string]string, error) {
 	if _, err := io.ReadFull(conn, body); err != nil {
 		return nil, nil, err
 	}
+	// SSLRequest (80877103) / GSSENCRequest (80877104) precede the real
+	// StartupMessage. Real psql clients send SSLRequest first; the PoC speaks
+	// plaintext only, so decline with 'N' and read the StartupMessage that
+	// follows. Without this the request was mis-parsed as a (param-less) startup
+	// and every connection routed to shard-0 (live-found, pg-e2e 2026-06-04).
+	if code := binary.BigEndian.Uint32(body[0:4]); code == 80877103 || code == 80877104 {
+		if _, err := conn.Write([]byte{'N'}); err != nil {
+			return nil, nil, err
+		}
+		return readStartup(conn)
+	}
 	raw := append(hdr, body...)
 	// body[0:4] = protocol version; params follow as key\0value\0...\0\0
 	params := map[string]string{}
