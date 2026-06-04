@@ -18,10 +18,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
+	"github.com/keiailab/postgres-operator/internal/instance/fencing"
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
@@ -66,6 +68,14 @@ func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.Promotio
 	if p.Namespace == "" || plan.Target.Pod == "" {
 		return fmt.Errorf("invalid promotion target: namespace=%q pod=%q", p.Namespace, plan.Target.Pod)
 	}
+	// Clear any fence on the target PVC before promoting. An all-members-fenced
+	// state (after split-brain churn) otherwise deadlocks — the in-container
+	// promote exec can never succeed against a fenced, crash-looping container.
+	// The operator is the promotion authority, so it unfences exactly the chosen
+	// target; other members stay fenced, guaranteeing a single primary.
+	if err := p.unfenceTargetPVC(ctx, plan.Target.Pod); err != nil {
+		return fmt.Errorf("unfence promotion target %q: %w", plan.Target.Pod, err)
+	}
 	if _, err := p.PodExecutor.Exec(ctx, BackupSidecarTarget{
 		Namespace: p.Namespace,
 		Pod:       plan.Target.Pod,
@@ -109,6 +119,30 @@ func (p *clusterPodPromoter) patchPromotedPodStatus(ctx context.Context, plan fa
 		return fmt.Errorf("patch promoted pod status annotation: %w", err)
 	}
 	return nil
+}
+
+// unfenceTargetPVC clears the fence label on the promotion target's PVC
+// (`data-<pod>`, per the StatefulSet volumeClaimTemplate). Idempotent: a no-op
+// when the PVC is absent or already unfenced. See issue #200 (all-members-fenced
+// recovery deadlock).
+func (p *clusterPodPromoter) unfenceTargetPVC(ctx context.Context, podName string) error {
+	if p.Client == nil {
+		return nil
+	}
+	pvcName := "data-" + podName
+	var pvc corev1.PersistentVolumeClaim
+	if err := p.Client.Get(ctx, client.ObjectKey{Namespace: p.Namespace, Name: pvcName}, &pvc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get target pvc %q: %w", pvcName, err)
+	}
+	if pvc.Labels[fencing.FenceLabelKey] != fencing.FenceLabelValue {
+		return nil
+	}
+	before := pvc.DeepCopy()
+	delete(pvc.Labels, fencing.FenceLabelKey)
+	return p.Client.Patch(ctx, &pvc, client.MergeFrom(before))
 }
 
 func postgresPromotionCommand() []string {

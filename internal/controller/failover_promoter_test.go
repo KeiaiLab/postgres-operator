@@ -23,6 +23,7 @@ import (
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
+	"github.com/keiailab/postgres-operator/internal/instance/fencing"
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
@@ -115,4 +116,60 @@ func (f *fakePromotionPodExecutor) Exec(
 	f.target = target
 	f.command = append([]string{}, command...)
 	return nil, f.err
+}
+
+// TestPostgresClusterPromotionUnfencesTargetPVC pins the fix for the
+// all-members-fenced recovery deadlock (#200): the operator must unfence the
+// chosen promotion target's PVC so its crash-looping container can recover.
+func TestPostgresClusterPromotionUnfencesTargetPVC(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace = "default"
+		podName   = "demo-shard-0-1"
+		pvcName   = "data-demo-shard-0-1"
+	)
+
+	scheme := newScheme(t)
+	ctx := context.Background()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+			Labels:    map[string]string{fencing.FenceLabelKey: fencing.FenceLabelValue},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, pod, pvc).Build()
+	reconciler := &PostgresClusterReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		PromotionPodExecutor: &fakePromotionPodExecutor{},
+	}
+	decision := failover.Decision{
+		Failed: true,
+		Reason: failover.ReasonNoPrimary,
+		PromotionCandidate: &postgresv1alpha1.ShardEndpoint{
+			Pod:      podName,
+			Endpoint: "demo-shard-0-1.demo-shard-0.default.svc.cluster.local:5432",
+			Ready:    true,
+		},
+	}
+
+	if err := reconciler.executeClusterPromotion(ctx, cluster, "shard-0", decision); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+
+	var got corev1.PersistentVolumeClaim
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: pvcName}, &got); err != nil {
+		t.Fatalf("get pvc: %v", err)
+	}
+	if v, ok := got.Labels[fencing.FenceLabelKey]; ok {
+		t.Fatalf("target PVC still fenced (label=%q); promotion must unfence the target", v)
+	}
 }
