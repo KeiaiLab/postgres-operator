@@ -214,6 +214,45 @@ func statefulSetNameFromPod(pod string) string {
 	return pod[:idx]
 }
 
+// shouldSkipFencedCandidate reports whether automatic promotion of the chosen
+// candidate must be skipped because the candidate's PVC is fenced (a known-failed
+// primary) while another member is still unfenced and serving. This closes the
+// #220 failback: a returned former primary, re-selected during the post-failover
+// status churn, would otherwise be unfenced by unfenceTargetPVC and promoted on
+// its stale timeline — rewinding away the current primary's post-failover writes
+// (live-drill: shard-0-0 re-took, shard-0-1 lost row-2). The #200 all-members-
+// fenced deadlock recovery is preserved: when EVERY member is fenced, this returns
+// false so unfenceTargetPVC can still break the deadlock.
+func (r *PostgresClusterReconciler) shouldSkipFencedCandidate(ctx context.Context, namespace, candidatePod string) (bool, error) {
+	stsName := statefulSetNameFromPod(candidatePod)
+	if stsName == "" {
+		return false, nil
+	}
+	pvcPrefix := "data-" + stsName + "-"
+	candidatePVCName := "data-" + candidatePod
+
+	var pvcs corev1.PersistentVolumeClaimList
+	if err := r.List(ctx, &pvcs, client.InNamespace(namespace)); err != nil {
+		return false, err
+	}
+	candidateFenced := false
+	unfencedMemberExists := false
+	for i := range pvcs.Items {
+		pvc := &pvcs.Items[i]
+		if !strings.HasPrefix(pvc.Name, pvcPrefix) {
+			continue
+		}
+		fenced := pvc.Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue
+		if pvc.Name == candidatePVCName {
+			candidateFenced = fenced
+		}
+		if !fenced {
+			unfencedMemberExists = true
+		}
+	}
+	return candidateFenced && unfencedMemberExists, nil
+}
+
 // promotionActuallyHappened reports whether the promotion exec performed a REAL
 // promotion (vs. a no-op because the target was already primary). The exec script
 // prints PROMOTE_RESULT=promoted only after pg_ctl promote succeeds; a target that

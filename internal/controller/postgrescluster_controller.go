@@ -398,7 +398,19 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	failureDetected := failoverDecision.Failed && failoverDecision.PromotionCandidate != nil
 	clusterWasReady := prevPhase == postgresv1alpha1.ClusterPhaseReady
 	if r.shouldPromoteAfterDebounce(cluster.Namespace+"/"+cluster.Name, failureDetected, clusterWasReady, time.Now()) {
-		if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {
+		// #220 failback guard: never re-promote a fenced candidate (a known-failed
+		// primary) while an unfenced member is serving — otherwise the promoter's
+		// unfenceTargetPVC defeats the fence and a returned old primary re-takes on
+		// a stale timeline, rewinding away post-failover writes.
+		skipFenced, ferr := r.shouldSkipFencedCandidate(ctx, cluster.Namespace, failoverDecision.PromotionCandidate.Pod)
+		if ferr != nil {
+			logger.Error(ferr, "fenced-candidate check failed; proceeding with promotion",
+				"shard", failoverShardName, "candidate", failoverDecision.PromotionCandidate.Pod)
+		}
+		if skipFenced {
+			logger.Info("skipping promotion: candidate PVC is fenced (known-failed primary) while an unfenced member is serving (#220 failback guard)",
+				"shard", failoverShardName, "candidate", failoverDecision.PromotionCandidate.Pod)
+		} else if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {
 			logger.Error(err, "Failed to execute failover promotion",
 				"shard", failoverShardName, "pod", failoverDecision.PromotionCandidate.Pod)
 			if r.Recorder != nil {

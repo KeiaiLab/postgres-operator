@@ -318,3 +318,52 @@ func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
 		t.Error("no-op promotion must not patch the target instance-status annotation")
 	}
 }
+
+// TestShouldSkipFencedCandidate pins the #220 failback guard: a fenced candidate
+// (a known-failed primary that has returned) must be skipped while an unfenced
+// member is still serving, so the operator never unfences+re-promotes it on a
+// stale timeline. The #200 all-members-fenced deadlock recovery must still proceed.
+func TestShouldSkipFencedCandidate(t *testing.T) {
+	t.Parallel()
+	const namespace = "default"
+	scheme := newScheme(t)
+	ctx := context.Background()
+
+	mkPVC := func(name string, fenced bool) *corev1.PersistentVolumeClaim {
+		l := map[string]string{}
+		if fenced {
+			l[fencing.FenceLabelKey] = fencing.FenceLabelValue
+		}
+		return &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: l},
+		}
+	}
+
+	cases := []struct {
+		name       string
+		candidate  string
+		pvc0Fenced bool
+		pvc1Fenced bool
+		wantSkip   bool
+	}{
+		{"fenced candidate + unfenced member → skip", "demo-shard-0-0", true, false, true},
+		{"unfenced candidate → proceed", "demo-shard-0-1", true, false, false},
+		{"all members fenced → proceed (deadlock recovery)", "demo-shard-0-0", true, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+				mkPVC("data-demo-shard-0-0", tc.pvc0Fenced),
+				mkPVC("data-demo-shard-0-1", tc.pvc1Fenced),
+			).Build()
+			r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+			skip, err := r.shouldSkipFencedCandidate(ctx, namespace, tc.candidate)
+			if err != nil {
+				t.Fatalf("shouldSkipFencedCandidate: %v", err)
+			}
+			if skip != tc.wantSkip {
+				t.Errorf("skip=%v, want %v", skip, tc.wantSkip)
+			}
+		})
+	}
+}
