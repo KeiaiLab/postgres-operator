@@ -150,6 +150,7 @@ rules:
   - postgresdatabases/status
   - postgresusers/status
   - scheduledbackups/status
+  - shardsplitjobs/status
   verbs:
   - get
   - patch
@@ -162,6 +163,16 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - postgres.keiailab.io
+  resources:
+  - shardsplitjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io

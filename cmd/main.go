@@ -262,6 +262,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.ShardSplitJobReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "ShardSplitJob")
+		os.Exit(1)
+	}
+
 	if err := (&controller.PoolerReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
