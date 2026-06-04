@@ -169,3 +169,81 @@ func TestPostgresClusterPromotionUnfencesTargetPVC(t *testing.T) {
 		t.Fatalf("target PVC still fenced (label=%q); promotion must unfence the target", v)
 	}
 }
+
+// TestPostgresClusterPromotionFencesNonTargetMembers pins the fix for #220
+// (failback data loss): on promotion the operator must fence every shard member
+// except the new primary, completing the "all members fenced except the single
+// promoted primary" model. A former primary that boots back before the operator
+// propagates the new PRIMARY_ENDPOINT then finds its PVC fenced and fails closed
+// at VerifyNotFenced (exit 2) instead of re-acquiring the lease and rewinding
+// away the new primary's post-failover writes.
+func TestPostgresClusterPromotionFencesNonTargetMembers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace = "default"
+		targetPod = "demo-shard-0-1"
+	)
+
+	scheme := newScheme(t)
+	ctx := context.Background()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: targetPod, Namespace: namespace},
+	}
+	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		}
+	}
+	// data-demo-shard-0-0 = former primary, -1 = promotion target, -2 = healthy
+	// standby, and a different shard's PVC that must be left untouched.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		cluster, pod,
+		mkPVC("data-demo-shard-0-0"),
+		mkPVC("data-demo-shard-0-1"),
+		mkPVC("data-demo-shard-0-2"),
+		mkPVC("data-demo-shard-1-0"),
+	).Build()
+	reconciler := &PostgresClusterReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		PromotionPodExecutor: &fakePromotionPodExecutor{},
+	}
+	decision := failover.Decision{
+		Failed: true,
+		Reason: failover.ReasonPrimaryNotReady,
+		PromotionCandidate: &postgresv1alpha1.ShardEndpoint{
+			Pod:      targetPod,
+			Endpoint: "demo-shard-0-1.demo-shard-0.default.svc.cluster.local:5432",
+			Ready:    true,
+		},
+	}
+
+	if err := reconciler.executeClusterPromotion(ctx, cluster, "shard-0", decision); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+
+	fenced := func(name string) bool {
+		var got corev1.PersistentVolumeClaim
+		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &got); err != nil {
+			t.Fatalf("get pvc %q: %v", name, err)
+		}
+		return got.Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue
+	}
+
+	if !fenced("data-demo-shard-0-0") {
+		t.Error("former-primary member PVC data-demo-shard-0-0 must be fenced after promotion (#220)")
+	}
+	if !fenced("data-demo-shard-0-2") {
+		t.Error("non-target member PVC data-demo-shard-0-2 must be fenced after promotion (#220)")
+	}
+	if fenced("data-demo-shard-0-1") {
+		t.Error("promotion target PVC data-demo-shard-0-1 must NOT be fenced")
+	}
+	if fenced("data-demo-shard-1-0") {
+		t.Error("PVC of a different shard must NOT be fenced by a shard-0 promotion")
+	}
+}
