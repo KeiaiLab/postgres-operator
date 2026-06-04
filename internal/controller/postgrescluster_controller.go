@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,6 +60,12 @@ import (
 const (
 	statusPollInterval = 5 * time.Second
 
+	// failoverDebounceThreshold 는 자동 failover 를 발동하기 전 primary 실패가
+	// 지속되어야 하는 최소 시간이다. statusPollInterval(5s) 의 ~1.5배로, 실패가
+	// 최소 2회의 reconcile 관측에 걸쳐 지속되어야 promotion 이 실행된다 — sub-second
+	// status flicker 는 걸러지고, 진짜 실패는 ~10s 내 promote 된다.
+	failoverDebounceThreshold = 8 * time.Second
+
 	// AnnotationHibernation 은 CloudNativePG 의 선언형 하이버네이션 스위치와
 	// 같은 annotation 이다. cnpg.io/hibernation=on 이면 database Pod 를 0개로
 	// 줄이고 PVC 소유권은 재수화를 위해 보존한다.
@@ -84,6 +91,16 @@ type PostgresClusterReconciler struct {
 	// 안의 postgres container 로 실행할 pods/exec 경로다. nil 이면 SetupWithManager
 	// 가 manager rest.Config 기반 production executor 를 주입한다.
 	PromotionPodExecutor BackupSidecarExecutor
+
+	// failoverPending 은 자동 failover 를 debounce 한다 — primary 실패가
+	// failoverDebounceThreshold 동안 *지속* 되어야 executeClusterPromotion 이 실행된다.
+	// 이는 standby join 중 일시적 Primary==nil 같은 single-reconcile status flicker 가
+	// 가짜 promotion 을 유발(→ fenceNonTargetMembers 로 건강한 멤버를 fence)하는 것을
+	// 막는다 (#220 라이브 드릴 RCA). namespace/name 키. in-memory 로 충분하다:
+	// operator 는 단일 leader-elected replica 이고, 재시작은 window 를 보수적으로
+	// 재시작한다.
+	failoverPending   map[string]time.Time
+	failoverPendingMu sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -375,7 +392,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	failoverShardName, failoverDecision := clusterFailoverDecision(shardStatuses)
-	if prevPhase == postgresv1alpha1.ClusterPhaseReady && failoverDecision.Failed && failoverDecision.PromotionCandidate != nil {
+	// 가짜 promotion 차단 (#220 라이브 드릴 RCA): 실패가 debounce window 동안 지속될
+	// 때만 promote. 일시적 status flicker 는 fenceNonTargetMembers 를 통해 건강한 멤버를
+	// fence 할 수 있으므로 instantaneous 트리거 금지.
+	failureDetected := failoverDecision.Failed && failoverDecision.PromotionCandidate != nil
+	clusterWasReady := prevPhase == postgresv1alpha1.ClusterPhaseReady
+	if r.shouldPromoteAfterDebounce(cluster.Namespace+"/"+cluster.Name, failureDetected, clusterWasReady, time.Now()) {
 		if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {
 			logger.Error(err, "Failed to execute failover promotion",
 				"shard", failoverShardName, "pod", failoverDecision.PromotionCandidate.Pod)
@@ -521,6 +543,40 @@ func applyClusterConditions(
 		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonProgressing, "reconcile in progress")
 		setCondition(conds, ConditionProgressing, metav1.ConditionTrue, ReasonReconciling, "creating or waiting for subresources")
 	}
+}
+
+// shouldPromoteAfterDebounce 는 자동 failover 를 sustained-failure window 뒤로
+// gate 한다. primary 실패가 failoverDebounceThreshold 동안 *연속* 관측되어야 true 를
+// 반환한다 — single-reconcile status flicker(가짜 promotion 의 근원, fenceNonTargetMembers
+// 와 결합 시 건강한 멤버 fence)를 걸러낸다. failed=false 는 window 를 clear 한다.
+// in-memory map 외에는 순수 함수라 gate 로직을 라이브 클러스터 없이 unit test 가능하다.
+// reconcile 은 statusPollInterval(5s) 주기 requeue + Owns(STS)/Pod watch 로 window
+// 동안 재평가된다.
+//
+// canStart 은 window *시작* 만 gate 한다(클러스터가 실패 최초 관측 시점에 Ready 였어야
+// 함 — 기존 prevPhase==Ready 가드 미러). 일단 시작되면, 실패가 phase 를 Ready 밖으로
+// 떨어뜨린 뒤에도 후속 reconcile 이 window 를 *이어간다*. canStart 을 매 reconcile
+// 평가하면 failure 가 첫 reconcile 직후 phase 를 떨어뜨려 window 가 영영 누적되지
+// 못한다(라이브 드릴 RCA).
+func (r *PostgresClusterReconciler) shouldPromoteAfterDebounce(key string, failed, canStart bool, now time.Time) bool {
+	r.failoverPendingMu.Lock()
+	defer r.failoverPendingMu.Unlock()
+	if !failed {
+		delete(r.failoverPending, key)
+		return false
+	}
+	if r.failoverPending == nil {
+		r.failoverPending = map[string]time.Time{}
+	}
+	first, ok := r.failoverPending[key]
+	if !ok {
+		if !canStart {
+			return false
+		}
+		r.failoverPending[key] = now
+		return false
+	}
+	return now.Sub(first) >= failoverDebounceThreshold
 }
 
 func clusterFailoverDecision(shards []postgresv1alpha1.ShardStatus) (string, failover.Decision) {
