@@ -384,6 +384,14 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
 		}
 	}
+	// #205: re-seed any standby that failed to rejoin (not-ready too long with a
+	// ready primary, e.g. stuck in startup recovery after a primary restart).
+	// Best-effort — log and continue.
+	if !hibernating {
+		if err := r.reconcileStaleReplicas(ctx, &cluster, shardStatuses, time.Now()); err != nil {
+			logger.Error(err, "stale standby re-seed failed (best-effort)")
+		}
+	}
 	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)
 
