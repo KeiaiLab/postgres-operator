@@ -18,7 +18,7 @@ import (
 // PostgresUserSpec exposes the core operational surface of CNPG's managed.roles as a separate CRD.
 //
 // +kubebuilder:validation:XValidation:rule="self.name != 'postgres' && !self.name.startsWith('pg_')",message="postgres and pg_* are reserved role names"
-// +kubebuilder:validation:XValidation:rule="!(has(self.passwordSecretRef) && self.disablePassword)",message="passwordSecretRef and disablePassword cannot both be set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.passwordSecretRef) && has(self.disablePassword) && self.disablePassword)",message="passwordSecretRef and disablePassword cannot both be set"
 type PostgresUserSpec struct {
 	// Cluster is the PostgresCluster in which the role is created.
 	// +kubebuilder:validation:Required
