@@ -742,3 +742,51 @@ func TestBuildPGStatefulSet_DefaultResources_BurstableQoS(t *testing.T) {
 		t.Errorf("user-specified resources overridden: CPU = %s, want 500m", gotCPU.String())
 	}
 }
+
+// TestSanitizeBackupRepoPath_RejectsInjection 은 사용자 제어 repo.Path 의 shell
+// injection 시도(따옴표/세미콜론/명령치환/개행)가 기본 mount path 로 차단됨을 검증한다.
+func TestSanitizeBackupRepoPath_RejectsInjection(t *testing.T) {
+	cases := map[string]string{
+		"":                    backupRepoMountPath,
+		"/var/lib/pgbackrest": "/var/lib/pgbackrest",
+		"backups/cluster-1":   "backups/cluster-1",
+		"/x'; rm -rf / #":     backupRepoMountPath,
+		"/x$(whoami)":         backupRepoMountPath,
+		"/x`id`":              backupRepoMountPath,
+		"/x\nrm -rf /":        backupRepoMountPath,
+	}
+	for in, want := range cases {
+		if got := sanitizeBackupRepoPath(in); got != want {
+			t.Errorf("sanitizeBackupRepoPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestArchiveConfig_NoSingleQuote_ConfSafe 는 archive_command 가 postgresql.conf 의
+// `archive_command = '<cmd>'` single-quote 래핑을 깨지 않음을 검증한다 (live CrashLoop
+// 회귀 가드: 2026-06-04 sh -c '...' single quote → conf FATAL).
+func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Backup: &postgresv1alpha1.ClusterBackupSpec{
+				Enabled: true,
+				Repo:    &postgresv1alpha1.ClusterBackupRepoSpec{Type: "filesystem", Path: "/var/lib/pgbackrest"},
+			},
+		},
+	}
+	cfg := archiveConfigForCluster(cluster)
+	if cfg == nil {
+		t.Fatal("archiveConfigForCluster returned nil for backup-enabled cluster")
+	}
+	if strings.Contains(cfg.Command, "'") {
+		t.Errorf("archive_command must not contain single quote (breaks postgresql.conf): %q", cfg.Command)
+	}
+	if !strings.Contains(cfg.Command, "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest") {
+		t.Errorf("archive_command must carry repo env: %q", cfg.Command)
+	}
+	// `exec VAR=val` 은 not-found → `exec env VAR=val` 이어야 (live 127 회귀 가드).
+	if !strings.Contains(cfg.Command, "exec env ") {
+		t.Errorf("archive_command must use `exec env` (exec rejects env prefix): %q", cfg.Command)
+	}
+}

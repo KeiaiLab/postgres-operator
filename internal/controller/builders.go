@@ -8,6 +8,7 @@ package controller
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -80,10 +81,13 @@ const (
 
 	externalClusterCredentialsVolumeName = "external-cluster-credentials"
 	externalClusterCredentialsMountPath  = "/etc/postgres-external/source"
-	primaryPGPassFile                    = "/tmp/primary.pgpass"
-	primaryClientKeyFile                 = "/tmp/primary-client.key"
-	primaryClientCertFile                = "/tmp/primary-client.crt"
-	primaryRootCertFile                  = "/tmp/primary-root.crt"
+
+	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 가 마운트되는 위치다.
+	backupRepoMountPath   = "/var/lib/pgbackrest"
+	primaryPGPassFile     = "/tmp/primary.pgpass"
+	primaryClientKeyFile  = "/tmp/primary-client.key"
+	primaryClientCertFile = "/tmp/primary-client.crt"
+	primaryRootCertFile   = "/tmp/primary-root.crt"
 
 	// postgresUserUID는 PostgreSQL 표준 postgres user의 UID/GID다.
 	// ADR 0006에 의해 동결된 데이터플레인 Pod의 runAsUser/runAsGroup/fsGroup 기본값.
@@ -167,6 +171,8 @@ func dataplaneEphemeralVolumeMounts() []corev1.VolumeMount {
 		{Name: "ephemeral-tmp", MountPath: "/tmp"},
 		{Name: "ephemeral-run", MountPath: "/run"},
 		{Name: "ephemeral-pg-run", MountPath: "/var/run/postgresql"},
+		// #209: filesystem pgBackRest repo (WAL archive-push + full backup land here).
+		{Name: "pgbackrest-repo", MountPath: backupRepoMountPath},
 	}
 }
 
@@ -177,6 +183,7 @@ func dataplaneEphemeralVolumes() []corev1.Volume {
 		{Name: "ephemeral-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-pg-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "pgbackrest-repo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 }
 
@@ -353,11 +360,50 @@ func archiveConfigForCluster(cluster *postgresv1alpha1.PostgresCluster) *archive
 		return nil
 	}
 	stanza := cluster.Name
-	cmd := fmt.Sprintf("pgbackrest --stanza=%s archive-push %%p", stanza)
+	// #209: pgBackRest needs a configured repository or every archive-push/backup
+	// fails immediately. For a filesystem repo, pass repo config inline via env
+	// (repo1-type=posix, repo1-path) and create the stanza on first push
+	// (idempotent), so WAL archiving lands in the repo. Non-filesystem repos
+	// (s3/gcs/azure) are future work.
+	repoPath := backupRepoMountPath
+	if repo := cluster.Spec.Backup.Repo; repo != nil && repo.Path != "" {
+		repoPath = sanitizeBackupRepoPath(repo.Path)
+	}
+	repoEnv := fmt.Sprintf("PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=%s", repoPath)
+	// archive_command 는 postgresql.conf 에 `archive_command = '<cmd>'` 로 single-quote
+	// 감싸 렌더되므로 (renderPostgresConfig line ~340), cmd 자체에 single quote 를 쓰면
+	// conf 파싱이 깨진다 (FATAL: configuration file contains errors). double-quote
+	// wrapper 로 single quote 를 회피한다 — repoPath 는 sanitizeBackupRepoPath 로
+	// 검증되어 double quote/$/백틱 등 주입 문자가 없다.
+	// `exec VAR=val cmd` 는 POSIX 에서 VAR=val 을 실행 파일로 오인한다 (exec 는 special
+	// builtin → env 할당 prefix 불가, "exec: VAR=val: not found"). `env` 명령으로 감싸
+	// 변수 설정 후 pgbackrest 를 exec 한다 (라이브 sidecar exec 2026-06-04 회귀 fix).
+	// pgbackrest 공통 옵션 (plugin.go pgbackrestCommonArgs 미러, 라이브 검증 2026-06-04):
+	// readOnlyRootFilesystem + uid 70 + deb /etc/pgbackrest.conf(640) 환경 회피
+	// (--config=/dev/null + --log-level-file=off + --pg1-path + --pg1-user/database).
+	commonArgs := "--config=/dev/null --log-level-file=off --pg1-path=" + pgDataSubdir +
+		" --pg1-user=postgres --pg1-database=postgres"
+	cmd := fmt.Sprintf(
+		`sh -c "env %s pgbackrest %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s pgbackrest %s --stanza=%s archive-push \"$1\"" -- %%p`,
+		repoEnv, commonArgs, stanza, repoEnv, commonArgs, stanza)
 	return &archivePostgresConfig{
 		Enabled: true,
 		Command: cmd,
 	}
+}
+
+// backupRepoPathPattern 은 filesystem repo 경로에 허용되는 문자 집합 (절대/상대 경로).
+var backupRepoPathPattern = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
+
+// sanitizeBackupRepoPath 는 사용자 제어 repo.Path 를 inline shell archive_command 에
+// 안전하게 삽입하기 위해 filesystem 경로 문자만 허용한다. 따옴표·세미콜론·개행 등
+// 위반 문자가 있으면 기본 mount path 로 fallback — shell injection 차단
+// (repo.Path 는 PostgresCluster CRD 의 사용자 제어 필드).
+func sanitizeBackupRepoPath(p string) string {
+	if p == "" || !backupRepoPathPattern.MatchString(p) {
+		return backupRepoMountPath
+	}
+	return p
 }
 
 func quoteSynchronousStandbyNames(names []string) []string {

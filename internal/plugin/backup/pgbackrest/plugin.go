@@ -141,6 +141,16 @@ func (p *Plugin) RestorePIT(ctx context.Context, target plugin.ClusterTarget, ts
 }
 
 // BackupCommand 는 pgbackrest backup argv 를 만든다.
+// pgbackrestCommonArgs 는 readOnlyRootFilesystem + uid 70(pg-keiailab) + pgbackrest deb
+// 가 생성한 /etc/pgbackrest.conf(mode 640) 환경에서 pgbackrest 가 동작하는 데 필요한
+// 공통 옵션이다 (라이브 검증 2026-06-04 pg-backup-e2e):
+//   --config=/dev/null    deb /etc/pgbackrest.conf permission denied(exit 41) 우회
+//   --log-level-file=off  readOnlyRootFilesystem 의 /var/log/pgbackrest 쓰기 회피
+//   --pg1-path            PGDATA (builders.go pgDataSubdir 미러)
+//   --pg1-user/database   DB 연결 superuser (OS user pg-keiailab 는 DB role 부재)
+const pgbackrestCommonArgs = "--config=/dev/null --log-level-file=off " +
+	"--pg1-path=/var/lib/postgresql/data/pgdata --pg1-user=postgres --pg1-database=postgres"
+
 func (p *Plugin) BackupCommand(target plugin.ClusterTarget, opts plugin.BackupOptions) ([]string, error) {
 	backupType, err := normalizeBackupType(opts.Type)
 	if err != nil {
@@ -149,12 +159,18 @@ func (p *Plugin) BackupCommand(target plugin.ClusterTarget, opts plugin.BackupOp
 	if strings.TrimSpace(target.Name) == "" {
 		return nil, errors.New("pgbackrest requires target cluster name as stanza")
 	}
+	// #209: pass filesystem repo config inline and ensure the stanza exists, so
+	// the backup has a configured repository (mirrors the archive_command wrapper
+	// in builders.go archiveConfigForCluster). Repo path = backupRepoMountPath.
+	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"
 	return []string{
-		p.command,
-		"--stanza=" + target.Name,
-		"--repo=" + normalizeRepo(opts.Repo),
-		"--type=" + backupType,
-		"backup",
+		"sh", "-c",
+		// `env VAR=val cmd` (not `exec VAR=val cmd`): exec is a POSIX special builtin
+		// and rejects env-assignment prefixes ("exec: VAR=val: not found"). (#209 live fix)
+		// --archive-check=n: emptyDir repo 의 초기 WAL 미archive 허용 (online backup).
+		fmt.Sprintf("env %s %s %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s %s %s --stanza=%s --repo=%s --type=%s --archive-check=n backup",
+			repoEnv, p.command, pgbackrestCommonArgs, target.Name,
+			repoEnv, p.command, pgbackrestCommonArgs, target.Name, normalizeRepo(opts.Repo), backupType),
 	}, nil
 }
 
@@ -163,12 +179,13 @@ func (p *Plugin) RestoreCommand(target plugin.ClusterTarget, ts time.Time) ([]st
 	if strings.TrimSpace(target.Name) == "" {
 		return nil, errors.New("pgbackrest requires target cluster name as stanza")
 	}
+	// #209: PITR restore also needs the repo configured (same filesystem repo as
+	// archive_command / BackupCommand).
+	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"
 	return []string{
-		p.command,
-		"--stanza=" + target.Name,
-		"--type=time",
-		"--target=" + formatTargetTime(ts),
-		"restore",
+		"sh", "-c",
+		fmt.Sprintf("exec env %s %s %s --stanza=%s --type=time --target=%s restore",
+			repoEnv, p.command, pgbackrestCommonArgs, target.Name, formatTargetTime(ts)),
 	}, nil
 }
 

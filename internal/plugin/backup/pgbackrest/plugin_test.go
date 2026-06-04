@@ -9,7 +9,7 @@ package pgbackrest
 import (
 	"context"
 	"errors"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,9 +82,14 @@ func TestPerformBackupRunsPgBackRestCommand(t *testing.T) {
 		t.Fatalf("PerformBackup error: %v", err)
 	}
 
-	wantArgs := []string{"--stanza=demo", "--repo=1", "--type=incr", "backup"}
-	if runner.command != "pgbackrest-test" || !reflect.DeepEqual(runner.args, wantArgs) {
-		t.Fatalf("command mismatch: command=%q args=%v want %v", runner.command, runner.args, wantArgs)
+	// #209: backup now runs via a `sh -c` wrapper (stanza-create + repo env + backup).
+	if runner.command != "sh" || len(runner.args) != 2 || runner.args[0] != "-c" {
+		t.Fatalf("command should be sh -c wrapper: command=%q args=%v", runner.command, runner.args)
+	}
+	for _, want := range []string{"pgbackrest-test", "--stanza=demo", "--repo=1", "--type=incr", "backup", "stanza-create", "exec env ", "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"} {
+		if !strings.Contains(runner.args[1], want) {
+			t.Fatalf("backup wrapper missing %q in %q", want, runner.args[1])
+		}
 	}
 	if result.BackupID != "20260512-010203F" {
 		t.Fatalf("BackupID: got %q, want parsed label", result.BackupID)
@@ -107,9 +112,10 @@ func TestPerformBackupMapsDifferentialType(t *testing.T) {
 		t.Fatalf("PerformBackup error: %v", err)
 	}
 
-	wantArgs := []string{"--stanza=demo", "--repo=2", "--type=diff", "backup"}
-	if !reflect.DeepEqual(runner.args, wantArgs) {
-		t.Fatalf("args=%v want %v", runner.args, wantArgs)
+	for _, want := range []string{"--stanza=demo", "--repo=2", "--type=diff", "backup"} {
+		if !strings.Contains(runner.args[1], want) {
+			t.Fatalf("backup wrapper missing %q in %q", want, runner.args[1])
+		}
 	}
 }
 
@@ -123,9 +129,10 @@ func TestRestorePITRunsPgBackRestTimeRestore(t *testing.T) {
 		t.Fatalf("RestorePIT error: %v", err)
 	}
 
-	wantArgs := []string{"--stanza=demo", "--type=time", "--target=2026-05-12 01:02:03+00:00", "restore"}
-	if !reflect.DeepEqual(runner.args, wantArgs) {
-		t.Fatalf("args=%v want %v", runner.args, wantArgs)
+	for _, want := range []string{"--stanza=demo", "--type=time", "--target=2026-05-12 01:02:03+00:00", "restore", "exec env ", "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"} {
+		if !strings.Contains(runner.args[1], want) {
+			t.Fatalf("restore wrapper missing %q in %q", want, runner.args[1])
+		}
 	}
 }
 
