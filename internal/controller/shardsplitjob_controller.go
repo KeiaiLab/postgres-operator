@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,9 +27,9 @@ import (
 //   - Pending  : router.ValidateSplitPlan(#213) 데이터 보존 불변식 gate
 //   - InitialCopy: router.CopyTable(#215) source→target (가역, rollback=target drop)
 //   - Cutover  : write-block + routing 전환 (*비가역*). AllowForwardOnly=true 면
-//                rollback 불가하므로 본 골격은 진입을 거부(Failed)하고 운영자/안전망
-//                (snapshot+rollback, §6 L3)을 갖춘 후속 reconciler 로 위임한다.
-//                AllowForwardOnly=false(rollback 가능) 만 자동 진행.
+//     rollback 불가하므로 본 골격은 진입을 거부(Failed)하고 운영자/안전망
+//     (snapshot+rollback, §6 L3)을 갖춘 후속 reconciler 로 위임한다.
+//     AllowForwardOnly=false(rollback 가능) 만 자동 진행.
 //
 // CopyTable 의 실 DSN 결선(cluster shard endpoint)과 CDC logical replication 은
 // 별 트랙. 본 골격은 phase 진행 + gate 의 정확성(envtest)을 봉인한다.
@@ -39,6 +40,7 @@ type ShardSplitJobReconciler struct {
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardsplitjobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardsplitjobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardranges,verbs=get;list;watch;update;patch
 
 // Reconcile 은 ShardSplitJob 의 다음 phase 로 한 단계 전이한다 (즉시 requeue 로 진행).
 func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -54,6 +56,22 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		postgresv1alpha1.ShardSplitPhaseFailed,
 		postgresv1alpha1.ShardSplitPhaseAborted:
 		return ctrl.Result{}, nil
+	}
+
+	// RoutingUpdate phase: 실 routing 전환 — 해당 keyspace 의 ShardRange CRD 의 ranges 를
+	// target 으로 갱신한다. *가역* cutover 결과(rollback=ShardRange 원복, §6 L3 안전망).
+	// 사용자 비가역 승인(2026-06-04) 하에 진입. write-block(운영 write freeze) + CDC
+	// logical replication 은 운영 cluster 연동 후속(별 트랙).
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseRoutingUpdate {
+		if err := r.applyRouting(ctx, &ssj); err != nil {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = err.Error()
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	next, failure := r.nextPhase(&ssj)
@@ -134,6 +152,27 @@ func flattenTargetRanges(targets []postgresv1alpha1.ShardSplitTarget) []postgres
 		out = append(out, t.Ranges...)
 	}
 	return out
+}
+
+// applyRouting 은 ShardSplitJob 의 cluster/keyspace 에 해당하는 ShardRange 의 ranges 를
+// target 으로 갱신하여 routing 을 새 shard 로 전환한다 (가역 cutover — 원본 ShardRange
+// 로 rollback). split plan 은 Pending phase 에서 ValidateSplitPlan 으로 이미 검증됨.
+func (r *ShardSplitJobReconciler) applyRouting(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) error {
+	var list postgresv1alpha1.ShardRangeList
+	if err := r.List(ctx, &list, client.InNamespace(ssj.Namespace)); err != nil {
+		return fmt.Errorf("list ShardRange: %w", err)
+	}
+	for i := range list.Items {
+		sr := &list.Items[i]
+		if sr.Spec.Cluster == ssj.Spec.Cluster && sr.Spec.Keyspace == ssj.Spec.Keyspace {
+			sr.Spec.Ranges = flattenTargetRanges(ssj.Spec.Targets)
+			if err := r.Update(ctx, sr); err != nil {
+				return fmt.Errorf("update ShardRange %s: %w", sr.Name, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
 }
 
 // SetupWithManager 는 reconciler 를 manager 에 등록한다.
