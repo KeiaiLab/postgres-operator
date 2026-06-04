@@ -73,14 +73,24 @@ func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.Promotio
 	if err := p.unfenceTargetPVC(ctx, plan.Target.Pod); err != nil {
 		return fmt.Errorf("unfence promotion target %q: %w", plan.Target.Pod, err)
 	}
-	if _, err := p.PodExecutor.Exec(ctx, BackupSidecarTarget{
+	out, err := p.PodExecutor.Exec(ctx, BackupSidecarTarget{
 		Namespace: p.Namespace,
 		Pod:       plan.Target.Pod,
 		Container: pgContainerName,
-	}, postgresPromotionCommand()); err != nil {
+	}, postgresPromotionCommand())
+	if err != nil {
 		return err
 	}
 	if p.Client == nil {
+		return nil
+	}
+	// Only fence other members + record the new primary when a REAL promotion
+	// happened. A no-op exec (the candidate was already primary — a spurious
+	// promotion from a transient status mis-read during the standby-join /
+	// election-settle window, where the running primary momentarily reports a
+	// non-Primary role and is mis-listed as a Ready replica candidate) must NOT
+	// fence: it would fence the healthy standby (#220 live-drill RCA).
+	if !promotionActuallyHappened(out) {
 		return nil
 	}
 	// Fence every other shard member so a former primary that boots back before
@@ -204,6 +214,16 @@ func statefulSetNameFromPod(pod string) string {
 	return pod[:idx]
 }
 
+// promotionActuallyHappened reports whether the promotion exec performed a REAL
+// promotion (vs. a no-op because the target was already primary). The exec script
+// prints PROMOTE_RESULT=promoted only after pg_ctl promote succeeds; a target that
+// was already primary prints PROMOTE_RESULT=noop-already-primary. Gating the fence
+// on a real promotion neutralizes spurious promotions of an already-primary
+// candidate (#220 live-drill RCA).
+func promotionActuallyHappened(execOutput []byte) bool {
+	return strings.Contains(string(execOutput), "PROMOTE_RESULT=promoted")
+}
+
 func postgresPromotionCommand() []string {
 	const script = `set -eu
 BIN="${POSTGRES_BIN_DIR:-/usr/lib/postgresql/18/bin}"
@@ -215,6 +235,7 @@ is_primary() {
 }
 
 if is_primary; then
+  echo "PROMOTE_RESULT=noop-already-primary"
   exit 0
 fi
 
@@ -224,6 +245,7 @@ rm -f "$DATA/standby.signal"
 i=0
 while [ "$i" -lt 30 ]; do
   if is_primary; then
+    echo "PROMOTE_RESULT=promoted"
     exit 0
   fi
   i=$((i + 1))
