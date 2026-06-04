@@ -37,6 +37,12 @@ type Mock struct {
 	Lag   int64
 	pid   int
 
+	// InRecovery + InRecoveryOK 는 IsInRecovery 의 반환값을 제어한다. 기본
+	// (false, false) 는 "판정 불가" → status reporter 가 override 안 함 (기존
+	// 테스트 동작 보존).
+	InRecovery   bool
+	InRecoveryOK bool
+
 	started bool
 	exitCh  chan error
 }
@@ -124,6 +130,13 @@ func (m *Mock) IsReady(_ context.Context) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.Ready
+}
+
+// IsInRecovery 는 InRecovery / InRecoveryOK 필드를 그대로 반환.
+func (m *Mock) IsInRecovery(_ context.Context) (bool, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.InRecovery, m.InRecoveryOK
 }
 
 // LagBytes 는 Lag 필드를 그대로 반환 (테스트 stub). 기본값 0.
