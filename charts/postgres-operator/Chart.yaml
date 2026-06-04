@@ -39,7 +39,7 @@ annotations:
   # 본 chart의 beta 신호. Helm hub/artifacthub에 beta 라벨로 표시되도록.
   artifacthub.io/alternativeName: keiailab-postgres-operator
   artifacthub.io/maturity: beta
-  artifacthub.io/license: Apache-2.0
+  artifacthub.io/license: MIT
   artifacthub.io/category: database
   artifacthub.io/operator: "true"
   artifacthub.io/operatorCapabilities: Deep Insights
