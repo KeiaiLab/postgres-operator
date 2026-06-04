@@ -100,6 +100,7 @@ type fakePromotionPodExecutor struct {
 	called  int
 	target  BackupSidecarTarget
 	command []string
+	out     []byte
 	err     error
 }
 
@@ -111,7 +112,13 @@ func (f *fakePromotionPodExecutor) Exec(
 	f.called++
 	f.target = target
 	f.command = append([]string{}, command...)
-	return nil, f.err
+	out := f.out
+	if out == nil {
+		// Default to a real promotion so promotion/fence tests exercise the
+		// post-promotion path (fence + status patch).
+		out = []byte("PROMOTE_RESULT=promoted\n")
+	}
+	return out, f.err
 }
 
 // TestPostgresClusterPromotionUnfencesTargetPVC pins the fix for the
@@ -245,5 +252,69 @@ func TestPostgresClusterPromotionFencesNonTargetMembers(t *testing.T) {
 	}
 	if fenced("data-demo-shard-1-0") {
 		t.Error("PVC of a different shard must NOT be fenced by a shard-0 promotion")
+	}
+}
+
+// TestPostgresClusterPromotionNoopDoesNotFence verifies the #220 live-drill guard:
+// a spurious promotion whose candidate is already primary (exec returns
+// PROMOTE_RESULT=noop-already-primary) must NOT fence other members nor patch the
+// target's status — otherwise a transient status mis-read during standby join
+// would fence the healthy standby.
+func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace = "default"
+		targetPod = "demo-shard-0-0" // already-primary candidate (spurious)
+	)
+
+	scheme := newScheme(t)
+	ctx := context.Background()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: targetPod, Namespace: namespace}}
+	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		cluster, pod,
+		mkPVC("data-demo-shard-0-0"),
+		mkPVC("data-demo-shard-0-1"),
+	).Build()
+	reconciler := &PostgresClusterReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		PromotionPodExecutor: &fakePromotionPodExecutor{out: []byte("PROMOTE_RESULT=noop-already-primary\n")},
+	}
+	decision := failover.Decision{
+		Failed: true,
+		Reason: failover.ReasonNoPrimary,
+		PromotionCandidate: &postgresv1alpha1.ShardEndpoint{
+			Pod:      targetPod,
+			Endpoint: "demo-shard-0-0.demo-shard-0.default.svc.cluster.local:5432",
+			Ready:    true,
+		},
+	}
+
+	if err := reconciler.executeClusterPromotion(ctx, cluster, "shard-0", decision); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+
+	for _, name := range []string{"data-demo-shard-0-0", "data-demo-shard-0-1"} {
+		var got corev1.PersistentVolumeClaim
+		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &got); err != nil {
+			t.Fatalf("get pvc %q: %v", name, err)
+		}
+		if got.Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
+			t.Errorf("no-op promotion must not fence %q", name)
+		}
+	}
+	var gotPod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: targetPod}, &gotPod); err != nil {
+		t.Fatalf("get pod: %v", err)
+	}
+	if _, ok := gotPod.Annotations[statusapi.AnnotationKey]; ok {
+		t.Error("no-op promotion must not patch the target instance-status annotation")
 	}
 }
