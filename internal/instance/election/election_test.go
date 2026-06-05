@@ -101,6 +101,62 @@ func TestPrimaryLeaseName_NegativeOrdinalReturnsError(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// Reshard target lease 명명 (G3 online-resharding, ADR-0027)
+// ----------------------------------------------------------------------------
+
+func TestReshardTargetLeaseName_Format(t *testing.T) {
+	cases := []struct {
+		shardID string
+		want    string
+	}{
+		{"shard-0a", "orders-rsd-shard-0a-primary"},
+		{"t0", "orders-rsd-t0-primary"},
+	}
+	for _, c := range cases {
+		got, err := ReshardTargetLeaseName("orders", c.shardID)
+		if err != nil {
+			t.Fatalf("shardID=%q: unexpected error: %v", c.shardID, err)
+		}
+		if got != c.want {
+			t.Errorf("shardID=%q: got %q, want %q", c.shardID, got, c.want)
+		}
+	}
+}
+
+func TestReshardTargetLeaseName_EmptyShardIDReturnsError(t *testing.T) {
+	if _, err := ReshardTargetLeaseName("orders", ""); err == nil {
+		t.Fatal("ReshardTargetLeaseName(shardID=\"\") must return error")
+	}
+}
+
+// TestReshardTargetLeaseName_NeverCollidesWithOrdinal 은 ADR-0027 의 핵심 격리
+// 불변식을 봉인한다 — target lease 가 *어떤 ordinal 과도* 충돌하지 않아야 한다.
+// 충돌 시 target instance manager 가 실 shard 의 election 에 끼어들어 split-brain.
+func TestReshardTargetLeaseName_NeverCollidesWithOrdinal(t *testing.T) {
+	const cluster = "orders"
+	// ordinal lease 이름 집합 (넓은 범위) 을 모은다.
+	ordinalLeases := map[string]bool{}
+	for ord := int32(0); ord < 1000; ord++ {
+		name, err := PrimaryLeaseName(cluster, "shard", ord)
+		if err != nil {
+			t.Fatalf("ordinal=%d: %v", ord, err)
+		}
+		ordinalLeases[name] = true
+	}
+	// target lease 이름이 ordinal 집합과 절대 겹치지 않음을 확인. "0"/"42" 처럼
+	// 숫자형 shardID 도 `-rsd-` segment 덕에 `-shard-<ord>-` 와 분리된다.
+	for _, shardID := range []string{"shard-0a", "0", "42", "t0", "999"} {
+		got, err := ReshardTargetLeaseName(cluster, shardID)
+		if err != nil {
+			t.Fatalf("shardID=%q: %v", shardID, err)
+		}
+		if ordinalLeases[got] {
+			t.Errorf("target lease %q (shardID=%q) 가 ordinal lease 와 충돌", got, shardID)
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
 // Real 입력 검증
 // ----------------------------------------------------------------------------
 

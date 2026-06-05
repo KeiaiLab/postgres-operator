@@ -191,3 +191,21 @@ func PrimaryLeaseName(cluster, role string, shardOrdinal int32) (string, error) 
 	}
 	return fmt.Sprintf("%s-shard-%d-primary", cluster, shardOrdinal), nil
 }
+
+// ReshardTargetLeaseName 은 G3 online-resharding 의 *target shard* (ADR-0027) 가
+// election 에 사용할 lease 이름을 제공한다.
+//
+//	shardID(비어 있지 않음) → "<cluster>-rsd-<shardID>-primary"
+//
+// target shard 의 instance manager 가 ordinal shard 의 lease
+// ("<cluster>-shard-<ord>-primary", PrimaryLeaseName) 를 *재사용하면* 실 shard 의
+// election 에 끼어들어 split-brain 또는 promotion 분쟁을 일으킨다. 본 함수는
+// `-rsd-` segment 로 ordinal `-shard-` 와 *구조적으로 분리* 하여 어떤 ordinal/shardID
+// 조합으로도 lease 이름이 충돌하지 않음을 보장한다 (P1 자원명 격리 sister —
+// names.go TargetShard*Name 과 동일 `-rsd-` 규약).
+func ReshardTargetLeaseName(cluster, shardID string) (string, error) {
+	if shardID == "" {
+		return "", fmt.Errorf("ReshardTargetLeaseName: shardID must not be empty")
+	}
+	return fmt.Sprintf("%s-rsd-%s-primary", cluster, shardID), nil
+}
