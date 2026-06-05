@@ -37,6 +37,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0024](0024-lefthook-pre-push-incremental-lint-envtest.md) | lefthook pre-push 3 hook incremental gate (full-lint + markdown-link-check --new-from-rev, envtest binary 자동 보장) + 22 dead link 가시화 (RFC-0002 후 push 차단 회피) | Accepted | 2026-05-21 |
 | [ADR-0025](0025-repmgr-pgbouncer-barman-integration.md) | Repmgr / PgBouncer / Barman 통합 — bitnami parity (orphan recovery from duplicate 0006; PR #98/#96 attempted 0023/0024 but collided with concurrent merges, renumbered to next free 0025) | Proposed | 2026-05-14 |
 | [ADR-0026](0026-operatorhub-io-version-sync.md) | OperatorHub.io 최신 버전 자동 sync (orphan recovery from duplicate 0007; PR #98/#96 attempted 0024 but collided with concurrent merges, renumbered to next free 0026) | Proposed | 2026-05-14 |
+| [ADR-0027](0027-non-ordinal-reshard-target-shard-identity.md) | G3 online-resharding 의 비-ordinal target shard 식별 모델 (격리 label `reshard-target` + phase 별 mergeable 증분 + #220 identity 교훈 반영, #223 설계) | Proposed | 2026-06-05 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
