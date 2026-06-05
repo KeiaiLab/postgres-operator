@@ -24,6 +24,7 @@ rules:
   resources:
   - persistentvolumeclaims
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -34,6 +35,7 @@ rules:
   resources:
   - pods
   verbs:
+  - delete
   - get
   - list
   - patch
