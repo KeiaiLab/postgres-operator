@@ -44,12 +44,12 @@ func ShardConfigMapName(cluster string, ordinal int32) string {
 // 분리되어 있으므로 `aggregateShardStatus` / metrics / failover 가 transient
 // target 에 blind 하여 #220-class identity 혼동을 *구조적으로* 차단한다.
 //
-// precondition: shardID 는 DNS-1123 label-safe (소문자 영숫자 + 하이픈) 이어야
-// 한다. **현재 ShardSplitJob.Spec.Targets[].ShardID 에 CRD pattern 이 부재** 하고
-// 형제 필드(Keyspace / ShardRangeEntry.Shard)의 패턴 `^[a-z][a-z0-9_]{0,62}$` 는
-// 언더스코어를 허용해 DNS-1123 에 무효다. 따라서 P2(Bootstrap wiring) 진입 전
-// ShardID 에 DNS-safe pattern(`^[a-z][a-z0-9-]{0,N}$`, 하이픈)을 추가하고
-// `make manifests` 로 CRD 를 regen 하는 것이 **P2 의 선행 prerequisite** 다 (ADR-0027).
+// precondition: shardID 는 DNS-1123 label-safe (소문자 영숫자 + 하이픈, 영문자
+// 시작, 영숫자 종료) 여야 한다. `ShardSplitJob.Spec.Targets[].ShardID` 에 CRD
+// pattern `^[a-z]([a-z0-9-]*[a-z0-9])?$` + MaxLength=30 이 부착돼 apiserver 가
+// admission 단계에서 강제한다 (ADR-0027 P2 prerequisite, envtest 검증). 형제 필드
+// (Keyspace / ShardRangeEntry.Shard)의 패턴 `^[a-z][a-z0-9_]{0,62}$` 는 언더스코어
+// 를 허용해 DNS 에 무효이므로 ShardID 는 의도적으로 더 엄격한 패턴을 쓴다.
 
 // TargetShardStatefulSetName 은 resharding target shard 의 StatefulSet 이름.
 func TargetShardStatefulSetName(cluster, shardID string) string {

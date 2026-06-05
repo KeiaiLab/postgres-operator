@@ -106,7 +106,15 @@ type ShardSplitJobSpec struct {
 // ShardSplitTarget 는 split/merge 의 target shard 1건 정의.
 type ShardSplitTarget struct {
 	// ShardID 는 target shard 의 식별자 (ShardRange.spec.ranges[].shard 와 동일).
+	//
+	// reconciler 가 shardID 를 K8s 자원명(`<cluster>-rsd-<shardID>`, ADR-0027)에
+	// 직접 박으므로 *DNS-1123 label-safe* 여야 한다 — 소문자 영숫자 + 하이픈,
+	// 영문자 시작, 영숫자 종료(선행/후행 하이픈 금지). 형제 필드(Keyspace /
+	// ShardRangeEntry.Shard)의 패턴은 언더스코어를 허용해 DNS 에 무효이므로 본
+	// 필드는 더 엄격한 패턴을 쓴다.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z]([a-z0-9-]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=30
 	ShardID string `json:"shardID"`
 
 	// Ranges 는 본 target 이 가질 키 범위 목록. ShardRange.spec.ranges 와 동일 형식.
