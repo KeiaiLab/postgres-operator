@@ -10,10 +10,12 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -41,6 +43,9 @@ type ShardSplitJobReconciler struct {
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardsplitjobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardsplitjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardranges,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps;services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch
 
 // Reconcile 은 ShardSplitJob 의 다음 phase 로 한 단계 전이한다 (즉시 requeue 로 진행).
 func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -62,6 +67,22 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// target 으로 갱신한다. *가역* cutover 결과(rollback=ShardRange 원복, §6 L3 안전망).
 	// 사용자 비가역 승인(2026-06-04) 하에 진입. write-block(운영 write freeze) + CDC
 	// logical replication 은 운영 cluster 연동 후속(별 트랙).
+	// Bootstrap phase: target shard 의 실 K8s 자원 (ConfigMap + headless Service +
+	// StatefulSet) 을 격리 식별로 생성한다 (ADR-0027). 가역 (rollback = target 자원
+	// delete). 실패 시 Failed 로 종료 — 다음 phase (InitialCopy) 가 target 부재로
+	// 진행 불가하므로 fail-fast.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseBootstrap {
+		if err := r.reconcileBootstrapTargets(ctx, &ssj); err != nil {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = err.Error()
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseRoutingUpdate {
 		if err := r.applyRouting(ctx, &ssj); err != nil {
 			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
@@ -173,6 +194,76 @@ func (r *ShardSplitJobReconciler) applyRouting(ctx context.Context, ssj *postgre
 		}
 	}
 	return fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
+}
+
+// reconcileBootstrapTargets 는 ShardSplitJob 의 각 target shard 에 대해 격리 식별
+// (ADR-0027) 의 ConfigMap + headless Service + StatefulSet 을 멱등 생성한다.
+//
+// image 는 *기존 source shard* (`<cluster>-shard-0`) 의 컨테이너 image 에서 도출한다
+// — resolvePostgresImage 는 PostgresClusterReconciler 의 메서드라 재사용 불가하고,
+// source STS 에서 읽으면 라이브 운영 중인 정확한 image (digest pin 포함) 와 정합한다.
+// owner 는 PostgresCluster — target 은 resharding 완료 후 영구 shard 로 승격되므로
+// SSJ 가 아닌 cluster 수명을 따른다.
+func (r *ShardSplitJobReconciler) reconcileBootstrapTargets(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) error {
+	var cluster postgresv1alpha1.PostgresCluster
+	if err := r.Get(ctx, client.ObjectKey{Namespace: ssj.Namespace, Name: ssj.Spec.Cluster}, &cluster); err != nil {
+		return fmt.Errorf("get cluster %q: %w", ssj.Spec.Cluster, err)
+	}
+
+	var srcSTS appsv1.StatefulSet
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ShardStatefulSetName(cluster.Name, 0)}, &srcSTS); err != nil {
+		return fmt.Errorf("get source shard StatefulSet for image: %w", err)
+	}
+	image := containerImage(&srcSTS, pgContainerName)
+	if image == "" {
+		return fmt.Errorf("source shard StatefulSet %s 에 %q 컨테이너 image 부재", srcSTS.Name, pgContainerName)
+	}
+	pgMajor := cluster.Spec.PostgresVersion
+
+	for i := range ssj.Spec.Targets {
+		shardID := ssj.Spec.Targets[i].ShardID
+		cm := buildTargetShardConfigMap(&cluster, shardID, nil)
+		if err := r.upsertTargetResource(ctx, &cluster, cm); err != nil {
+			return fmt.Errorf("upsert target %q ConfigMap: %w", shardID, err)
+		}
+		if err := r.upsertTargetResource(ctx, &cluster, buildTargetHeadlessService(&cluster, shardID)); err != nil {
+			return fmt.Errorf("upsert target %q Service: %w", shardID, err)
+		}
+		sts := buildTargetShardStatefulSet(
+			&cluster, shardID, image, pgMajor,
+			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
+			cm.Name, postgresConfigHash(cm.Data),
+		)
+		if err := r.upsertTargetResource(ctx, &cluster, sts); err != nil {
+			return fmt.Errorf("upsert target %q StatefulSet: %w", shardID, err)
+		}
+	}
+	return nil
+}
+
+// upsertTargetResource 는 desired 자원을 cluster owner 로 멱등 생성/갱신한다
+// (PostgresClusterReconciler.upsert 와 동일 패턴 — desired spec 단일 진실).
+func (r *ShardSplitJobReconciler) upsertTargetResource(ctx context.Context, owner *postgresv1alpha1.PostgresCluster, desired client.Object) error {
+	if err := controllerutil.SetControllerReference(owner, desired, r.Scheme); err != nil {
+		return fmt.Errorf("set controller reference: %w", err)
+	}
+	desiredCopy := desired.DeepCopyObject().(client.Object)
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		copySpec(desired, desiredCopy)
+		return controllerutil.SetControllerReference(owner, desired, r.Scheme)
+	})
+	return err
+}
+
+// containerImage 는 StatefulSet pod template 에서 주어진 이름의 컨테이너 image 를
+// 반환한다 (부재 시 빈 문자열).
+func containerImage(sts *appsv1.StatefulSet, name string) string {
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == name {
+			return sts.Spec.Template.Spec.Containers[i].Image
+		}
+	}
+	return ""
 }
 
 // SetupWithManager 는 reconciler 를 manager 에 등록한다.
