@@ -1189,6 +1189,43 @@ func buildTargetShardStatefulSet(
 	)
 }
 
+// buildTargetShardConfigMap 은 reshard target shard (ADR-0027) 의 postgresql.conf
+// ConfigMap 을 만든다. 격리 label 사용 (ordinal CM 과 분리). 단일 fresh primary
+// 이므로 synchronous config 는 shardOrdinal=0 기준 (members=1 → standby 없음).
+func buildTargetShardConfigMap(cluster *postgresv1alpha1.PostgresCluster, shardID string, reg *plugin.Registry) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      TargetShardConfigMapName(cluster.Name, shardID),
+			Namespace: cluster.Namespace,
+			Labels:    ReshardTargetSelectorLabels(cluster.Name, shardID),
+		},
+		Data: postgresConfigData(cluster, 0, reg),
+	}
+}
+
+// buildTargetHeadlessService 은 reshard target shard 의 headless Service 를 만든다.
+// selector 가 target STS pod 의 격리 label 과 일치해야 pod DNS 가 동작한다 (ADR-0027).
+func buildTargetHeadlessService(cluster *postgresv1alpha1.PostgresCluster, shardID string) *corev1.Service {
+	labels := ReshardTargetSelectorLabels(cluster.Name, shardID)
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      TargetShardServiceName(cluster.Name, shardID),
+			Namespace: cluster.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: corev1.ClusterIPNone,
+			Selector:  labels,
+			Ports: []corev1.ServicePort{{
+				Name:       "postgres",
+				Port:       pgPort,
+				TargetPort: intstr.FromInt32(pgPort),
+				Protocol:   corev1.ProtocolTCP,
+			}},
+		},
+	}
+}
+
 // buildRouterDeployment는 stateless QueryRouter의 Deployment를 만든다.
 // ADR 0003 §강제 메커니즘에 의해 PVC를 절대 마운트하지 않는다(StatefulSet 사용
 // 금지). 본 함수는 P12-T2 시점에 cmd/router 바이너리 이미지로 교체된다. 현재는
