@@ -14,7 +14,6 @@ Licensed under the MIT License. See the LICENSE file for details.
 package e2e
 
 import (
-	"fmt"
 	"os/exec"
 	"strings"
 	"time"

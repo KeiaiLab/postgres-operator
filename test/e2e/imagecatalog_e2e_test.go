@@ -113,7 +113,7 @@ spec:
 					imageCatalogCluster+"-shard-0", "-n", imageCatalogNamespace,
 					"-o", "jsonpath={.spec.template.spec.containers[0].image}"))
 				return strings.TrimSpace(out)
-			}, 5*time.Minute, 10*time.Second).Should(Equal("ghcr.io/keiailab/pg:18"))
+			}, 5*time.Minute, 10*time.Second).Should(ContainSubstring("ghcr.io/keiailab/pg:18"))
 		})
 
 		It("image-hash annotation drift 추적", func() {

@@ -6,7 +6,10 @@ Licensed under the MIT License. See the LICENSE file for details.
 
 package version
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // 0.3.0-alpha (ADR 0001): vanilla PG 조합 단일 스택. AGPL/BUSL 백엔드 영구 금지.
 
@@ -18,8 +21,14 @@ func TestIsSupported_StablePG18(t *testing.T) {
 	if c.Channel != ChannelStable {
 		t.Errorf("expected stable, got %s", c.Channel)
 	}
-	if c.Image != "ghcr.io/keiailab/pg:18" {
-		t.Errorf("expected vanilla PG18 image, got %q", c.Image)
+	const wantPG18 = "ghcr.io/keiailab/pg:18@sha256:669e6b975a3a2d7b72e778cd9ea5ba87cacad850b19ff220dd4f86740d9b9c97"
+	if c.Image != wantPG18 {
+		t.Errorf("expected digest-pinned PG18 image %q, got %q", wantPG18, c.Image)
+	}
+	// #218 RC#1: PG18 은 digest pin (tag@sha256) 이어야 node 캐시 stale 바이너리
+	// 부팅 (fence deadlock) 을 차단. mutable tag 로의 회귀를 막는 가드.
+	if !strings.Contains(c.Image, "@sha256:") {
+		t.Errorf("PG18 image must be digest-pinned (tag@sha256), got %q", c.Image)
 	}
 }
 
