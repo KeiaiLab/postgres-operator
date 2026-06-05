@@ -303,9 +303,27 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			// 를 ReasonNone 으로 만들어 자동 failover 를 영영 막았다 (live RCA
 			// 2026-06-04 pg-ha-drill cordon chaos). Ready replica 가 관측되면
 			// primary 부재 = outage 로 보고 Ready=false 를 강제한다.
+			// #220: preserve the LAST-KNOWN primary (previous reconcile) rather than
+			// hardcoding ordinal-0. After a failover the primary is ord-1; hardcoding
+			// ord-0 makes the StatefulSet PRIMARY_ENDPOINT flicker back to ord-0 during
+			// a transient status lapse, so a reseeded former primary boots with env=self
+			// and initdb's itself into a rogue primary (oscillation). On first bootstrap
+			// no previous primary exists → falls through to ord-0 (#218/#219 unchanged).
+			fbPod := fmt.Sprintf("%s-0", stsName)
+			fbEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort)
+			for k := range cluster.Status.Shards {
+				prev := &cluster.Status.Shards[k]
+				if prev.Ordinal == ord && prev.Primary != nil && prev.Primary.Pod != "" {
+					fbPod = prev.Primary.Pod
+					if prev.Primary.Endpoint != "" {
+						fbEndpoint = prev.Primary.Endpoint
+					}
+					break
+				}
+			}
 			shardStat.Primary = &postgresv1alpha1.ShardEndpoint{
-				Pod:      fmt.Sprintf("%s-0", stsName),
-				Endpoint: fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort),
+				Pod:      fbPod,
+				Endpoint: fbEndpoint,
 				Ready:    fallbackPrimaryReady(primaryReady, shardStat.Replicas),
 			}
 		}
