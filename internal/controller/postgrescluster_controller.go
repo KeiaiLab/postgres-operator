@@ -255,6 +255,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
 			primaryEndpoint,
 			configHash,
+			"", // reshardTargetID: ordinal shard (격리 label 미사용)
 		)
 		if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)

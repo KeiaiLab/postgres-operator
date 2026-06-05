@@ -103,6 +103,10 @@ func main() {
 	podOrdinal := parsePodOrdinalOrDie(podName)
 	electionIdentity := buildElectionIdentity(podName, podUID)
 	replicaClusterMode := os.Getenv("POSTGRES_REPLICA_CLUSTER")
+	// POSTGRES_RESHARD_TARGET (선택) — set 이면 본 pod 는 G3 online-resharding 의
+	// target shard (ADR-0027) 다. ordinal shard lease 대신 격리된 reshard lease 를
+	// 써서 실 shard election 침범을 막는다 (빈 값이면 ordinal 경로 그대로).
+	reshardTarget := os.Getenv("POSTGRES_RESHARD_TARGET")
 
 	logger.Info("Instance manager starting",
 		"version", "v0.0.0-pillar-p2-t1",
@@ -120,12 +124,17 @@ func main() {
 		"replicaClusterMode", replicaClusterMode,
 	)
 
-	leaseName, err := election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
+	var leaseName string
+	if reshardTarget != "" {
+		leaseName, err = election.ReshardTargetLeaseName(cluster, reshardTarget)
+	} else {
+		leaseName, err = election.PrimaryLeaseName(cluster, role, int32(shardOrdinal))
+	}
 	if err != nil {
 		logger.Error("Failed to resolve lease name", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("Resolved lease name", "lease", leaseName)
+	logger.Info("Resolved lease name", "lease", leaseName, "reshardTarget", reshardTarget)
 
 	// Fencing — Null(disabled) 또는 Real. fencer는 election callback에서
 	// 호출되며 fence 위반 시 fencingErrCh로 신호를 보내 main이 exit non-zero

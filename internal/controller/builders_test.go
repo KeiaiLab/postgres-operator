@@ -84,6 +84,7 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 		corev1.ResourceRequirements{},
 		"",
 		"test-config-hash",
+		"",
 	)
 
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
@@ -105,6 +106,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		corev1.ResourceRequirements{},
 		"demo-shard-3-2.demo-shard-3-headless.ns1.svc.cluster.local:5432",
 		"test-config-hash",
+		"",
 	)
 
 	if got, want := len(sts.Spec.Template.Spec.Containers), 1; got != want {
@@ -323,6 +325,7 @@ func TestBuildPGStatefulSet_AnnotatesPostgresConfigHash(t *testing.T) {
 		corev1.ResourceRequirements{},
 		"",
 		"abc123",
+		"",
 	)
 	if got := sts.Spec.Template.Annotations[postgresConfigHashAnnotation]; got != "abc123" {
 		t.Fatalf("pod template config hash annotation = %q, want abc123", got)
@@ -345,6 +348,7 @@ func TestBuildPGStatefulSet_HasBootstrapAndServiceAccount(t *testing.T) {
 		corev1.ResourceRequirements{},
 		"",
 		"test-config-hash",
+		"",
 	)
 	pod := &sts.Spec.Template.Spec
 	if pod.ServiceAccountName != "demo-instance" {
@@ -667,6 +671,7 @@ func TestBuildPGStatefulSet_ReadinessProbe_FastInitialDelay(t *testing.T) {
 		corev1.ResourceRequirements{},
 		"",
 		"test-config-hash",
+		"",
 	)
 	if got := len(sts.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers count = %d, want 1", got)
@@ -713,6 +718,7 @@ func TestBuildPGStatefulSet_DefaultResources_BurstableQoS(t *testing.T) {
 		corev1.ResourceRequirements{}, // empty — default 적용 기대
 		"",
 		"test-config-hash",
+		"",
 	)
 	if got := len(sts.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers count = %d, want 1", got)
@@ -753,6 +759,7 @@ func TestBuildPGStatefulSet_DefaultResources_BurstableQoS(t *testing.T) {
 		customRes,
 		"",
 		"test-config-hash",
+		"",
 	)
 	gotCPU := sts2.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 	if want := resource.MustParse("500m"); gotCPU.Cmp(want) != 0 {
@@ -805,5 +812,60 @@ func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
 	// `exec VAR=val` 은 not-found → `exec env VAR=val` 이어야 (live 127 회귀 가드).
 	if !strings.Contains(cfg.Command, "exec env ") {
 		t.Errorf("archive_command must use `exec env` (exec rejects env prefix): %q", cfg.Command)
+	}
+}
+
+// TestBuildTargetShardStatefulSet_Isolation 은 G3 online-resharding target shard
+// (ADR-0027) StatefulSet 이 라이브 ordinal shard 와 격리됨을 봉인한다.
+func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "ns1"},
+	}
+	sts := buildTargetShardStatefulSet(
+		cluster, "shard-0a",
+		"example.com/postgres:18", "18",
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+		"orders-rsd-shard-0a-config", "cfg-hash",
+	)
+
+	// (1) 이름/Service 가 -rsd- 격리 (ordinal -shard- 와 분리, collision 불가).
+	if sts.Name != "orders-rsd-shard-0a" {
+		t.Errorf("name = %q, want orders-rsd-shard-0a", sts.Name)
+	}
+	if sts.Spec.ServiceName != "orders-rsd-shard-0a-headless" {
+		t.Errorf("serviceName = %q, want orders-rsd-shard-0a-headless", sts.Spec.ServiceName)
+	}
+
+	// (2) #220-class 격리: ordinal shard label 부재 + reshard-target label 보유.
+	labels := sts.Spec.Template.Labels
+	if _, ok := labels["postgres.keiailab.io/shard"]; ok {
+		t.Fatalf("target STS 가 ordinal shard label 보유 — failover/status 격리 위반: %v", labels)
+	}
+	if got := labels[ReshardTargetLabelKey]; got != "shard-0a" {
+		t.Errorf("%s = %q, want shard-0a", ReshardTargetLabelKey, got)
+	}
+	// selector 가 template label 과 일치해야 pod DNS 정상 (격리 label 정합).
+	if sts.Spec.Selector.MatchLabels[ReshardTargetLabelKey] != "shard-0a" {
+		t.Errorf("selector 가 reshard-target label 미포함: %v", sts.Spec.Selector.MatchLabels)
+	}
+
+	// (3) 단일 fresh primary: members=1 + 빈 PRIMARY_ENDPOINT (pod-0 initdb 경로).
+	if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 1 {
+		t.Errorf("replicas = %v, want 1 (단일 fresh primary)", sts.Spec.Replicas)
+	}
+	envByName := map[string]string{}
+	for _, e := range sts.Spec.Template.Spec.Containers[0].Env {
+		envByName[e.Name] = e.Value
+	}
+	if envByName["PRIMARY_ENDPOINT"] != "" {
+		t.Errorf("PRIMARY_ENDPOINT = %q, want \"\" (빈 값 → pod-0 initdb fresh primary)", envByName["PRIMARY_ENDPOINT"])
+	}
+
+	// (4) POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용.
+	if got := envByName["POSTGRES_RESHARD_TARGET"]; got != "shard-0a" {
+		t.Errorf("POSTGRES_RESHARD_TARGET = %q, want shard-0a (충돌-불가 reshard lease 트리거)", got)
 	}
 }

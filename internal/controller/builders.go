@@ -1012,8 +1012,16 @@ func buildPGStatefulSet(
 	resources corev1.ResourceRequirements,
 	primaryEndpoint string,
 	configHash string,
+	reshardTargetID string,
 ) *appsv1.StatefulSet {
+	// reshardTargetID != "" → G3 online-resharding target shard (ADR-0027): ordinal
+	// shard 모델과 *격리된* label 을 써서 aggregateShardStatus/failover 가 transient
+	// target 을 라이브 shard 로 오인하지 않게 한다 (#220-class 차단). 빈 문자열이면
+	// 기존 ordinal 경로와 byte-identical (모든 label 사용처에 동일 적용).
 	labels := SelectorLabels(cluster.Name, "shard", shardOrdinal)
+	if reshardTargetID != "" {
+		labels = ReshardTargetSelectorLabels(cluster.Name, reshardTargetID)
+	}
 	replicaConfig, _ := replicaBootstrapConfigForCluster(cluster)
 	replicaClusterEnabled := replicaConfig != nil
 	primaryUser := ""
@@ -1052,6 +1060,14 @@ func buildPGStatefulSet(
 		StorageClassName: storageClassPtr(storage.StorageClass),
 	}
 
+	// instance manager 환경 변수. reshard target 이면 POSTGRES_RESHARD_TARGET 를
+	// 추가 주입 → cmd/instance 가 ordinal lease (PrimaryLeaseName) 대신 격리된
+	// ReshardTargetLeaseName 을 사용해 실 shard election 침범을 차단한다 (ADR-0027).
+	instanceEnv := buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
+	if reshardTargetID != "" {
+		instanceEnv = append(instanceEnv, corev1.EnvVar{Name: "POSTGRES_RESHARD_TARGET", Value: reshardTargetID})
+	}
+
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -1079,7 +1095,7 @@ func buildPGStatefulSet(
 						Image:           image,
 						Resources:       resources,
 						SecurityContext: dataplaneContainerSecurityContext(),
-						Env:             buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled),
+						Env:             instanceEnv,
 						Ports: []corev1.ContainerPort{
 							{Name: "postgres", ContainerPort: pgPort, Protocol: corev1.ProtocolTCP},
 							{Name: "probe", ContainerPort: instanceProbePort, Protocol: corev1.ProtocolTCP},
@@ -1135,6 +1151,42 @@ func buildPGStatefulSet(
 			}},
 		},
 	}
+}
+
+// buildTargetShardStatefulSet 은 G3 online-resharding 의 *target shard* (ADR-0027)
+// StatefulSet 을 만든다. 라이브 ordinal shard 와 격리된 단일 fresh-primary 다:
+//
+//   - 이름/Service: `<cluster>-rsd-<shardID>` (names.go, ordinal `-shard-` 와 분리)
+//   - label: ReshardTargetSelectorLabels (ordinal `shard` label 미부여 →
+//     aggregateShardStatus/failover 가 blind, #220-class 차단)
+//   - members=1 + primaryEndpoint="" → pod-0 (`...-0`) 가 buildBootstrapContainer 의
+//     `POD_ORDINAL=="0"` + 빈 endpoint 분기로 *initdb 빈 primary* 부팅 (잃을 데이터
+//     0, #220 standby.signal 로직 무관)
+//   - POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용
+//     (충돌-불가 lease, 실 shard election 침범 차단)
+//
+// 본 함수는 buildPGStatefulSet 을 reshardTargetID 와 함께 재사용 — ordinal 경로
+// 코드를 전혀 바꾸지 않는다 (빈 reshardTargetID 면 byte-identical).
+func buildTargetShardStatefulSet(
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardID string,
+	image, pgMajor string,
+	storage postgresv1alpha1.StorageSpec,
+	resources corev1.ResourceRequirements,
+	configMapName, configHash string,
+) *appsv1.StatefulSet {
+	return buildPGStatefulSet(
+		cluster,
+		TargetShardStatefulSetName(cluster.Name, shardID),
+		TargetShardServiceName(cluster.Name, shardID),
+		0, // shardOrdinal: pod-0 initdb 경로용 (SHARD_ORDINAL env 는 정보용, 격리 label 은 reshardTargetID 가 결정)
+		image, configMapName, pgMajor,
+		1, // members: 단일 fresh primary (초기 복제본 없음)
+		storage, resources,
+		"", // primaryEndpoint: 빈 값 → pod-0 initdb fresh primary
+		configHash,
+		shardID, // reshardTargetID → 격리 label + POSTGRES_RESHARD_TARGET env
+	)
 }
 
 // buildRouterDeployment는 stateless QueryRouter의 Deployment를 만든다.
