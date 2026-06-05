@@ -36,6 +36,36 @@ func ShardConfigMapName(cluster string, ordinal int32) string {
 	return fmt.Sprintf("%s-shard-%d-config", cluster, ordinal)
 }
 
+// --- G3 online-resharding: target shard 격리 식별 (ADR-0027) ---
+//
+// resharding 의 target shard 는 라이브 cluster 의 *ordinal shard 모델과 격리된
+// 식별 namespace* 를 사용한다. 자원 이름은 `-rsd-` (resharding) segment 로
+// ordinal shard (`-shard-<ord>`) 와 분리되어 collision 이 불가능하다. 식별이
+// 분리되어 있으므로 `aggregateShardStatus` / metrics / failover 가 transient
+// target 에 blind 하여 #220-class identity 혼동을 *구조적으로* 차단한다.
+//
+// precondition: shardID 는 DNS-1123 label-safe (소문자 영숫자 + 하이픈) 이어야
+// 한다. **현재 ShardSplitJob.Spec.Targets[].ShardID 에 CRD pattern 이 부재** 하고
+// 형제 필드(Keyspace / ShardRangeEntry.Shard)의 패턴 `^[a-z][a-z0-9_]{0,62}$` 는
+// 언더스코어를 허용해 DNS-1123 에 무효다. 따라서 P2(Bootstrap wiring) 진입 전
+// ShardID 에 DNS-safe pattern(`^[a-z][a-z0-9-]{0,N}$`, 하이픈)을 추가하고
+// `make manifests` 로 CRD 를 regen 하는 것이 **P2 의 선행 prerequisite** 다 (ADR-0027).
+
+// TargetShardStatefulSetName 은 resharding target shard 의 StatefulSet 이름.
+func TargetShardStatefulSetName(cluster, shardID string) string {
+	return fmt.Sprintf("%s-rsd-%s", cluster, shardID)
+}
+
+// TargetShardServiceName 은 target shard 의 headless Service 이름.
+func TargetShardServiceName(cluster, shardID string) string {
+	return fmt.Sprintf("%s-rsd-%s-headless", cluster, shardID)
+}
+
+// TargetShardConfigMapName 은 target shard 의 postgresql.conf ConfigMap 이름.
+func TargetShardConfigMapName(cluster, shardID string) string {
+	return fmt.Sprintf("%s-rsd-%s-config", cluster, shardID)
+}
+
 // RouterDeploymentName은 QueryRouter Deployment 이름을 반환한다.
 // PVC 부재(ADR 0003)이므로 Deployment를 사용한다(StatefulSet 아님).
 func RouterDeploymentName(cluster string) string {
@@ -108,5 +138,30 @@ func SelectorLabels(cluster, role string, shardOrdinal int32) map[string]string 
 	if shardOrdinal >= 0 {
 		out["postgres.keiailab.io/shard"] = fmt.Sprintf("%d", shardOrdinal)
 	}
+	return out
+}
+
+// ReshardTargetLabelKey 는 resharding target shard 를 식별하는 label key 다 (ADR-0027).
+const ReshardTargetLabelKey = "postgres.keiailab.io/reshard-target"
+
+// ReshardTargetSelectorLabels 는 resharding target shard 의 label 집합이다 (ADR-0027).
+//
+// 라이브 shard 와 격리하기 위해:
+//   - ordinal `postgres.keiailab.io/shard` label 을 *부여하지 않는다* — 그래서
+//     aggregateShardStatus / per-ordinal headless Service 의 ordinal selector 에
+//     매칭되지 않는다 (#220-class failover/status 간섭 차단).
+//   - Component 를 "reshard-target" 으로 두어 broad `component=shard` 와도 분리.
+//   - 대신 `postgres.keiailab.io/reshard-target=<shardID>` 로 target 을 식별.
+//
+// (POSTGRES_ROLE env 는 별도 — instance 바이너리는 여전히 "shard" role 로 동작.
+// 본 label 은 K8s selection 격리 전용. P2 에서 StatefulSet 에 적용.)
+func ReshardTargetSelectorLabels(cluster, shardID string) map[string]string {
+	out := commonslabels.Set{
+		Name:      "postgrescluster",
+		Instance:  cluster,
+		Component: "reshard-target",
+		ManagedBy: "keiailab-postgres-operator",
+	}.All()
+	out[ReshardTargetLabelKey] = shardID
 	return out
 }
