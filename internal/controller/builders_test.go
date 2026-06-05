@@ -869,3 +869,44 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 		t.Errorf("POSTGRES_RESHARD_TARGET = %q, want shard-0a (충돌-불가 reshard lease 트리거)", got)
 	}
 }
+
+// TestBuildTargetShardConfigMapAndService_Isolation 은 reshard target 의 CM/Svc 가
+// 격리 label 을 쓰고 (ordinal 과 분리), Service selector 가 target STS pod label 과
+// 일치함을 봉인한다 (ADR-0027 — selector 불일치 시 pod DNS 깨짐).
+func TestBuildTargetShardConfigMapAndService_Isolation(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "ns1"},
+	}
+
+	cm := buildTargetShardConfigMap(cluster, "shard-0a", nil)
+	if cm.Name != "orders-rsd-shard-0a-config" {
+		t.Errorf("cm name = %q, want orders-rsd-shard-0a-config", cm.Name)
+	}
+	if _, ok := cm.Labels["postgres.keiailab.io/shard"]; ok {
+		t.Errorf("target CM 이 ordinal shard label 보유: %v", cm.Labels)
+	}
+	if cm.Labels[ReshardTargetLabelKey] != "shard-0a" {
+		t.Errorf("target CM reshard-target label 부재: %v", cm.Labels)
+	}
+	if _, ok := cm.Data["postgresql.conf"]; !ok {
+		t.Error("target CM 에 postgresql.conf 부재")
+	}
+
+	svc := buildTargetHeadlessService(cluster, "shard-0a")
+	if svc.Name != "orders-rsd-shard-0a-headless" {
+		t.Errorf("svc name = %q, want orders-rsd-shard-0a-headless", svc.Name)
+	}
+	if svc.Spec.ClusterIP != "None" {
+		t.Errorf("svc ClusterIP = %q, want None (headless)", svc.Spec.ClusterIP)
+	}
+	// selector 가 STS pod 의 격리 label 과 일치 (pod DNS 정합).
+	tsts := buildTargetShardStatefulSet(cluster, "shard-0a", "img", "18",
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{}, "cm", "h")
+	if svc.Spec.Selector[ReshardTargetLabelKey] != tsts.Spec.Template.Labels[ReshardTargetLabelKey] {
+		t.Errorf("svc selector(%v) 가 target STS pod label(%v) 과 불일치",
+			svc.Spec.Selector, tsts.Spec.Template.Labels)
+	}
+}
