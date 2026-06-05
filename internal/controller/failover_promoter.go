@@ -283,6 +283,13 @@ fi
 # bootstrap PRIMARY_ENDPOINT (the old primary) on any future restart — discarding
 # its own post-failover writes. A primary must never carry a rejoin-as-standby marker.
 rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
+# #220: durable marker — this PGDATA is now an operator-promoted primary. The
+# bootstrap init container (builders.go) reads it on restart and refuses to restore
+# standby.signal from a stale PRIMARY_ENDPOINT, so the new primary never rewinds
+# itself back to the old timeline. A former primary that must leave the role is
+# fenced (fail-closed) and reseeded, never silently demoted. Name must match
+# builders.go promotedPrimaryMarker.
+touch "$DATA/.keiailab-promoted-primary"
 "$BIN/pg_ctl" promote -D "$DATA"
 
 i=0

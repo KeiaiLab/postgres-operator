@@ -94,6 +94,14 @@ const (
 	postgresUserUID int64 = 70
 
 	restartPrimaryAsStandbyMarker = ".keiailab-restart-primary-as-standby"
+
+	// promotedPrimaryMarker 는 operator exec-promote (failover_promoter.go
+	// postgresPromotionCommand) 가 승격된 pod 의 PGDATA 에 쓰는 durable marker 다.
+	// 이게 존재하면 본 pod 은 *operator 가 승격한 primary* 이므로, 재시작 시
+	// bootstrap init 이 stale PRIMARY_ENDPOINT 로 standby.signal 을 복원해 자신을
+	// standby 로 강등(→ 옛 primary 로 pg_rewind → post-failover write 손실)하면 안 된다.
+	// #220 failback: 승격 primary 는 절대 stale-env 로 standby 복원 금지.
+	promotedPrimaryMarker = ".keiailab-promoted-primary"
 )
 
 // pgBinDir 는 base PG image 안 postgres binary 디렉터리. Dockerfile.pg 의
@@ -843,6 +851,13 @@ if [ -f "$DATA/PG_VERSION" ]; then
     touch "$DATA/standby.signal"
     printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$DATA/postgresql.auto.conf"
     echo "existing PGDATA marked for standalone replica continuous recovery"
+  elif [ "$MEMBER_COUNT" -gt 1 ] && [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ] && [ ! -f "$DATA/standby.signal" ] && [ -f "$DATA/` + promotedPrimaryMarker + `" ]; then
+    # #220 failback: this pod was promoted to primary by the operator (it carries the
+    # promoted-primary marker) but PRIMARY_ENDPOINT is still the STALE old primary.
+    # Restoring standby.signal here would demote the real primary and pg_rewind it back
+    # to the old timeline, losing post-failover writes. Keep it a primary; the operator
+    # fence is the single authority that stops an illegitimate primary.
+    echo "promoted-primary marker present with stale PRIMARY_ENDPOINT; keeping primary (no standby.signal restore) — #220"
   elif [ "$MEMBER_COUNT" -gt 1 ] && [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ] && [ ! -f "$DATA/standby.signal" ]; then
     # split-brain fix (fix/ha-replica-standby-signal-restore): an HA replica whose
     # PGDATA is already initialized but has no standby.signal must boot as a *standby*,
