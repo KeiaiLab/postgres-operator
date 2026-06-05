@@ -288,7 +288,7 @@ func main() {
 	}()
 	logger.Info("Election started", "identity", elect.Identity(), "lease", leaseName)
 
-	startStatusReporterIfPossible(ctx, clientset, namespace, podName, cluster, int32(shardOrdinal), elect, sup, logger)
+	startStatusReporterIfPossible(ctx, clientset, namespace, podName, cluster, int32(shardOrdinal), dataDir, elect, sup, logger)
 
 	select {
 	case <-ctx.Done():
@@ -535,6 +535,7 @@ func startStatusReporterIfPossible(
 	clientset kubernetes.Interface,
 	namespace, podName, cluster string,
 	shardOrdinal int32,
+	dataDir string,
 	elect election.Election,
 	sup supervise.Supervisor,
 	logger *slog.Logger,
@@ -543,7 +544,16 @@ func startStatusReporterIfPossible(
 		return
 	}
 	endpoint := instanceEndpoint(podName, cluster, shardOrdinal, namespace)
-	go runStatusReporter(ctx, clientset, namespace, podName, endpoint, elect, sup, logger)
+	go runStatusReporter(ctx, clientset, namespace, podName, endpoint, dataDir, elect, sup, logger)
+}
+
+// promotedMarkerPresent reports whether this pod's PGDATA carries the durable
+// operator-promote marker (.keiailab-promoted-primary). Only a real failover-
+// promoted primary has it; a returning old primary that booted as an empty rogue
+// primary does not — the controller uses this to reseed only the rogue (#220).
+func promotedMarkerPresent(dataDir string) bool {
+	_, err := os.Stat(dataDir + "/.keiailab-promoted-primary")
+	return err == nil
 }
 
 // runStatusReporter 는 5s 주기로 Pod annotation 에 Status 를 patch 한다 (RFC 0006 R2).
@@ -556,7 +566,7 @@ func startStatusReporterIfPossible(
 func runStatusReporter(
 	ctx context.Context,
 	clientset kubernetes.Interface,
-	namespace, podName, endpoint string,
+	namespace, podName, endpoint, dataDir string,
 	elect election.Election,
 	sup supervise.Supervisor,
 	logger *slog.Logger,
@@ -592,6 +602,7 @@ func runStatusReporter(
 		}
 		st := statusapi.Status{
 			Role:       role,
+			Promoted:   promotedMarkerPresent(dataDir),
 			Ready:      ready,
 			Endpoint:   endpoint,
 			LagBytes:   lag,

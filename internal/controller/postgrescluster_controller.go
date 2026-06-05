@@ -427,6 +427,11 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.reconcileStaleReplicas(ctx, &cluster, shardStatuses, time.Now()); err != nil {
 			logger.Error(err, "stale standby re-seed failed (best-effort)")
 		}
+		// #220 clean-rejoin: reseed any rogue old primary (booted empty from a stale
+		// env after failback) into a clean standby of the real promoted primary.
+		if err := r.reconcileRoguePrimaries(ctx, &cluster, shardStatuses); err != nil {
+			logger.Error(err, "rogue primary re-seed failed (best-effort)")
+		}
 	}
 	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)

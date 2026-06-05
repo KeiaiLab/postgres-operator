@@ -55,6 +55,13 @@ type Status struct {
 	// Role 은 instance 의 현재 운영 역할.
 	Role Role `json:"role"`
 
+	// Promoted 는 본 pod 의 PGDATA 가 operator exec-promote durable marker
+	// (.keiailab-promoted-primary) 를 보유하는지 여부다. failover 로 승격된 *진짜*
+	// primary 만 보유한다. 복귀한 옛 primary 가 stale PRIMARY_ENDPOINT(=self) 로
+	// 빈 rogue primary 를 부팅한 경우 marker 가 없어, controller 가 진짜 primary 와
+	// rogue 를 구분해 rogue 만 reseed 한다 (#220 clean-rejoin, 데이터 보유 primary 보호).
+	Promoted bool `json:"promoted,omitempty"`
+
 	// Ready 는 supervise.IsReady 결과 — postgres 가 SELECT 1 응답.
 	// supervise-disabled 모드에서는 election Status 가 Leader/Follower 면 true.
 	Ready bool `json:"ready"`

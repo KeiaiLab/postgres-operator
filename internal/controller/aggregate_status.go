@@ -26,6 +26,12 @@ import (
 // staleness 기준. 본 thresh 초과 시 Pod heartbeat 끊김으로 간주 (failover 준비 신호).
 const statusStaleThresh = 30 * time.Second
 
+// roguePrimaryReason flags a ShardEndpoint that reports Primary but lacks the
+// operator-promote marker while a promoted primary exists — a returning old
+// primary that booted as an empty rogue from a stale env. reconcileRoguePrimaries
+// reseeds these into clean standbys (#220 clean-rejoin).
+const roguePrimaryReason = "rogue-primary"
+
 // aggregateShardStatus 는 단일 shard 의 모든 Pod (StatefulSet replicas) 를 list 한 뒤
 // 각 Pod 의 statusapi annotation 을 parse 해 ShardStatus 를 합성한다 (RFC 0006 R2).
 //
@@ -83,6 +89,20 @@ func aggregateShardStatus(
 		}
 	}
 
+	// #220: detect whether a *promoted* primary (carries the operator-promote
+	// marker) exists. If so, any other Primary-reporting pod is a rogue old primary
+	// that booted empty from a stale env — never the shard primary, and flagged for
+	// reseed. This protects the real (data-holding) primary from ever being reseeded.
+	hasPromotedPrimary := false
+	for i := range pods.Items {
+		if st, ok := parsePodStatus(&pods.Items[i]); ok &&
+			st.Role == statusapi.RolePrimary && st.Promoted &&
+			!fencedPVC["data-"+pods.Items[i].Name] {
+			hasPromotedPrimary = true
+			break
+		}
+	}
+
 	now := time.Now().UTC()
 	var primaryCandidate *postgresv1alpha1.ShardEndpoint
 	var replicas []postgresv1alpha1.ShardEndpoint
@@ -119,6 +139,15 @@ func aggregateShardStatus(
 			// #220: fenced known-failed primary (e.g. a returning old primary that
 			// self-reports Primary before its fence stops it) — never the shard primary.
 			logger.Info("ignoring Primary self-report from fenced member", "pod", pod.Name)
+			replicas = append(replicas, ep)
+		case st.Role == statusapi.RolePrimary && !st.Promoted && hasPromotedPrimary:
+			// #220: a Primary-reporting pod without the promoted marker, while a
+			// promoted primary exists, is a rogue old primary that booted empty from a
+			// stale env. Never the shard primary; flag Ready=false + reason so
+			// reconcileRoguePrimaries reseeds it into a clean standby.
+			ep.Ready = false
+			ep.Reason = roguePrimaryReason
+			logger.Info("rogue primary detected (no promoted marker); flagging for reseed", "pod", pod.Name)
 			replicas = append(replicas, ep)
 		case st.Role == statusapi.RolePrimary:
 			if primaryCandidate != nil {

@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
@@ -121,6 +122,40 @@ func (r *PostgresClusterReconciler) reseedStandby(
 		}
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("get stale standby pod %q: %w", podName, err)
+	}
+	return nil
+}
+
+// reconcileRoguePrimaries reseeds any shard member flagged as a rogue primary
+// (reports Primary but lacks the operator-promote marker while a real promoted
+// primary exists — see aggregateShardStatus). Reseeding deletes the rogue's
+// pod+PVC so the StatefulSet recreates it and the init container performs a fresh
+// pg_basebackup from the current promoted primary, turning the rogue into a clean
+// standby. The promoted (data-holding) primary is never flagged, so its data is
+// never at risk (#220 clean-rejoin).
+func (r *PostgresClusterReconciler) reconcileRoguePrimaries(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shards []postgresv1alpha1.ShardStatus,
+) error {
+	logger := log.FromContext(ctx)
+	for i := range shards {
+		shard := &shards[i]
+		// Only act once a legitimate (ready) primary is established for the shard.
+		if shard.Primary == nil || !shard.Primary.Ready {
+			continue
+		}
+		for j := range shard.Replicas {
+			rep := &shard.Replicas[j]
+			if rep.Reason != roguePrimaryReason || rep.Pod == "" || rep.Pod == shard.Primary.Pod {
+				continue
+			}
+			logger.Info("reseeding rogue primary into clean standby",
+				"pod", rep.Pod, "primary", shard.Primary.Pod)
+			if err := r.reseedStandby(ctx, cluster, rep.Pod); err != nil {
+				return fmt.Errorf("reseed rogue primary %q: %w", rep.Pod, err)
+			}
+		}
 	}
 	return nil
 }
