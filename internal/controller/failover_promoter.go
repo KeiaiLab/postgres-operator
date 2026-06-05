@@ -48,7 +48,51 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 		PodExecutor: r.PromotionPodExecutor,
 		Now:         time.Now,
 	}
-	return failover.PromoteFromDecision(ctx, shardName, decision, promoter)
+	if err := failover.PromoteFromDecision(ctx, shardName, decision, promoter); err != nil {
+		return err
+	}
+	// #220: reseed the FAILED old primary so it can only return as a fresh
+	// pg_basebackup standby of the new primary — never as a rogue primary booting
+	// from stale PGDATA (split-brain). Gated on the old primary being genuinely
+	// down/not-ready so a spurious promotion can never destroy a healthy primary.
+	oldPrimary := shardPrimaryPod(cluster, shardName)
+	if oldPrimary != "" && decision.PromotionCandidate != nil &&
+		oldPrimary != decision.PromotionCandidate.Pod &&
+		r.podAbsentOrNotReady(ctx, cluster.Namespace, oldPrimary) {
+		if err := r.reseedStandby(ctx, cluster, oldPrimary); err != nil {
+			return fmt.Errorf("reseed failed old primary %q: %w", oldPrimary, err)
+		}
+	}
+	return nil
+}
+
+// shardPrimaryPod returns the recorded primary pod for the named shard (the pod
+// that was primary before this reconcile's promotion), or "" if none.
+func shardPrimaryPod(cluster *postgresv1alpha1.PostgresCluster, shardName string) string {
+	for i := range cluster.Status.Shards {
+		if cluster.Status.Shards[i].Name == shardName {
+			if cluster.Status.Shards[i].Primary != nil {
+				return cluster.Status.Shards[i].Primary.Pod
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// podAbsentOrNotReady reports whether the pod is gone or not Ready — the signal
+// that a recorded primary has genuinely failed (vs. a transient status flicker).
+func (r *PostgresClusterReconciler) podAbsentOrNotReady(ctx context.Context, namespace, podName string) bool {
+	var pod corev1.Pod
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, &pod); err != nil {
+		return apierrors.IsNotFound(err)
+	}
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			return pod.Status.Conditions[i].Status != corev1.ConditionTrue
+		}
+	}
+	return true
 }
 
 type clusterPodPromoter struct {
