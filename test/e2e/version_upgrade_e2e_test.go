@@ -106,8 +106,8 @@ spec:
 						"-o", "jsonpath={.items[0].spec.template.spec.containers[0].image}"))
 					return out
 				}, 90*time.Second, 5*time.Second).Should(
-					Equal("ghcr.io/keiailab/pg:18"),
-					"STS image 가 ghcr.io/keiailab/pg:18 로 propagate (가설 A)")
+					ContainSubstring("ghcr.io/keiailab/pg:18"),
+					"STS image 가 ghcr.io/keiailab/pg:18 (digest pin 포함) 로 propagate (가설 A)")
 			})
 
 			// 가설 C — Pod 재생성 (rolling).
@@ -119,8 +119,8 @@ spec:
 						"-o", "jsonpath={.items[0].spec.containers[0].image}"))
 					return out
 				}, 5*time.Minute, 10*time.Second).Should(
-					Equal("ghcr.io/keiailab/pg:18"),
-					"primary Pod 가 새 image 로 재생성 (가설 C)")
+					ContainSubstring("ghcr.io/keiailab/pg:18"),
+					"primary Pod 가 새 image (digest pin 포함) 로 재생성 (가설 C)")
 			})
 
 			// 가설 B — webhook / defaulter 가 spec 17 으로 reverting 안 함.
@@ -163,8 +163,8 @@ spec:
 						"-o", "jsonpath={.items[0].spec.template.spec.containers[0].image}"))
 					return out
 				}, 30*time.Second, 5*time.Second).Should(
-					Equal("ghcr.io/keiailab/pg:18"),
-					"15 patch 에도 STS image 18 유지 (controller IsSupported 거부)")
+					ContainSubstring("ghcr.io/keiailab/pg:18"),
+					"15 patch 에도 STS image 18 (digest pin 포함) 유지 (controller IsSupported 거부)")
 			})
 		})
 	})

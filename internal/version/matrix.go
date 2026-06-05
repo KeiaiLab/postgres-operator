@@ -37,7 +37,9 @@ const (
 type Combo struct {
 	// PostgresMajor는 "16" | "17" | "18" 중 하나.
 	PostgresMajor string
-	// Image는 빌드 이미지 태그(예: "ghcr.io/keiailab/pg:18").
+	// Image는 빌드 이미지 참조. Stable 조합은 digest pin 권장 (tag@sha256) —
+	// 노드가 옛 이미지를 캐시한 채 imagePullPolicy=IfNotPresent 로 재pull 하지
+	// 않아 stale 바이너리가 부팅되는 class 의 사고를 차단 (#218 RC#1).
 	Image string
 	// Channel은 안정성 등급.
 	Channel Channel
@@ -64,11 +66,16 @@ var supported = commonsversion.MustMatrix(
 	// 분산 SQL은 자체 sharding plugin (RFC 0001~0005) 으로 단계 도입. 외부 백엔드
 	// 의존 (AGPL/BUSL/CSL/SSPL) 은 영구 금지 (ADR 0003).
 
-	// PG 18 — 권장 default (최신 stable).
-	Combo{PostgresMajor: "18", Image: "ghcr.io/keiailab/pg:18", Channel: ChannelStable},
-	// PG 17 — gradual upgrade path.
+	// PG 18 — 권장 default (최신 stable). digest pin: mutable tag `pg:18` 은
+	// 노드 캐시 + IfNotPresent 로 stale 바이너리를 부팅시켜 #218 RC#1 (fence
+	// deadlock — 옛 instance 바이너리가 T30 no-fence fix 이전 빌드) 을 유발했다.
+	// digest 고정 = 노드 캐시 무관 정확한 이미지 보장. 라이브 검증된 digest
+	// (#218 RC#1 fix: clean bootstrap + streaming replication + fence 0 + 데이터
+	// 보존). pg:18 재빌드 시 본 digest 갱신 (사람 PR 리뷰, RFC 0002 §7 정합).
+	Combo{PostgresMajor: "18", Image: "ghcr.io/keiailab/pg:18@sha256:669e6b975a3a2d7b72e778cd9ea5ba87cacad850b19ff220dd4f86740d9b9c97", Channel: ChannelStable},
+	// PG 17 — gradual upgrade path. (digest pin 후속 — 라이브 검증된 digest 확보 후.)
 	Combo{PostgresMajor: "17", Image: "ghcr.io/keiailab/pg:17", Channel: ChannelStable},
-	// PG 16 — legacy support.
+	// PG 16 — legacy support. (digest pin 후속 — 라이브 검증된 digest 확보 후.)
 	Combo{PostgresMajor: "16", Image: "ghcr.io/keiailab/pg:16", Channel: ChannelStable},
 )
 
