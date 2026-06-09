@@ -11,10 +11,10 @@
 
 ## Overview
 
-- **Purpose**: Apache-2.0 PostgreSQL Kubernetes Operator delivering production-grade operational quality and distributed SQL via *self-built* code — no external PostgreSQL operator fork or wrapper.
+- **Purpose**: MIT-licensed PostgreSQL Kubernetes Operator delivering production-grade operational quality and distributed SQL via *self-built* code — no external PostgreSQL operator fork or wrapper.
 - **Scope**: vanilla PostgreSQL 18+ on K8s, single-shard HA → sharding → online resharding → distributed SQL → GA.
 - **Stability tier**: v0.4.0-beta.1 — Level 4 Deep Insights (metrics, alerts, dashboards, WAL archiving, backup retention, switchover)
-- **License**: Apache-2.0 (deps: BSD/Apache/MIT/PG-License only — no copyleft on SaaS)
+- **License**: MIT (deps: BSD/Apache/MIT/PG-License only — no copyleft on SaaS)
 - **Module path**: `github.com/keiailab/postgres-operator`
 
 ## CRD surface (8 CRDs)
@@ -131,10 +131,10 @@ Full list: `docs/kb/adr/INDEX.md`.
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (v18 minimum per `pkg/version` decision)
-- ❌ Repackaging an external PostgreSQL operator (Apache-2.0 boundary)
+- ❌ Repackaging an external PostgreSQL operator (MIT boundary)
 - ❌ Embedding a third-party sharding extension (we re-implement the problem space)
 - ❌ Third-party HA agent runtime dependency (self-built instance manager)
-- ❌ Copyleft dependencies (license-clean Apache-2.0 only)
+- ❌ Copyleft dependencies (license-clean MIT only)
 - ❌ Plugin SDK (retired from v0.x archive — explicit CRDs instead)
 
 ## References
@@ -152,5 +152,5 @@ Full list: `docs/kb/adr/INDEX.md`.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

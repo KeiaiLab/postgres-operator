@@ -50,7 +50,7 @@ write up vulnerabilities in public issues or discussions.
 
 ## Commercial support / SLA
 
-This is an Apache-2.0 open-source project; there is no official commercial
+This is an MIT-licensed open-source project; there is no official commercial
 support. If you need an incident-response SLA for a production cluster, a
 separate consulting engagement may be required — please email
 `support@keiailab.io`.
@@ -67,5 +67,5 @@ These are best-effort targets from the maintainers and are not SLAs.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

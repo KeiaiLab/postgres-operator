@@ -17,7 +17,7 @@
 
 **组织**: [keiailab](https://keiailab.com) —— Kubernetes 原生数据平台 (Apache-2.0、license-clean、与 vanilla upstream 兼容)。
 
-**项目**: `postgres-operator` —— Kubernetes 上的 Apache-2.0 PostgreSQL Operator —— vanilla PG18+、license-clean、K8s 原生自动分片路线图。
+**项目**: `postgres-operator` —— Kubernetes 上的 MIT-licensed PostgreSQL Operator —— vanilla PG18+、license-clean、K8s 原生自动分片路线图。
 
 ## 2. 标志与视觉资产
 
@@ -66,7 +66,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 - **直接 (Direct)** —— 尽可能用 bullet 代替段落
 - **基于证据 (Evidence-based)** —— 主张需附带基准测试 / SLA / 链接
 - **厂商中立 (Vendor-neutral)** —— 参考上游 PostgreSQL,但不嵌入或封装 third-party operator
-- **License-aware** —— 仅依赖 Apache-2.0 + BSD/MIT/PG-license
+- **License-aware** —— 仅依赖 MIT/BSD/Apache-2.0/PG-license
 
 **应避免**:
 - 营销式最高级 ("blazing fast"、"revolutionary"、"best-in-class")
@@ -84,7 +84,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 
 # postgres-operator
 
-> **Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
+> **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
@@ -107,7 +107,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>
 ```
 
@@ -115,7 +115,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 
 README 的 shield.io 徽章排列 (左→右):
 
-1. License (Apache-2.0)
+1. License (MIT)
 2. Go Version (1.25+)
 3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
@@ -139,12 +139,12 @@ README 的 shield.io 徽章排列 (左→右):
 
 ## 11. 许可证 & 致谢
 
-- License: [Apache-2.0](../LICENSE)
+- License: [MIT](../LICENSE)
 - Copyright: © 2026 keiailab contributors
 - Third-party 致谢: 如适用,见 [NOTICE](../NOTICE)
 
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

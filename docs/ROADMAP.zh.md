@@ -9,7 +9,7 @@
 
 > 英文原文: [ROADMAP.md](ROADMAP.md) — canonical / 正本
 
-本 ROADMAP 通过可验证的 Gate 与 sub-task 清单跟踪进度 —— *并非日期承诺*。项目定位为 **Apache-2.0 PostgreSQL Kubernetes Operator**。我们的目标是达到 production-grade 运维质量,且不 fork / embed / wrap 任何外部 PostgreSQL operator 运行时。
+本 ROADMAP 通过可验证的 Gate 与 sub-task 清单跟踪进度 —— *并非日期承诺*。项目定位为 **MIT-licensed PostgreSQL Kubernetes Operator**。我们的目标是达到 production-grade 运维质量,且不 fork / embed / wrap 任何外部 PostgreSQL operator 运行时。
 
 ## 复选框含义
 
@@ -24,7 +24,7 @@
 ## 原则
 
 - **外部系统不可随本产品出货** —— 外部 PostgreSQL operator、sharding extension、HA agent runtime、第三方 DB 后端不在 runtime artifact 范围内。
-- **作为新服务实现** —— operator manager、instance manager、sharding 元数据、router、backup orchestration 全部在本仓库以 Apache-2.0 兼容依赖实现。
+- **作为新服务实现** —— operator manager、instance manager、sharding 元数据、router、backup orchestration 全部在本仓库以 permissive-license-compatible依赖实现。
 - **质量基线** —— HA / backup / restore / upgrade / observability / security UX 的 *目标水平* 独立于任何具体的第三方产品。
 
 ## 当前状态快照
@@ -214,5 +214,5 @@
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

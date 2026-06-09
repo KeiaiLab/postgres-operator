@@ -9,7 +9,7 @@
 
 This ROADMAP tracks progress through verifiable Gates and sub-task
 checklists — *not* date commitments. The project identity is
-**Apache-2.0 PostgreSQL Kubernetes Operator**. We target production-grade
+**MIT-licensed PostgreSQL Kubernetes Operator**. We target production-grade
 operational quality without forking, embedding, or wrapping external
 operator runtimes.
 
@@ -34,7 +34,7 @@ file.
   artifact.
 - **Implement as a new service** — the operator manager, instance manager,
   sharding metadata, router, and backup orchestration are written in this
-  repository under Apache-2.0–compatible dependencies.
+  repository under permissive-license-compatible dependencies.
 - **Production-grade quality bar** — the *target level* for HA / backup /
   restore / upgrade / observability / security UX. Not a claim of using
   any specific external product.
@@ -44,7 +44,7 @@ file.
 | Item | State | Evidence |
 |---|---|---|
 | Project / chart name | `postgres-operator` | GitHub repo, Helm chart, and GitOps path are aligned |
-| License | Apache-2.0 | `LICENSE`, ADR-0003 |
+| License | MIT | `LICENSE`, ADR-0003 |
 | Latest *published* release | `0.3.0-alpha.16` (Helm) / `0.3.0-alpha.17` (live deploy) | Helm index `keiailab.github.io/postgres-operator` tops out at `0.3.0-alpha.16`; `0.4.0-beta.1` is the source chart `appVersion`, **not published to GHCR/Helm/OLM** as of 2026-06-04. "Level 4 Deep Insights" is a code capability, not a release claim. <!-- live-verified: 2026-06-04 --> |
 | OLM bundle | `bundle/manifests/` aligned with 8 CRDs + alm-examples + CSV descriptions | `operator-sdk bundle validate --select-optional suite=operatorframework` is clean (T26) |
 | Declarative DB surface | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycles completed; live kind smoke automation (T27) in progress |
@@ -229,5 +229,5 @@ cluster via GitOps.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

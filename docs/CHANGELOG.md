@@ -520,7 +520,7 @@ This project follows SemVer.
   distributed-SQL mechanisms, draft design of an in-house plugin
   interface, plus the Phase 2A → Phase 4 milestones.
 - License-disclosure message in the chart's `NOTES.txt`
-  (Apache-2.0 operator + the opt-in AGPL third-party-extension notice).
+  (MIT operator + the opt-in AGPL third-party-extension notice).
 - Doc warning on the third-party-extension plugin package and function
   docs about the AGPL §13 SaaS obligation.
 
@@ -556,5 +556,5 @@ This project follows SemVer.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

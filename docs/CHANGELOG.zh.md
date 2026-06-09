@@ -497,7 +497,7 @@
   AGPL 第三方 sharding 扩展的隔离方式与许可义务分配。
 - RFC 0005 (native sharding plugin) — 7 大核心 distributed-SQL 机制
   的拆分、自研插件接口的草案设计,以及 Phase 2A → Phase 4 的里程碑。
-- chart 的 `NOTES.txt` 中加入许可披露提示 (Apache-2.0 operator +
+- chart 的 `NOTES.txt` 中加入许可披露提示 (MIT operator +
   opt-in AGPL 第三方扩展告示)。
 - 在第三方扩展的插件包与函数文档中加入关于 AGPL §13 SaaS 义务的
   文档警告。
@@ -534,5 +534,5 @@
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

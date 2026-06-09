@@ -18,7 +18,7 @@ maintained in English.
 2. **DCO sign-off is mandatory.** Every commit must carry a
    `Signed-off-by: Your Name <you@example.com>` trailer (use
    `git commit -s`).
-3. **Apache 2.0**: by contributing you agree to license your work under the
+3. **MIT**: by contributing you agree to license your work under the
    project license.
 4. **Commit message language**: Korean or English is fine; English is
    preferred for cross-team collaboration.
@@ -105,10 +105,10 @@ We follow [Contributor Covenant v2.1](CODE_OF_CONDUCT.md).
 
 ## License
 
-All contributions are licensed under [Apache 2.0](../LICENSE).
+All contributions are licensed under [MIT](../LICENSE).
 
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

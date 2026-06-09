@@ -18,7 +18,7 @@ ARG PG_MAJOR
 ARG CITUS_VERSION
 
 LABEL org.opencontainers.image.source="https://github.com/keiailab/postgres-operator"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.title="postgres-operator pg18+citus (preview)"
 
 ENV DEBIAN_FRONTEND=noninteractive

@@ -13,10 +13,10 @@
 
 ## 概要
 
-- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — *自前実装* で production-grade な運用品質と distributed SQL を提供。外部 PostgreSQL operator の fork や wrapper ではない。
+- **目的**: MIT-licensed PostgreSQL Kubernetes Operator — *自前実装* で production-grade な運用品質と distributed SQL を提供。外部 PostgreSQL operator の fork や wrapper ではない。
 - **範囲**: K8s 上の vanilla PostgreSQL 18+、single-shard HA → sharding → online resharding → distributed SQL → GA。
 - **安定性ティア**: v0.4.0-beta.1 — Level 4 Deep Insights（メトリクス、アラート、ダッシュボード、WALアーカイブ、バックアップリテンション、switchover）
-- **License**: Apache-2.0 (依存: BSD/Apache/MIT/PG-License のみ — SaaS 公開時 copyleft 義務ゼロ)
+- **License**: MIT (依存: BSD/Apache/MIT/PG-License のみ — SaaS 公開時 copyleft 義務ゼロ)
 - **Module path**: `github.com/keiailab/postgres-operator`
 
 ## CRD サーフェス (8 CRD)
@@ -133,10 +133,10 @@ Notable:
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (`pkg/version` 決定により v18 最小)
-- ❌ 外部 PostgreSQL operator の再パッケージング (Apache-2.0 境界)
+- ❌ 外部 PostgreSQL operator の再パッケージング (MIT 境界)
 - ❌ 外部 sharding extension の同梱 (問題領域を *再実装*)
 - ❌ 外部 HA agent runtime 依存 (自前 instance manager)
-- ❌ Copyleft 依存 (license-clean Apache-2.0 のみ)
+- ❌ Copyleft 依存 (license-clean MIT のみ)
 - ❌ Plugin SDK (v0.x archive にて retired — 明示 CRD で置換)
 
 ## 参考
@@ -154,5 +154,5 @@ Notable:
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

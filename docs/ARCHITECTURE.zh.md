@@ -13,10 +13,10 @@
 
 ## 概述
 
-- **目的**: Apache-2.0 PostgreSQL Kubernetes Operator — 以 *自建* 代码实现 production-grade 运营质量与 distributed SQL。非外部 PostgreSQL operator 的 fork 或 wrapper。
+- **目的**: MIT-licensed PostgreSQL Kubernetes Operator — 以 *自建* 代码实现 production-grade 运营质量与 distributed SQL。非外部 PostgreSQL operator 的 fork 或 wrapper。
 - **范围**: K8s 上的 vanilla PostgreSQL 18+,single-shard HA → sharding → online resharding → distributed SQL → GA。
 - **稳定性等级**: v0.4.0-beta.1 — Level 4 Deep Insights（指标、告警、仪表板、WAL归档、备份保留、switchover）
-- **License**: Apache-2.0 (依赖: 仅 BSD/Apache/MIT/PG-License — SaaS 暴露时 copyleft 义务为 0)
+- **License**: MIT (依赖: 仅 BSD/Apache/MIT/PG-License — SaaS 暴露时 copyleft 义务为 0)
 - **Module path**: `github.com/keiailab/postgres-operator`
 
 ## CRD 表面 (8 CRD)
@@ -136,7 +136,7 @@ Notable:
 - ❌ 重新打包外部 PostgreSQL operator (Apache-2.0 边界)
 - ❌ 出货外部 sharding extension (将问题领域 *重新实现*)
 - ❌ 外部 HA agent runtime 依赖 (自建 instance manager)
-- ❌ Copyleft 依赖 (license-clean Apache-2.0 only)
+- ❌ Copyleft 依赖 (license-clean MIT only)
 - ❌ Plugin SDK (在 v0.x archive 已 retired — 用显式 CRD 替代)
 
 ## 参考
@@ -154,5 +154,5 @@ Notable:
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

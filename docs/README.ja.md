@@ -4,7 +4,7 @@
 
 # postgres-operator (日本語)
 
-> **Kubernetes 向け Apache-2.0 PostgreSQL Operator — vanilla PG18+、ライセンスクリーン、K8s ネイティブ自動シャーディングロードマップ**
+> **Kubernetes 向け MIT-licensed PostgreSQL Operator — vanilla PG18+、ライセンスクリーン、K8s ネイティブ自動シャーディングロードマップ**
 
 > English README: [README.md](../README.md) — canonical / 正本
 
@@ -31,12 +31,12 @@
 
 ## Identity (アイデンティティ)
 
-本オペレーターは、upstream PostgreSQL の上に *自前で構築した分散 SQL レイヤー* を実装します。外部の PostgreSQL operator ランタイムを埋め込んだりラップしたりはせず、コード、CRD、reconciler、instance manager、router はすべて本リポジトリ内で Apache-2.0 互換ライセンスのもとに直接実装されています。
+本オペレーターは、upstream PostgreSQL の上に *自前で構築した分散 SQL レイヤー* を実装します。外部の PostgreSQL operator ランタイムを埋め込んだりラップしたりはせず、コード、CRD、reconciler、instance manager、router はすべて本リポジトリ内で permissive-license-compatibleライセンスのもとに直接実装されています。
 
 差別化ポイント:
 
 - **100% PostgreSQL 18+ 互換** — アプリケーションコードを変更せずに分散化を導入できます。すべての PG 拡張・型・関数は引き続き利用可能です。
-- **ライセンスクリーン** — Apache-2.0 のオペレーター本体に加え、依存は BSD/Apache/MIT/PG-License のみ。SaaS 公開時の copyleft 義務は発生しません。
+- **ライセンスクリーン** — MIT ライセンスのオペレーター本体に加え、依存は BSD/Apache/MIT/PG-License のみ。SaaS 公開時の copyleft 義務は発生しません。
 - **K8s ネイティブ自動シャーディングロードマップ** — `ShardRange` CRD を真実の源とし、KEDA 駆動の自動分割、7 ステップのオンライン再シャーディング(カットオーバー SLA 目標 p99 < 500 ms)。
 - **シングルエンドポイントロードマップ** — アプリケーションは PostgreSQL wire protocol で `pg-router` Deployment に接続し、シャーディングを意識する必要はありません。
 
@@ -216,7 +216,7 @@ GitHub Actions が OSS 標準スイートを実行します (CI / scorecard / Co
 
 ## License (ライセンス)
 
-Apache-2.0。[`LICENSE`](../LICENSE) ファイルを参照してください。
+MIT。[`LICENSE`](../LICENSE) ファイルを参照してください。
 
 ## Maintainer (メンテナー)
 
@@ -225,5 +225,5 @@ Apache-2.0。[`LICENSE`](../LICENSE) ファイルを参照してください。
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

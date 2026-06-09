@@ -119,7 +119,7 @@ Future (G4+) — ring-based mapping for minimal data movement on resize.
 
 ## Non-goals
 
-- ❌ 외부 sharding extension embedding (license-clean Apache-2.0 only)
+- ❌ 외부 sharding extension embedding (license-clean MIT only)
 - ❌ 외부 sharding router fork
 - ❌ PostgresQL < 18
 

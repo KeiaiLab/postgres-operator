@@ -17,7 +17,7 @@
 
 **組織**: [keiailab](https://keiailab.com) — Kubernetes ネイティブのデータプラットフォーム (Apache-2.0、license-clean、vanilla upstream 互換)。
 
-**プロジェクト**: `postgres-operator` — Kubernetes 向け Apache-2.0 PostgreSQL Operator — vanilla PG18+、license-clean、K8s ネイティブの自動シャーディングロードマップ。
+**プロジェクト**: `postgres-operator` — Kubernetes 向け MIT-licensed PostgreSQL Operator — vanilla PG18+、license-clean、K8s ネイティブの自動シャーディングロードマップ。
 
 ## 2. ロゴ & ビジュアルアセット
 
@@ -66,7 +66,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 - **ダイレクト (Direct)** — 可能な限り段落より bullet
 - **エビデンスベース (Evidence-based)** — 主張にはベンチマーク / SLA / リンクを伴う
 - **ベンダーニュートラル (Vendor-neutral)** — upstream PostgreSQL を参照しつつ third-party operator を embed/wrap しない
-- **License-aware** — Apache-2.0 + BSD/MIT/PG-license 依存のみ
+- **License-aware** — MIT/BSD/Apache-2.0/PG-license 依存のみ
 
 **避ける表現**:
 - マーケティング最上級表現 ("blazing fast"、"revolutionary"、"best-in-class")
@@ -84,7 +84,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 
 # postgres-operator
 
-> **Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
+> **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
@@ -107,7 +107,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>
 ```
 
@@ -115,7 +115,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 
 README の shield.io バッジ並び順 (左→右):
 
-1. License (Apache-2.0)
+1. License (MIT)
 2. Go Version (1.25+)
 3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
@@ -139,12 +139,12 @@ README の shield.io バッジ並び順 (左→右):
 
 ## 11. ライセンス & 出典
 
-- License: [Apache-2.0](../LICENSE)
+- License: [MIT](../LICENSE)
 - Copyright: © 2026 keiailab contributors
 - Third-party 出典: 該当する場合は [NOTICE](../NOTICE) を参照
 
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

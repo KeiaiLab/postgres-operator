@@ -13,9 +13,9 @@ This document is the canonical reference for `postgres-operator` branding decisi
 
 ## 1. Identity
 
-**Organization**: [keiailab](https://keiailab.com) — Kubernetes-native data platform (Apache-2.0, license-clean, vanilla-upstream compatible).
+**Organization**: [keiailab](https://keiailab.com) — Kubernetes-native data platform (MIT-licensed, license-clean, vanilla-upstream compatible).
 
-**Project**: `postgres-operator` — Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap.
+**Project**: `postgres-operator` — MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap.
 
 ## 2. Logo & Visual Assets
 
@@ -64,7 +64,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 - **Direct** — bullet-point over paragraph where possible
 - **Evidence-based** — claims include benchmark / SLA / link
 - **Vendor-neutral** — reference upstream PostgreSQL but do not embed/wrap third-party operators
-- **License-aware** — Apache-2.0 + BSD/MIT/PG-license dependencies only
+- **License-aware** — MIT/BSD/Apache-2.0/PG-license dependencies only
 
 **Avoid**:
 - Marketing superlatives ("blazing fast", "revolutionary", "best-in-class")
@@ -82,7 +82,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 
 # postgres-operator
 
-> **Apache-2.0 PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
+> **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
@@ -105,7 +105,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>
 ```
 
@@ -113,7 +113,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 
 README 의 shield.io badge 순서 (좌→우):
 
-1. License (Apache-2.0)
+1. License (MIT)
 2. Go Version (1.25+)
 3. Database (PostgreSQL 18+)
 4. Kubernetes Version (1.26+)
@@ -137,12 +137,12 @@ README 의 shield.io badge 순서 (좌→우):
 
 ## 11. License & Attribution
 
-- License: [Apache-2.0](../LICENSE)
+- License: [MIT](../LICENSE)
 - Copyright: © 2026 keiailab contributors
 - Third-party attributions: see [NOTICE](../NOTICE) (if applicable)
 
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

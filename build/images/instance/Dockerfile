@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM gcr.io/distroless/static-debian12:nonroot
 
 LABEL org.opencontainers.image.source="https://github.com/keiailab/postgres-operator"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.title="postgres-operator instance manager"
 LABEL org.opencontainers.image.description="PID 1 Go binary that supervises postgres and participates in K8s lease election (ADR 0002)"
 

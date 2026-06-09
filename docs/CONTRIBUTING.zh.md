@@ -15,7 +15,7 @@
 
 1. **未带测试的功能不会合并。** 每个 PR 都必须包含 unit test 或 e2e test。
 2. **DCO 签署必不可少。** 每个 commit 都必须带有 `Signed-off-by: Your Name <you@example.com>` trailer (使用 `git commit -s`)。
-3. **Apache 2.0**: 通过贡献,您同意以本项目许可证授权自己的成果。
+3. **MIT**: 通过贡献,您同意以本项目许可证授权自己的成果。
 4. **Commit message 语言**: 韩文或英文均可;为了跨团队协作,推荐英文。
 
 ## 入门
@@ -86,10 +86,10 @@ make docker-build        # 构建容器镜像 (docker buildx 默认 builder)
 
 ## 许可证
 
-所有贡献以 [Apache 2.0](../LICENSE) 授权。
+所有贡献以 [MIT](../LICENSE) 授权。
 
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

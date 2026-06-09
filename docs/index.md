@@ -1,6 +1,6 @@
 ---
 title: "keiailab/postgres-operator"
-description: "Apache-2.0 PostgreSQL Kubernetes Operator — independent new implementation with no embedded external backend"
+description: "MIT-licensed PostgreSQL Kubernetes Operator — independent new implementation with no embedded external backend"
 ---
 
 This operator is an independent new implementation that builds a *self-built distributed SQL layer* on top of vanilla PostgreSQL 18+ in a K8s native fashion (ADR-0001 keystone). No external PostgreSQL operator runtime is embedded into the product or repackaged as a wrapper. External backend dependencies (AGPL/BUSL/CSL/SSPL) are permanently forbidden (ADR-0003).
@@ -27,4 +27,4 @@ If you are curious about the *why* behind the design decisions, read [ADR-0001](
 
 ## License
 
-[Apache 2.0](https://github.com/keiailab/postgres-operator/blob/main/LICENSE) © 2026 keiailab.
+[MIT](https://github.com/keiailab/postgres-operator/blob/main/LICENSE) © 2026 keiailab.

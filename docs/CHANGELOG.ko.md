@@ -496,7 +496,7 @@
 - RFC 0005 (native sharding plugin) — 7 개의 핵심 distributed-SQL
   메커니즘 분해, 자체 플러그인 인터페이스의 초안 설계, Phase 2A →
   Phase 4 의 마일스톤.
-- 차트의 `NOTES.txt` 에 라이선스 공시 메시지 (Apache-2.0 operator +
+- 차트의 `NOTES.txt` 에 라이선스 공시 메시지 (MIT operator +
   opt-in AGPL 서드파티-extension 안내).
 - 서드파티-extension 플러그인 패키지와 함수 docstring 에 AGPL §13 SaaS
   의무에 대한 문서 경고.
@@ -533,5 +533,5 @@
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

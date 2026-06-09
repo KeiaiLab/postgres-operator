@@ -55,5 +55,5 @@ Production 전환 단계는 ROADMAP.md 에 정의된 G1~G4 마일스톤을 따�
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

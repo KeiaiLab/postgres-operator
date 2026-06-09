@@ -185,7 +185,7 @@ metadata:
     containerImage: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
     createdAt: "2026-05-10T00:00:00Z"
     description: |
-      Apache-2.0 PostgreSQL Kubernetes Operator — vanilla PG18+, license-clean,
+      MIT-licensed PostgreSQL Kubernetes Operator — vanilla PG18+, license-clean,
       PGO-class 운영 품질을 목표로 하되 외부 operator/backend 를 fork, embed,
       wrapper 로 사용하지 않는 독립 신규 구현. PG17/PG18 양 메이저 지원.
     repository: https://github.com/keiailab/postgres-operator
@@ -259,7 +259,7 @@ spec:
   description: |
     # Postgres Operator
 
-    Apache-2.0 licensed Kubernetes operator for PostgreSQL — manages the
+    MIT-licensed Kubernetes operator for PostgreSQL — manages the
     `PostgresCluster` CRD with shard-aware topology (primary + standby
     streaming replication), automated failover (RTO < 30s verified),
     pgBackRest integration, and PG17/PG18 compatibility.

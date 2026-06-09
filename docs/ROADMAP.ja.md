@@ -9,7 +9,7 @@
 
 > 英語原文: [ROADMAP.md](ROADMAP.md) — canonical / 正本
 
-本 ROADMAP は、検証可能な Gate と sub-task チェックリストで進捗を追跡します — *日付コミットメントではありません*。プロジェクトの定義は **Apache-2.0 PostgreSQL Kubernetes Operator** です。外部 PostgreSQL operator ランタイムを fork / embed / wrap せずに production-grade な運用品質を目指します。
+本 ROADMAP は、検証可能な Gate と sub-task チェックリストで進捗を追跡します — *日付コミットメントではありません*。プロジェクトの定義は **MIT-licensed PostgreSQL Kubernetes Operator** です。外部 PostgreSQL operator ランタイムを fork / embed / wrap せずに production-grade な運用品質を目指します。
 
 ## チェックボックスの意味
 
@@ -24,7 +24,7 @@
 ## 原則
 
 - **外部システムは本製品に同梱しない** — 外部 PostgreSQL operator、sharding extension、HA agent ランタイム、サードパーティ DB バックエンドは runtime artifact から除外。
-- **新規サービスとして実装** — operator manager、instance manager、sharding メタデータ、router、backup orchestration は本リポジトリ内に Apache-2.0 互換ライセンスで実装。
+- **新規サービスとして実装** — operator manager、instance manager、sharding メタデータ、router、backup orchestration は本リポジトリ内に permissive-license-compatibleライセンスで実装。
 - **品質基準** — HA / backup / restore / upgrade / observability / security UX の *目標水準* は、特定のサードパーティ製品に依存せず約束します。
 
 ## 現状スナップショット
@@ -32,7 +32,7 @@
 | 項目 | 状態 | Evidence |
 |---|---|---|
 | プロジェクト / chart 名 | `postgres-operator` | GitHub repo、Helm chart、GitOps path 全部整合 |
-| ライセンス | Apache-2.0 | `LICENSE`, ADR-0003 |
+| ライセンス | MIT | `LICENSE`, ADR-0003 |
 | 最新リリース | `0.4.0-beta.1` | GHCR イメージ + Helm chart publish + OLM bundle — Level 4 Deep Insights |
 | OLM bundle | `bundle/manifests/` が 8 CRD + alm-examples + CSV description と整合 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
 | 宣言的 DB サーフェス | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 サイクル完了。live kind smoke 自動化 (T27) 進行中 |
@@ -214,5 +214,5 @@
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

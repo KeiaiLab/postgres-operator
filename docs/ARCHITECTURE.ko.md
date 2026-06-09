@@ -13,10 +13,10 @@
 
 ## 개요
 
-- **목적**: Apache-2.0 PostgreSQL Kubernetes Operator — *자체 구축* 코드로 production-grade 운영 품질 + distributed SQL 제공. 외부 PostgreSQL operator fork 또는 wrapper 아님.
+- **목적**: MIT-licensed PostgreSQL Kubernetes Operator — *자체 구축* 코드로 production-grade 운영 품질 + distributed SQL 제공. 외부 PostgreSQL operator fork 또는 wrapper 아님.
 - **범위**: K8s 위의 vanilla PostgreSQL 18+, single-shard HA → sharding → online resharding → distributed SQL → GA.
 - **안정성 단계**: v0.4.0-beta.1 — Level 4 Deep Insights (메트릭, 알림, 대시보드, WAL 아카이빙, 백업 보존, switchover)
-- **License**: Apache-2.0 (의존성: BSD/Apache/MIT/PG-License 만 — SaaS 노출 시 copyleft 의무 0)
+- **License**: MIT (의존성: BSD/Apache/MIT/PG-License 만 — SaaS 노출 시 copyleft 의무 0)
 - **Module path**: `github.com/keiailab/postgres-operator`
 
 ## CRD 표면 (8 CRD)
@@ -133,10 +133,10 @@ Notable:
 ## Non-goals
 
 - ❌ PostgreSQL < 18 (`pkg/version` 결정상 v18 최소)
-- ❌ 외부 PostgreSQL operator 재패키징 (Apache-2.0 경계)
+- ❌ 외부 PostgreSQL operator 재패키징 (MIT boundary)
 - ❌ 외부 sharding extension 동봉 (문제 공간을 *재구현*)
 - ❌ 외부 HA agent runtime 의존 (자체 instance manager)
-- ❌ Copyleft 의존성 (license-clean Apache-2.0 만)
+- ❌ Copyleft 의존성 (license-clean MIT 만)
 - ❌ Plugin SDK (v0.x archive 에서 retired — 명시 CRD 로 대체)
 
 ## 참조
@@ -154,5 +154,5 @@ Notable:
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

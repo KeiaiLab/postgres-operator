@@ -4,7 +4,7 @@
 
 # postgres-operator (한국어)
 
-> **Kubernetes 용 Apache-2.0 PostgreSQL Operator — vanilla PG18+, license-clean, K8s-native auto-sharding 로드맵**
+> **Kubernetes 용 MIT-licensed PostgreSQL Operator — vanilla PG18+, license-clean, K8s-native auto-sharding 로드맵**
 
 > English README: [README.md](../README.md) — canonical / 정본
 
@@ -28,12 +28,12 @@
 
 ## 정체성
 
-본 operator 는 upstream PostgreSQL 위에 *자체 구축 distributed SQL 레이어* 를 만든다. 외부 PostgreSQL operator runtime 을 embed 또는 wrap 하지 않으며, 코드 / CRD / reconciler / instance manager / router 모두 Apache-2.0 호환 조건 하에 본 저장소 안에서 직접 구현된다.
+본 operator 는 upstream PostgreSQL 위에 *자체 구축 distributed SQL 레이어* 를 만든다. 외부 PostgreSQL operator runtime 을 embed 또는 wrap 하지 않으며, 코드 / CRD / reconciler / instance manager / router 모두 permissive-license-compatible 조건 하에 본 저장소 안에서 직접 구현된다.
 
 차별점:
 
 - **100% PostgreSQL 18+ 호환** — application 코드 변경 없이 distribution 채택. PG extension / type / function 모두 그대로 사용 가능.
-- **License-clean** — Apache-2.0 operator + BSD/Apache/MIT/PG-License 의존성만. SaaS 노출 시 copyleft 의무 0.
+- **License-clean** — MIT operator + BSD/Apache/MIT/PG-License 의존성만. SaaS 노출 시 copyleft 의무 0.
 - **K8s-native auto-sharding 로드맵** — `ShardRange` CRD = source of truth, KEDA 트리거 auto-split, 7-step online resharding (cutover SLA target p99 < 500 ms).
 - **Single-endpoint 로드맵** — application 은 `pg-router` Deployment 에 PostgreSQL wire protocol 로 연결, sharding 인지 불필요.
 
@@ -213,7 +213,7 @@ GitHub Actions 는 OSS 표준 suite (CI / scorecard / CodeQL / DCO / dependency-
 
 ## 라이선스
 
-Apache-2.0. [`LICENSE`](../LICENSE) 파일 참조.
+MIT. [`LICENSE`](../LICENSE) 파일 참조.
 
 ## 메인테이너
 
@@ -222,5 +222,5 @@ Apache-2.0. [`LICENSE`](../LICENSE) 파일 참조.
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

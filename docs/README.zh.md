@@ -4,7 +4,7 @@
 
 # postgres-operator (简体中文)
 
-> **基于 Apache-2.0 许可证的 Kubernetes PostgreSQL Operator —— 原生 PG18+,许可证干净,K8s 原生自动分片路线图**
+> **基于 MIT 许可证的 Kubernetes PostgreSQL Operator —— 原生 PG18+,许可证干净,K8s 原生自动分片路线图**
 
 > English README: [README.md](../README.md) — canonical / 正本
 
@@ -31,12 +31,12 @@
 
 ## Identity (项目定位)
 
-本 Operator 在 upstream PostgreSQL 之上构建一个 *自研的分布式 SQL 层*,不嵌入或封装任何外部 PostgreSQL operator 运行时。代码、CRD、reconciler、实例管理器(instance manager)和路由器(router)全部在本仓库内直接实现,均遵循与 Apache-2.0 兼容的条款。
+本 Operator 在 upstream PostgreSQL 之上构建一个 *自研的分布式 SQL 层*,不嵌入或封装任何外部 PostgreSQL operator 运行时。代码、CRD、reconciler、实例管理器(instance manager)和路由器(router)全部在本仓库内直接实现,均遵循与 permissive-license-compatible的条款。
 
 差异化亮点:
 
 - **100% 兼容 PostgreSQL 18+** —— 应用代码无需修改即可采用分布式架构。所有 PG 扩展 / 类型 / 函数保持可用。
-- **许可证干净** —— Apache-2.0 Operator 加上仅 BSD/Apache/MIT/PG-License 依赖。SaaS 暴露时无 copyleft 义务。
+- **许可证干净** —— MIT-licensed Operator 加上仅 BSD/Apache/MIT/PG-License 依赖。SaaS 暴露时无 copyleft 义务。
 - **K8s 原生自动分片路线图** —— `ShardRange` CRD 作为唯一真实源(source of truth),KEDA 驱动的自动分裂,7 步在线重分片(cutover SLA 目标 p99 < 500 ms)。
 - **单一接入端点路线图** —— 应用通过 PostgreSQL wire protocol 连接到 `pg-router` Deployment,无需感知分片细节。
 
@@ -216,7 +216,7 @@ GitHub Actions 运行 OSS 标准套件(CI / scorecard / CodeQL / DCO / dependenc
 
 ## License (许可证)
 
-Apache-2.0。请参考 [`LICENSE`](../LICENSE) 文件。
+MIT。请参考 [`LICENSE`](../LICENSE) 文件。
 
 ## Maintainer (维护者)
 
@@ -225,5 +225,5 @@ Apache-2.0。请参考 [`LICENSE`](../LICENSE) 文件。
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

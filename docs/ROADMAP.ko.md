@@ -9,7 +9,7 @@
 
 > 영문 원본: [ROADMAP.md](ROADMAP.md) — canonical / 정본
 
-본 ROADMAP 은 검증 가능한 Gate 와 sub-task 체크리스트로 진행을 추적한다 — *날짜 약속이 아니다*. 프로젝트 정체성은 **Apache-2.0 PostgreSQL Kubernetes Operator**. 외부 PostgreSQL operator runtime 을 fork / embed / wrap 하지 않고 production-grade 운영 품질을 목표로 한다.
+본 ROADMAP 은 검증 가능한 Gate 와 sub-task 체크리스트로 진행을 추적한다 — *날짜 약속이 아니다*. 프로젝트 정체성은 **MIT-licensed PostgreSQL Kubernetes Operator**. 외부 PostgreSQL operator runtime 을 fork / embed / wrap 하지 않고 production-grade 운영 품질을 목표로 한다.
 
 ## 체크박스 의미
 
@@ -24,7 +24,7 @@
 ## 원칙
 
 - **외부 시스템은 본 제품 내부로 출하 금지** — 외부 PostgreSQL operator / sharding extension / HA agent runtime / 3rd-party DB 백엔드는 runtime artifact 에서 제외.
-- **신규 서비스로 구현** — operator manager, instance manager, sharding 메타데이터, router, backup orchestration 은 본 저장소 내에서 Apache-2.0 호환 의존성으로 구현.
+- **신규 서비스로 구현** — operator manager, instance manager, sharding 메타데이터, router, backup orchestration 은 본 저장소 내에서 permissive-license-compatible 의존성으로 구현.
 - **품질 기준** — HA / backup / restore / upgrade / observability / security UX 의 *목표 수준* 은 특정 3rd-party 제품과 무관하게 약속한다.
 
 ## 현 상태 스냅샷
@@ -32,7 +32,7 @@
 | 항목 | 상태 | Evidence |
 |---|---|---|
 | 프로젝트 / chart 이름 | `postgres-operator` | GitHub repo, Helm chart, GitOps path 모두 정합 |
-| 라이선스 | Apache-2.0 | `LICENSE`, ADR-0003 |
+| 라이선스 | MIT | `LICENSE`, ADR-0003 |
 | 최신 릴리스 | `0.4.0-beta.1` | GHCR 이미지 + Helm chart publish + OLM bundle — Level 4 Deep Insights |
 | OLM bundle | `bundle/manifests/` 가 8 CRD + alm-examples + CSV description 과 정합 | `operator-sdk bundle validate --select-optional suite=operatorframework` clean (T26) |
 | 선언적 DB 표면 | Pooler / PostgresDatabase / PostgresUser / ScheduledBackup / ImageCatalog / ClusterImageCatalog / externalClusters / replica cluster | T22 / T24 / T25 cycle 완료; live kind smoke 자동화 (T27) 진행 중 |
@@ -214,5 +214,5 @@
 ---
 
 <p align="center">
-  © 2026 keiailab · <a href="../LICENSE">Apache-2.0</a> · <a href="https://keiailab.com">keiailab.com</a>
+  © 2026 keiailab · <a href="../LICENSE">MIT</a> · <a href="https://keiailab.com">keiailab.com</a>
 </p>

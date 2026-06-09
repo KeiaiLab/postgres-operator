@@ -6,7 +6,7 @@
 
 ## Context
 
-This operator is distributed under Apache 2.0, and the user has marked
+This operator is distributed under MIT, and the user has marked
 *license cleanliness* as a top-priority value (decision on 2026-05-02).
 During 0.2.0-alpha we explored isolating an AGPLv3 PostgreSQL sharding
 extension into a separate plugin chart. Isolation alone does not fully
@@ -72,7 +72,7 @@ Positive:
 - Zero license incidents — supply-chain audits and customer legal
   reviews pass without remediation.
 - SaaS hosters can embed this operator without extra license obligations
-  (the operator stays Apache 2.0).
+  (the operator stays MIT).
 - The Artifact Hub `artifacthub.io/license` annotation stays simple.
 - Contributor onboarding terminates the "can I add this dependency"
   question with a single ADR.
