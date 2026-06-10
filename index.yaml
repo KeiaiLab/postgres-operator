@@ -6,6 +6,241 @@ entries:
       artifacthub.io/category: database
       artifacthub.io/changes: |
         - kind: changed
+          description: "서명 메타데이터 전용 chart refresh. operator appVersion/image는 0.4.0-beta.1로 유지하고 Artifact Hub 신규 인덱싱용 signed chart version만 발행한다."
+      artifacthub.io/crds: |
+        - kind: PostgresCluster
+          version: v1alpha1
+          name: postgresclusters.postgres.keiailab.io
+          displayName: PostgresCluster
+          description: coordinator, worker pool, stateless router 로 구성된 자체 분산 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, ADR 0001 자체 분산 SQL).
+        - kind: ImageCatalog
+          version: v1alpha1
+          name: imagecatalogs.postgres.keiailab.io
+          displayName: ImageCatalog
+          description: namespace 범위 PostgreSQL runtime image catalog 를 선언한다
+        - kind: ClusterImageCatalog
+          version: v1alpha1
+          name: clusterimagecatalogs.postgres.keiailab.io
+          displayName: ClusterImageCatalog
+          description: cluster 전체에서 공유할 PostgreSQL runtime image catalog 를 선언한다
+        - kind: BackupJob
+          version: v1alpha1
+          name: backupjobs.postgres.keiailab.io
+          displayName: BackupJob
+          description: PostgresCluster 대상의 단일 백업 또는 복구 실행 요청을 선언한다
+        - kind: ScheduledBackup
+          version: v1alpha1
+          name: scheduledbackups.postgres.keiailab.io
+          displayName: ScheduledBackup
+          description: cron schedule 에 따라 PostgresCluster 대상 BackupJob 을 생성한다
+        - kind: Pooler
+          version: v1alpha1
+          name: poolers.postgres.keiailab.io
+          displayName: Pooler
+          description: PostgresCluster 대상 PgBouncer connection pool 계층을 선언한다
+        - kind: PostgresDatabase
+          version: v1alpha1
+          name: postgresdatabases.postgres.keiailab.io
+          displayName: PostgresDatabase
+          description: ready primary Pod 의 psql 로 database, tablespace, schema, extension, FDW, foreign server 선언을 적용한다
+        - kind: PostgresUser
+          version: v1alpha1
+          name: postgresusers.postgres.keiailab.io
+          displayName: PostgresUser
+          description: ready primary Pod 의 psql 로 PostgreSQL role flags, membership, password, validUntil 을 적용한다
+      artifacthub.io/crdsExamples: |
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ImageCatalog
+          metadata:
+            name: postgresql
+            namespace: default
+          spec:
+            images:
+              - major: 18
+                image: ghcr.io/keiailab/pg:18
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ClusterImageCatalog
+          metadata:
+            name: postgresql-standard
+          spec:
+            images:
+              - major: 17
+                image: ghcr.io/keiailab/pg:17
+              - major: 18
+                image: ghcr.io/keiailab/pg:18
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresCluster
+          metadata:
+            name: quickstart
+            namespace: default
+          spec:
+            imageCatalogRef:
+              apiGroup: postgres.keiailab.io
+              kind: ImageCatalog
+              name: postgresql
+              major: 18
+            shardingMode: none
+            shards:
+              initialCount: 1
+              replicas: 1
+              storage:
+                size: 10Gi
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: BackupJob
+          metadata:
+            name: quickstart-full-backup
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            tool: pgbackrest
+            repo: repo1
+            type: full
+            executionMode: job
+            jobTemplate:
+              spec:
+                backoffLimit: 1
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                      - name: pgbackrest
+                        image: ghcr.io/keiailab/pg:18
+                        command: ["/bin/sh", "-c"]
+                        args:
+                          - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ScheduledBackup
+          metadata:
+            name: quickstart-nightly-backup
+            namespace: default
+          spec:
+            schedule: "0 0 2 * * *"
+            cluster:
+              name: quickstart
+            tool: pgbackrest
+            repo: repo1
+            type: full
+            executionMode: job
+            backupOwnerReference: self
+            jobTemplate:
+              spec:
+                backoffLimit: 1
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                      - name: pgbackrest
+                        image: ghcr.io/keiailab/pg:18
+                        command: ["/bin/sh", "-c"]
+                        args:
+                          - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: Pooler
+          metadata:
+            name: quickstart-rw
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            instances: 3
+            type: rw
+            pgbouncer:
+              image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+              poolMode: transaction
+              authSecretRef:
+                name: quickstart-pooler-auth
+              parameters:
+                max_client_conn: "1000"
+                default_pool_size: "20"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresUser
+          metadata:
+            name: quickstart-app
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            name: app
+            login: true
+            createdb: true
+            connectionLimit: 25
+            validUntil: infinity
+            inRoles:
+              - readonly
+              - writers
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresDatabase
+          metadata:
+            name: quickstart-appdb
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            name: appdb
+            owner: app
+            databaseReclaimPolicy: retain
+            privileges:
+              - role: app
+                privileges: [CONNECT, TEMPORARY]
+            schemas:
+              - name: app
+                owner: app
+                privileges:
+                  - role: app
+                    privileges: [USAGE, CREATE]
+            extensions:
+              - name: pgcrypto
+      artifacthub.io/images: |
+        - name: manager
+          image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/keiailab/postgres-operator/blob/main/README.md
+        - name: Source Code
+          url: https://github.com/keiailab/postgres-operator
+        - name: Release Process
+          url: https://github.com/keiailab/postgres-operator/blob/main/docs/releases/release-process.md
+      artifacthub.io/maturity: beta
+      artifacthub.io/operator: "true"
+      artifacthub.io/operatorCapabilities: Deep Insights
+      artifacthub.io/prerelease: "true"
+    apiVersion: v2
+    appVersion: 0.4.0-beta.1
+    created: "2026-06-10T18:03:27.333925+09:00"
+    description: 'MIT-licensed PostgreSQL Kubernetes Operator. PGO-class operational
+      quality is the target, but external operators/backends are not forked, embedded,
+      or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
+      roadmap (ADR 0001, ADR 0003). '
+    digest: 41e40757213e97038441f319cfbb2e61dcfa8a0384113e15f06ececc46535044
+    home: https://github.com/keiailab/postgres-operator
+    keywords:
+    - postgresql
+    - postgres
+    - postgres-18
+    - operator
+    - kubernetes
+    - keiailab
+    - self-built-distributed-sql
+    - mit
+    kubeVersion: '>=1.26.0-0'
+    maintainers:
+    - email: support@keiailab.com
+      name: keiailab
+      url: https://github.com/keiailab
+    name: postgres-operator
+    sources:
+    - https://github.com/keiailab/postgres-operator
+    type: application
+    urls:
+    - https://keiailab.github.io/postgres-operator/postgres-operator-0.4.0-beta.2.tgz
+    version: 0.4.0-beta.2
+  - annotations:
+      artifacthub.io/alternativeName: keiailab-postgres-operator
+      artifacthub.io/category: database
+      artifacthub.io/changes: |
+        - kind: changed
           description: "0.4.0-beta.1 — Level 4 Deep Insights. PrometheusRule 8 alerts, Grafana dashboard, WAL archiving, backup retention, config hot-reload, annotation-based switchover."
         - kind: removed
           description: "internal/citus/ + internal/plugin/extension/citus/ 패키지 제거. CITUS_LIBPQ_DSN 환경 변수 폐기. citus extension Helm values 제거."
@@ -212,7 +447,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.4.0-beta.1
-    created: "2026-06-10T17:41:18.53195+09:00"
+    created: "2026-06-10T18:03:27.327565+09:00"
     description: 'MIT-licensed PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -310,7 +545,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.16
-    created: "2026-06-10T17:41:18.521303+09:00"
+    created: "2026-06-10T18:03:27.317414+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -408,7 +643,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.13
-    created: "2026-06-10T17:41:18.520565+09:00"
+    created: "2026-06-10T18:03:27.31673+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -506,7 +741,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.12
-    created: "2026-06-10T17:41:18.519904+09:00"
+    created: "2026-06-10T18:03:27.316104+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -604,7 +839,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.11
-    created: "2026-06-10T17:41:18.519243+09:00"
+    created: "2026-06-10T18:03:27.315454+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -702,7 +937,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.10
-    created: "2026-06-10T17:41:18.518505+09:00"
+    created: "2026-06-10T18:03:27.314739+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -800,7 +1035,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.9
-    created: "2026-06-10T17:41:18.525272+09:00"
+    created: "2026-06-10T18:03:27.321091+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -898,7 +1133,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.8
-    created: "2026-06-10T17:41:18.524647+09:00"
+    created: "2026-06-10T18:03:27.320489+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -996,7 +1231,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.4
-    created: "2026-06-10T17:41:18.524011+09:00"
+    created: "2026-06-10T18:03:27.3199+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -1094,7 +1329,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.3
-    created: "2026-06-10T17:41:18.523361+09:00"
+    created: "2026-06-10T18:03:27.319298+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -1192,7 +1427,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.2
-    created: "2026-06-10T17:41:18.522711+09:00"
+    created: "2026-06-10T18:03:27.318689+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -1220,4 +1455,4 @@ entries:
     urls:
     - https://keiailab.github.io/postgres-operator/postgres-operator-0.3.0-alpha.2.tgz
     version: 0.3.0-alpha.2
-generated: "2026-06-10T17:41:18.517719+09:00"
+generated: "2026-06-10T18:03:27.31386+09:00"
