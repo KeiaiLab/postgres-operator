@@ -212,12 +212,12 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.4.0-beta.1
-    created: "2026-06-10T16:33:51.027254+09:00"
+    created: "2026-06-10T17:41:18.53195+09:00"
     description: 'MIT-licensed PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
       roadmap (ADR 0001, ADR 0003). '
-    digest: 0be21e7d4c13bc091fb73eb11969afbef40913fd0733a8fd0f46df97d2a40dd6
+    digest: 6c4d407aee115b77f3547a45cf718579d39e8d8169ae7da2702f99e7562853a5
     home: https://github.com/keiailab/postgres-operator
     keywords:
     - postgresql
@@ -310,7 +310,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.16
-    created: "2026-06-10T16:33:51.017606+09:00"
+    created: "2026-06-10T17:41:18.521303+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -408,7 +408,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.13
-    created: "2026-06-10T16:33:51.016379+09:00"
+    created: "2026-06-10T17:41:18.520565+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -506,7 +506,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.12
-    created: "2026-06-10T16:33:51.015723+09:00"
+    created: "2026-06-10T17:41:18.519904+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -604,7 +604,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.11
-    created: "2026-06-10T16:33:51.015082+09:00"
+    created: "2026-06-10T17:41:18.519243+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -702,7 +702,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.10
-    created: "2026-06-10T16:33:51.014403+09:00"
+    created: "2026-06-10T17:41:18.518505+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -800,7 +800,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.9
-    created: "2026-06-10T16:33:51.020817+09:00"
+    created: "2026-06-10T17:41:18.525272+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -898,7 +898,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.8
-    created: "2026-06-10T16:33:51.020193+09:00"
+    created: "2026-06-10T17:41:18.524647+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -996,7 +996,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.4
-    created: "2026-06-10T16:33:51.019539+09:00"
+    created: "2026-06-10T17:41:18.524011+09:00"
     description: 'Apache-2.0 PostgreSQL Kubernetes Operator. PGO-class operational
       quality is the target, but external operators/backends are not forked, embedded,
       or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
@@ -1094,7 +1094,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.3
-    created: "2026-06-10T16:33:51.018895+09:00"
+    created: "2026-06-10T17:41:18.523361+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -1192,7 +1192,7 @@ entries:
       artifacthub.io/prerelease: "true"
     apiVersion: v2
     appVersion: 0.3.0-alpha.2
-    created: "2026-06-10T16:33:51.01829+09:00"
+    created: "2026-06-10T17:41:18.522711+09:00"
     description: 'K8s-native auto-sharding PostgreSQL operator. Apache-2.0, zero AGPL/BUSL
       dependency (ADR 0003). Vanilla PostgreSQL 18+ baseline + 5-interface Plugin
       SDK + stateless QueryRouter (RFC 0004). 자체 분산 SQL layer 는 RFC 0001~0005 로 단계
@@ -1220,4 +1220,4 @@ entries:
     urls:
     - https://keiailab.github.io/postgres-operator/postgres-operator-0.3.0-alpha.2.tgz
     version: 0.3.0-alpha.2
-generated: "2026-06-10T16:33:51.013588+09:00"
+generated: "2026-06-10T17:41:18.517719+09:00"
