@@ -20,9 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/keiailab/operator-commons/pkg/probes"
-	"github.com/keiailab/operator-commons/pkg/security"
-	commonstopology "github.com/keiailab/operator-commons/pkg/topology"
+	"github.com/keiailab/keiailab-commons/pkg/probes"
+	"github.com/keiailab/keiailab-commons/pkg/security"
+	commonstopology "github.com/keiailab/keiailab-commons/pkg/topology"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
@@ -165,7 +165,7 @@ func dataplanePodSecurityContext() *corev1.PodSecurityContext {
 // readOnlyRootFilesystem 동반: PG가 /tmp, /run, /var/run/postgresql에 socket/lock
 // 작성하므로 emptyDir mount 3개 추가(dataplaneEphemeralVolumeMounts/Volumes).
 //
-// iteration 8 (2026-05-07): operator-commons/pkg/security 위임 — 3 operator 공통
+// iteration 8 (2026-05-07): keiailab-commons/pkg/security 위임 — 3 operator 공통
 // PodSecurity restricted invariant 단일 진실원. 이전에는 SeccompProfile + RunAsNonRoot
 // 가 container-level 에서 누락되어 Pod-level inherit 에 의존. 이제 명시.
 func dataplaneContainerSecurityContext() *corev1.SecurityContext {

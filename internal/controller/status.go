@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	commonsstatus "github.com/keiailab/operator-commons/pkg/status"
+	commonsstatus "github.com/keiailab/keiailab-commons/pkg/status"
 )
 
 // 본 파일은 PostgresClusterStatus.Conditions를 다루는 헬퍼들이다.

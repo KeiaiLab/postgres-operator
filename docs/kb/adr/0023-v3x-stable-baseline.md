@@ -30,7 +30,7 @@ audit 시계열 기록: 내부 audit-history (외부 도구 의존) → "🎉 20
 
 - **RFC-0002 정합** (GitHub Actions 영구 금지) — 본 repo 의 lefthook pre-commit hook 이 `.github/workflows/` 추가 자동 차단 (postgres-ADR/0021). 예외 3종 (Pages 정적 배포 + Dependabot/Renovate + release tag → Release body) 은 postgres-ADR/0022 로 명시.
 - **i18n 4-lang** (en/ko/ja/zh) README + AGENTS + GOVERNANCE + CONTRIBUTING + CODE_OF_CONDUCT + SECURITY + ADOPTERS — supercycle 2026-05-21 Wave 4 완료.
-- **operator-commons** 의존성 정합: `github.com/keiailab/operator-commons` 적합 버전 import (Sprint 1 의 pkg/pvc + pkg/topology 채택).
+- **keiailab-commons** 의존성 정합: `github.com/keiailab/keiailab-commons` 적합 버전 import (Sprint 1 의 pkg/pvc + pkg/topology 채택).
 
 ## Decision
 

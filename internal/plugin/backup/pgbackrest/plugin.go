@@ -144,10 +144,11 @@ func (p *Plugin) RestorePIT(ctx context.Context, target plugin.ClusterTarget, ts
 // pgbackrestCommonArgs 는 readOnlyRootFilesystem + uid 70(pg-keiailab) + pgbackrest deb
 // 가 생성한 /etc/pgbackrest.conf(mode 640) 환경에서 pgbackrest 가 동작하는 데 필요한
 // 공통 옵션이다 (라이브 검증 2026-06-04 pg-backup-e2e):
-//   --config=/dev/null    deb /etc/pgbackrest.conf permission denied(exit 41) 우회
-//   --log-level-file=off  readOnlyRootFilesystem 의 /var/log/pgbackrest 쓰기 회피
-//   --pg1-path            PGDATA (builders.go pgDataSubdir 미러)
-//   --pg1-user/database   DB 연결 superuser (OS user pg-keiailab 는 DB role 부재)
+//
+//	--config=/dev/null    deb /etc/pgbackrest.conf permission denied(exit 41) 우회
+//	--log-level-file=off  readOnlyRootFilesystem 의 /var/log/pgbackrest 쓰기 회피
+//	--pg1-path            PGDATA (builders.go pgDataSubdir 미러)
+//	--pg1-user/database   DB 연결 superuser (OS user pg-keiailab 는 DB role 부재)
 const pgbackrestCommonArgs = "--config=/dev/null --log-level-file=off " +
 	"--pg1-path=/var/lib/postgresql/data/pgdata --pg1-user=postgres --pg1-database=postgres"
 

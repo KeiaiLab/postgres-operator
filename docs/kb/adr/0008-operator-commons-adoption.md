@@ -1,15 +1,15 @@
-# ADR-0008: Adopt operator-commons + tighten the Container SecurityContext invariant
+# ADR-0008: Adopt keiailab-commons + tighten the Container SecurityContext invariant
 
 - Date: 2026-05-07
 - Status: Accepted
 - Authors: @eightynine01
-- Refs: keiailab/operator-commons ADR-0001 (charter)
+- Refs: keiailab/keiailab-commons ADR-0001 (charter)
 
 ## Context
 
 The keiailab Kubernetes operators were defining the same PodSecurity *restricted*
-SecurityContext invariant *inline in each*. To prevent drift, the `keiailab/operator-commons`
-shared library v0.1.2 was introduced (operator-commons ADR-0001).
+SecurityContext invariant *inline in each*. To prevent drift, the `keiailab/keiailab-commons`
+shared library v0.1.2 was introduced (keiailab-commons ADR-0001).
 
 At the iteration 8 ship-4 timepoint, this repo's `dataplaneContainerSecurityContext`
 (internal/controller/builders.go) was missing the following invariants *at the
@@ -24,7 +24,7 @@ preserved in git), so this ADR establishes the new policy.
 ## Decision
 
 Delegate `dataplaneContainerSecurityContext` to a call into
-`operator-commons/pkg/security.RestrictedContainer`. Keep the postgres-specific
+`keiailab-commons/pkg/security.RestrictedContainer`. Keep the postgres-specific
 option via the functional option `WithReadOnlyRootFilesystem(true)`.
 
 Resulting invariants (commons guards + postgres-specific):
@@ -67,10 +67,10 @@ will consider delegating it after extending commons.RestrictedPod
 1. **Delegate Pod-level only to commons, keep Container-level as-is** — rejected:
    user-explicit decision (iteration 8 plan AskUserQuestion response).
 2. **Defer commons adoption, keep our own function** — rejected: contradicts the
-   commonization policy of operator-commons ADR-0001 + the goal of preventing
+   commonization policy of keiailab-commons ADR-0001 + the goal of preventing
    drift across operators.
 3. **Add a new container-level function (without delegation)** — rejected: a
-   3rd inline copy. Negates the value of adopting operator-commons.
+   3rd inline copy. Negates the value of adopting keiailab-commons.
 
 ## Verification
 
@@ -86,6 +86,6 @@ explicitly applied.
 
 ## Refs
 
-- operator-commons v0.1.2 (github.com/keiailab/operator-commons)
+- keiailab-commons v0.1.2 (github.com/keiailab/keiailab-commons)
 
 <!-- live-verified: 2026-05-09 -->

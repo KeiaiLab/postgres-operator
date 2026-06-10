@@ -18,7 +18,7 @@
 | 新規 controller / CR / API 追加 | minor (v1.X → v1.X+1) | PostgresPooler を新設 |
 | 既存 API シグネチャ変更 (breaking) | major (v1.X → v2.0) | PostgresCluster.spec.storage 構造の変更 |
 | バグ修正 / 依存 bump | patch (v1.X.Y → v1.X.Y+1) | controller-runtime 0.19→0.20 |
-| operator-commons 依存 bump | minor (commons v0.X → v0.X+1) | pkg/reconcile を新規採用 |
+| keiailab-commons 依存 bump | minor (commons v0.X → v0.X+1) | pkg/reconcile を新規採用 |
 
 ## 1. v0.1.x → v0.2.x
 
@@ -50,16 +50,16 @@ kubectl apply -f dist/install.yaml
 
 ## 2. v0.2.x → v0.3.x (予定)
 
-### operator-commons v0.9.0 採用 (Sprint 1 + S5)
+### keiailab-commons v0.9.0 採用 (Sprint 1 + S5)
 
 ```bash
-# go.mod の operator-commons 依存を bump した後
+# go.mod の keiailab-commons 依存を bump した後
 go mod tidy
 ```
 
-- **新規 import**: `github.com/keiailab/operator-commons/pkg/pvc`、`pkg/topology` (Sprint 1)
+- **新規 import**: `github.com/keiailab/keiailab-commons/pkg/pvc`、`pkg/topology` (Sprint 1)
 - **追加 import 予定**: `pkg/reconcile`、`pkg/resources` (S5 後続)
-- **重複コードの除去**: `internal/controller/` の自前 helper を operator-commons の helper に置換。挙動は同一。
+- **重複コードの除去**: `internal/controller/` の自前 helper を keiailab-commons の helper に置換。挙動は同一。
 
 マイグレーションの影響:
 - Reconcile 挙動同一 (リファクタリングのみ、外部挙動の変更なし)

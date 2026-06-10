@@ -7,7 +7,7 @@
 
 ## Context
 
-operator-commons v0.7.0 added a generic `Matrix[E MatrixEntry]` under
+keiailab-commons v0.7.0 added a generic `Matrix[E MatrixEntry]` under
 `pkg/version` (commons PR-B1 / ADR-0004). This PR-B3 delegates postgres's
 `[]Combo` slice + ad-hoc loop pattern in `internal/version/matrix.go` to
 commons `Matrix[Combo]` — *4-repo pkg/version adoption rises from 67% to 100%*.
@@ -18,7 +18,7 @@ commons.
 
 ## Decision
 
-1. **Bump `go.mod`** operator-commons v0.6.0 → v0.7.0.
+1. **Bump `go.mod`** keiailab-commons v0.6.0 → v0.7.0.
 
 2. **Changes in `internal/version/matrix.go`**:
    - Add `Combo.PrimaryKey() string { return c.PostgresMajor }` method
@@ -55,7 +55,7 @@ commons.
 
 ### Negative
 
-- Dependency surface +1 (operator-commons v0.7.0's `Matrix[E]`). v0.6.0 +
+- Dependency surface +1 (keiailab-commons v0.7.0's `Matrix[E]`). v0.6.0 +
   pkg/version.List is also in use — dependency change is minor.
 - Use of generics enforces Go 1.18+ (already on go 1.25.10).
 

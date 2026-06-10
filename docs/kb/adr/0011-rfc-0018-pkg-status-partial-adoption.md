@@ -7,7 +7,7 @@
 
 ## Context
 
-Adoption of operator-commons v0.6.0's `pkg/status`. RFC-0018 §3.1 standardizes
+Adoption of keiailab-commons v0.6.0's `pkg/status`. RFC-0018 §3.1 standardizes
 the 4 generic ConditionTypes (Ready / Progressing / Degraded / Available) +
 a 6-Reason catalog. postgres-operator has domain-specific ConditionTypes
 (ShardsReady / RouterReady / BackupHealthy / AutoSplitEligible) — this ADR
@@ -48,7 +48,7 @@ adopt finalizer.Add, postgres preserves non-adoption.
 
 - Alignment of the *Ready type* begins — the `kubectl describe postgrescluster/...`
   output's `Reason="Available"` / `"Reconciling"` etc. now uses the standard
-  operator-commons catalog.
+  keiailab-commons catalog.
 - Domain ConditionTypes (ShardsReady, etc.) are preserved — zero learning cost
   for postgres operators.
 - Asymmetry preservation is preserved as an *explicit decision* — follow-up
@@ -90,6 +90,6 @@ adopt finalizer.Add, postgres preserves non-adoption.
 
 - RFC-0018 §3.1 (pkg/status standard), §3.2 (postgres asymmetry preservation).
 - v0.x ADR-0008: Finalizer avoidance policy (cascade delete).
-- Active ADR-0008: operator-commons adoption (2026-05-07).
+- Active ADR-0008: keiailab-commons adoption (2026-05-07).
 - Plan §2 D11 (postgres status migration).
 - Follow-up PR-A7.2: extend setCondition caller signature + delegate Progressing/Degraded/Available.

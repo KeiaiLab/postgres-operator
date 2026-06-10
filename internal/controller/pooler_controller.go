@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonstopology "github.com/keiailab/operator-commons/pkg/topology"
+	commonstopology "github.com/keiailab/keiailab-commons/pkg/topology"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )

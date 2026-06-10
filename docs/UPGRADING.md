@@ -19,7 +19,7 @@ some items such as RBAC.
 | New controller / CR / API | minor (v1.X -> v1.X+1) | Add PostgresPooler |
 | Breaking API signature change | major (v1.X -> v2.0) | Change PostgresCluster.spec.storage struct |
 | Bug fix / dependency bump | patch (v1.X.Y -> v1.X.Y+1) | controller-runtime 0.19->0.20 |
-| operator-commons dependency bump | minor (commons v0.X -> v0.X+1) | Adopt pkg/reconcile |
+| keiailab-commons dependency bump | minor (commons v0.X -> v0.X+1) | Adopt pkg/reconcile |
 
 ## 1. v0.1.x -> v0.2.x
 
@@ -51,16 +51,16 @@ New permissions on the existing ClusterRole (none at present -- this minor has n
 
 ## 2. v0.2.x -> v0.3.x (planned)
 
-### Adopt operator-commons v0.9.0 (Sprint 1 + S5)
+### Adopt keiailab-commons v0.9.0 (Sprint 1 + S5)
 
 ```bash
-# After bumping the operator-commons dependency in go.mod
+# After bumping the keiailab-commons dependency in go.mod
 go mod tidy
 ```
 
-- **New imports**: `github.com/keiailab/operator-commons/pkg/pvc`, `pkg/topology` (Sprint 1)
+- **New imports**: `github.com/keiailab/keiailab-commons/pkg/pvc`, `pkg/topology` (Sprint 1)
 - **Additional imports planned**: `pkg/reconcile`, `pkg/resources` (S5 follow-up)
-- **Duplicate code removal**: Local helpers in `internal/controller/` are replaced by operator-commons helpers. Behavior is identical.
+- **Duplicate code removal**: Local helpers in `internal/controller/` are replaced by keiailab-commons helpers. Behavior is identical.
 
 Migration impact:
 - Reconcile behavior is unchanged (refactor only, no external behavior changes)

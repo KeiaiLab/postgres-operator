@@ -25,7 +25,7 @@ spec:
       serviceAccountName: {{ include "postgres-operator.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
-        {{- toYaml . | nindent 8 }}
+        {{- include "keiailab.security.podSecurityContext" (dict "override" .) | nindent 8 }}
       {{- end }}
       {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
@@ -67,7 +67,7 @@ spec:
             - --zap-log-level={{ .Values.log.level }}
           {{- with .Values.containerSecurityContext }}
           securityContext:
-            {{- toYaml . | nindent 12 }}
+            {{- include "keiailab.security.containerSecurityContext" (dict "override" .) | nindent 12 }}
           {{- end }}
           ports:
             - name: healthz

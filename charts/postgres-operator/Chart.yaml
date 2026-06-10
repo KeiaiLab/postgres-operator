@@ -242,3 +242,8 @@ annotations:
   artifacthub.io/changes: |
     - kind: changed
       description: "Add opt-in ExternalSecret rendering for PostgresUser, Pooler, and external replica-source credentials while keeping operator appVersion/image at 0.4.0-beta.1."
+
+dependencies:
+  - name: keiailab-commons
+    version: 0.8.0
+    repository: oci://ghcr.io/keiailab/charts

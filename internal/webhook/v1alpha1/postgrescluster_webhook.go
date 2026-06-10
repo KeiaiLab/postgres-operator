@@ -32,7 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	commonswebhook "github.com/keiailab/operator-commons/pkg/webhook"
+	commonswebhook "github.com/keiailab/keiailab-commons/pkg/webhook"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"

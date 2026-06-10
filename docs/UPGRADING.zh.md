@@ -18,7 +18,7 @@
 | 新增 controller / CR / API | minor (v1.X → v1.X+1) | 新增 PostgresPooler |
 | 修改既有 API 签名 (breaking) | major (v1.X → v2.0) | 修改 PostgresCluster.spec.storage 结构 |
 | bug 修复 / 依赖 bump | patch (v1.X.Y → v1.X.Y+1) | controller-runtime 0.19→0.20 |
-| operator-commons 依赖 bump | minor (commons v0.X → v0.X+1) | 新引入 pkg/reconcile |
+| keiailab-commons 依赖 bump | minor (commons v0.X → v0.X+1) | 新引入 pkg/reconcile |
 
 ## 1. v0.1.x → v0.2.x
 
@@ -50,16 +50,16 @@ kubectl apply -f dist/install.yaml
 
 ## 2. v0.2.x → v0.3.x (计划中)
 
-### 采纳 operator-commons v0.9.0 (Sprint 1 + S5)
+### 采纳 keiailab-commons v0.9.0 (Sprint 1 + S5)
 
 ```bash
-# 在 go.mod 中 bump operator-commons 依赖之后
+# 在 go.mod 中 bump keiailab-commons 依赖之后
 go mod tidy
 ```
 
-- **新引入 import**: `github.com/keiailab/operator-commons/pkg/pvc`、`pkg/topology` (Sprint 1)
+- **新引入 import**: `github.com/keiailab/keiailab-commons/pkg/pvc`、`pkg/topology` (Sprint 1)
 - **计划新增 import**: `pkg/reconcile`、`pkg/resources` (S5 后续)
-- **去除重复代码**: 用 operator-commons 的 helper 替换 `internal/controller/` 自有 helper。行为不变。
+- **去除重复代码**: 用 keiailab-commons 的 helper 替换 `internal/controller/` 自有 helper。行为不变。
 
 迁移影响:
 - Reconcile 行为不变 (仅重构,无外部行为变化)

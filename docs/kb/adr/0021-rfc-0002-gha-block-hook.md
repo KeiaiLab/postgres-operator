@@ -16,7 +16,7 @@ Audit 측정 결과 P2-2 "GHA block hook" 가 본 repo 에서 ❌:
 
 즉 *정책* (RFC-0002) 은 있지만 *자동 강제* (lefthook hook) 이 부재. 사람이 의도하지 않은 `.github/workflows/` 신규 추가 시 차단 불가.
 
-본 ADR 은 operator-commons 의 gha-block hook 패턴을 postgres-operator 에 적용한다.
+본 ADR 은 keiailab-commons 의 gha-block hook 패턴을 postgres-operator 에 적용한다.
 
 ### v2.0 정합 고려 (ADR-0019 dual-track)
 
@@ -27,11 +27,11 @@ ADR-0019 (Accepted, 2026-05-21) 결정: postgres-operator 는 v2.0 = GHA *유지
 - 기존 파일 변경 (dependabot 의 actions 버전 bump 등) 은 허용
 - 우회: `PLAN_BYPASS=1 git commit` (PR 본문 사유 + ADR 인용 의무)
 
-이는 commons ADR-0012 의 정합 그대로다 — operator-commons 가 GHA 0 인 것과 무관하게, hook 자체는 *신규 추가 차단* 만 수행하므로 GHA 유지 노선 (ADR-0019) 과 모순 없음.
+이는 commons ADR-0012 의 정합 그대로다 — keiailab-commons 가 GHA 0 인 것과 무관하게, hook 자체는 *신규 추가 차단* 만 수행하므로 GHA 유지 노선 (ADR-0019) 과 모순 없음.
 
 ## Decision
 
-`.lefthook.yml` 의 `pre-commit.commands.gha-block` 신설 (operator-commons gha-block pattern):
+`.lefthook.yml` 의 `pre-commit.commands.gha-block` 신설 (keiailab-commons gha-block pattern):
 
 ```yaml
 gha-block:
@@ -73,7 +73,7 @@ GitHub branch protection 의 push rule 에서 `.github/workflows/**` 차단.
 
 기각:
 - pre-commit 이 *조기 차단* — 잘못 추가된 파일이 local history 에 남지 않음
-- operator-commons pattern uses pre-commit — consistency
+- keiailab-commons pattern uses pre-commit — consistency
 
 ### Alt 3 — modify 도 차단 (strict mode)
 
@@ -127,4 +127,4 @@ Accepted — 2026-05-21.
 
 - RFC-0002: GitHub Actions 영구 금지 정책.
 - ADR-0019: `0019-gha-retention-for-public-oss.md` (GHA 유지 + dual-track)
-- operator-commons gha-block hook pattern (SSOT).
+- keiailab-commons gha-block hook pattern (SSOT).

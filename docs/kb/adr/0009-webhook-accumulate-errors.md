@@ -3,7 +3,7 @@
 - Date: 2026-05-07
 - Status: Accepted
 - Authors: @eightynine01
-- Refs: ADR-0008 (operator-commons adoption)
+- Refs: ADR-0008 (keiailab-commons adoption)
 
 ## Context
 
@@ -116,7 +116,7 @@ closure and then passed to `commons.ValidateWithPredicate(path, value,
 predicate, allowed)`. *FeatureGates is captured in the closure scope*
 — no commons-API change is required.
 
-postgres operator-commons adoption count: 2/6 (security/labels) →
+postgres keiailab-commons adoption count: 2/6 (security/labels) →
 **3/6 (+ webhook)**.
 
 ## Consequences
@@ -128,7 +128,7 @@ postgres operator-commons adoption count: 2/6 (security/labels) →
 - All operators consuming commons share the same *accumulate pattern*
   — cross-operator drift is blocked.
 - This is the 3rd consumer of `commons.ValidateWithPredicate` —
-  raises operator-commons API stability.
+  raises keiailab-commons API stability.
 
 ### Negative
 
@@ -181,5 +181,5 @@ go test ./... -count=1
 
 ## Refs
 
-- ADR-0008 (operator-commons adoption).
+- ADR-0008 (keiailab-commons adoption).
 - `k8s.io/apimachinery/pkg/util/validation/field` (ErrorList pattern).

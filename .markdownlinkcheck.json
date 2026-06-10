@@ -5,7 +5,7 @@
       "comment": "ADR-0024: www.keiailab.com 도메인은 valid 하나 (a) /assets/ 등 path 미배포, (b) 도메인 root 도 간헐적 503 (외부 인프라 임시 장애). 모든 family README/footer 가 동일 URL 사용."
     },
     {
-      "pattern": "^https?://keiailab\\.github\\.io/(postgres-operator|mongodb-operator|valkey-operator|operator-commons|forgewise)",
+      "pattern": "^https?://keiailab\\.github\\.io/(postgres-operator|mongodb-operator|valkey-operator|keiailab-commons|forgewise)",
       "comment": "ADR-0024: GitHub Pages 미배포 상태. gh-pages 브랜치는 존재하나 site 빌드/배포 미완료. 외부 인프라 task — chart Helm version badge href."
     },
     {

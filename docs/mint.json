@@ -76,7 +76,7 @@
         "kb/adr/0005-versioning-and-channels",
         "kb/adr/0006-gitops-deploy-overlay",
         "kb/adr/0007-pre-commit-instead-of-lefthook",
-        "kb/adr/0008-operator-commons-adoption",
+        "kb/adr/0008-keiailab-commons-adoption",
         "kb/adr/0009-webhook-accumulate-errors",
         "kb/adr/0010-rfc-0017-tooling-unification-adoption",
         "kb/adr/0011-rfc-0018-pkg-status-partial-adoption",

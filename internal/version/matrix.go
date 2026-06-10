@@ -16,7 +16,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package version
 
 import (
-	commonsversion "github.com/keiailab/operator-commons/pkg/version"
+	commonsversion "github.com/keiailab/keiailab-commons/pkg/version"
 )
 
 // Channel은 본 오퍼레이터의 릴리즈 채널을 표현한다.

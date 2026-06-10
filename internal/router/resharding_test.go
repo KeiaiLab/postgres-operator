@@ -66,7 +66,7 @@ func TestValidateSplitPlan(t *testing.T) {
 			wantErr: ErrSplitPlanCoverage,
 		},
 		{
-			name:    "valid merge (역방향: 2 → 1)",
+			name: "valid merge (역방향: 2 → 1)",
 			sources: []v1alpha1.ShardRangeEntry{
 				entry("0x00000000", "0x7fffffff", "s0"),
 				entry("0x80000000", "0xffffffff", "s1"),

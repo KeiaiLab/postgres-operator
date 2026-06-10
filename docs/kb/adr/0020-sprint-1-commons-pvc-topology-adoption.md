@@ -1,16 +1,16 @@
-# ADR-0020: Sprint 1 — operator-commons pkg/pvc + pkg/topology 채택 (-375 LOC)
+# ADR-0020: Sprint 1 — keiailab-commons pkg/pvc + pkg/topology 채택 (-375 LOC)
 
 - Date: 2026-05-21
 - Status: Accepted
 - Authors: @eightynine01 (Codex Major #7 — Sprint 1 Phase 2)
-- Refs: operator-commons ADR-0012 (commons-side decisions), Sprint 1 분석 (~495 LOC cross-operator 중복 식별)
+- Refs: keiailab-commons ADR-0012 (commons-side decisions), Sprint 1 분석 (~495 LOC cross-operator 중복 식별)
 
 ## Context
 
 postgres-operator 의 `internal/controller/pvc_resize.go` (~120 LOC) +
 `internal/controller/topology_spread.go` (~48 LOC) + 각각의 테스트
 (146 + 62 LOC) 가 다른 operators 와 거의 동일 (~495 LOC cross-operator
-중복). operator-commons Sprint 1 (commons ADR-0012) 에서 `pkg/pvc`
+중복). keiailab-commons Sprint 1 (commons ADR-0012) 에서 `pkg/pvc`
 + `pkg/topology` 신규 추출.
 
 본 ADR 은 postgres-operator 측 consumer migration 을 보존한다.
@@ -30,7 +30,7 @@ postgres-operator 의 `internal/controller/pvc_resize.go` (~120 LOC) +
    - `pooler_controller.go:1594` (PgBouncer Pooler Deployment) — 동일
      `WithMinReplicas(1)` (replicas-1 < 1 → spread 미주입).
 
-3. **go.mod**: `operator-commons v0.8.0 → v0.8.1-0.20260521045707-85a46ba80952`
+3. **go.mod**: `keiailab-commons v0.8.0 → v0.8.1-0.20260521045707-85a46ba80952`
    (commons PR #52 pre-merge commit). v0.9.0 tag 후 본 ADR 갱신.
 
 4. **Beta tier 어댑션 위험 인지**: commons pkg/pvc + pkg/topology 가 현재
@@ -67,8 +67,8 @@ postgres-operator 의 `internal/controller/pvc_resize.go` (~120 LOC) +
 
 ## Refs
 
-- operator-commons PR #52 — `pkg/pvc` + `pkg/topology` 신규.
-- operator-commons ADR-0012 — commons-side 결정 근거.
+- keiailab-commons PR #52 — `pkg/pvc` + `pkg/topology` 신규.
+- keiailab-commons ADR-0012 — commons-side 결정 근거.
 - 삭제된 원본 파일:
   - `internal/controller/pvc_resize.go` (-120 LOC)
   - `internal/controller/pvc_resize_test.go` (-146 LOC)

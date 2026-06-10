@@ -50,7 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonspvc "github.com/keiailab/operator-commons/pkg/pvc"
+	commonspvc "github.com/keiailab/keiailab-commons/pkg/pvc"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
