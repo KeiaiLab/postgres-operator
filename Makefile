@@ -379,7 +379,7 @@ release: require-version ## 전체 로컬 릴리스 파이프라인. VERSION=vX.
 # PGP signing 옵션 — HELM_SIGN=1 시 helm package --sign 으로 .prov 파일 생성.
 # HELM_GPG_KEY 가 GnuPG keyring 에 import 되어 있어야 함.
 HELM_SIGN     ?= 0
-HELM_GPG_KEY  ?= 89A409476828CB992338C378651E51AF520BCB78
+HELM_GPG_KEY  ?= F1A6893583E632A757FF6767F3CC8C6AEC9CEB08
 HELM_KEYRING  ?= $(HOME)/.gnupg/secring.gpg
 
 .PHONY: release-notes
