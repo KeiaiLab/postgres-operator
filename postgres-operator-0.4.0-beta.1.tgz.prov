@@ -1,0 +1,260 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+annotations:
+  artifacthub.io/alternativeName: keiailab-postgres-operator
+  artifacthub.io/category: database
+  artifacthub.io/changes: |
+    - kind: changed
+      description: "0.4.0-beta.1 — Level 4 Deep Insights. PrometheusRule 8 alerts, Grafana dashboard, WAL archiving, backup retention, config hot-reload, annotation-based switchover."
+    - kind: removed
+      description: "internal/citus/ + internal/plugin/extension/citus/ 패키지 제거. CITUS_LIBPQ_DSN 환경 변수 폐기. citus extension Helm values 제거."
+    - kind: added
+      description: ADR 0001 (self-built distributed SQL keystone) + ADR 0002~0005 + RFC 0001~0005 (PostgresCluster v2 / ShardRange / ShardSplitJob / pg-router / distributed-tx).
+  artifacthub.io/crds: |
+    - kind: PostgresCluster
+      version: v1alpha1
+      name: postgresclusters.postgres.keiailab.io
+      displayName: PostgresCluster
+      description: coordinator, worker pool, stateless router 로 구성된 자체 분산 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, ADR 0001 자체 분산 SQL).
+    - kind: ImageCatalog
+      version: v1alpha1
+      name: imagecatalogs.postgres.keiailab.io
+      displayName: ImageCatalog
+      description: namespace 범위 PostgreSQL runtime image catalog 를 선언한다
+    - kind: ClusterImageCatalog
+      version: v1alpha1
+      name: clusterimagecatalogs.postgres.keiailab.io
+      displayName: ClusterImageCatalog
+      description: cluster 전체에서 공유할 PostgreSQL runtime image catalog 를 선언한다
+    - kind: BackupJob
+      version: v1alpha1
+      name: backupjobs.postgres.keiailab.io
+      displayName: BackupJob
+      description: PostgresCluster 대상의 단일 백업 또는 복구 실행 요청을 선언한다
+    - kind: ScheduledBackup
+      version: v1alpha1
+      name: scheduledbackups.postgres.keiailab.io
+      displayName: ScheduledBackup
+      description: cron schedule 에 따라 PostgresCluster 대상 BackupJob 을 생성한다
+    - kind: Pooler
+      version: v1alpha1
+      name: poolers.postgres.keiailab.io
+      displayName: Pooler
+      description: PostgresCluster 대상 PgBouncer connection pool 계층을 선언한다
+    - kind: PostgresDatabase
+      version: v1alpha1
+      name: postgresdatabases.postgres.keiailab.io
+      displayName: PostgresDatabase
+      description: ready primary Pod 의 psql 로 database, tablespace, schema, extension, FDW, foreign server 선언을 적용한다
+    - kind: PostgresUser
+      version: v1alpha1
+      name: postgresusers.postgres.keiailab.io
+      displayName: PostgresUser
+      description: ready primary Pod 의 psql 로 PostgreSQL role flags, membership, password, validUntil 을 적용한다
+  artifacthub.io/crdsExamples: |
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: ImageCatalog
+      metadata:
+        name: postgresql
+        namespace: default
+      spec:
+        images:
+          - major: 18
+            image: ghcr.io/keiailab/pg:18
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: ClusterImageCatalog
+      metadata:
+        name: postgresql-standard
+      spec:
+        images:
+          - major: 17
+            image: ghcr.io/keiailab/pg:17
+          - major: 18
+            image: ghcr.io/keiailab/pg:18
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: PostgresCluster
+      metadata:
+        name: quickstart
+        namespace: default
+      spec:
+        imageCatalogRef:
+          apiGroup: postgres.keiailab.io
+          kind: ImageCatalog
+          name: postgresql
+          major: 18
+        shardingMode: none
+        shards:
+          initialCount: 1
+          replicas: 1
+          storage:
+            size: 10Gi
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: BackupJob
+      metadata:
+        name: quickstart-full-backup
+        namespace: default
+      spec:
+        cluster:
+          name: quickstart
+        tool: pgbackrest
+        repo: repo1
+        type: full
+        executionMode: job
+        jobTemplate:
+          spec:
+            backoffLimit: 1
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: pgbackrest
+                    image: ghcr.io/keiailab/pg:18
+                    command: ["/bin/sh", "-c"]
+                    args:
+                      - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: ScheduledBackup
+      metadata:
+        name: quickstart-nightly-backup
+        namespace: default
+      spec:
+        schedule: "0 0 2 * * *"
+        cluster:
+          name: quickstart
+        tool: pgbackrest
+        repo: repo1
+        type: full
+        executionMode: job
+        backupOwnerReference: self
+        jobTemplate:
+          spec:
+            backoffLimit: 1
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: pgbackrest
+                    image: ghcr.io/keiailab/pg:18
+                    command: ["/bin/sh", "-c"]
+                    args:
+                      - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: Pooler
+      metadata:
+        name: quickstart-rw
+        namespace: default
+      spec:
+        cluster:
+          name: quickstart
+        instances: 3
+        type: rw
+        pgbouncer:
+          image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+          poolMode: transaction
+          authSecretRef:
+            name: quickstart-pooler-auth
+          parameters:
+            max_client_conn: "1000"
+            default_pool_size: "20"
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: PostgresUser
+      metadata:
+        name: quickstart-app
+        namespace: default
+      spec:
+        cluster:
+          name: quickstart
+        name: app
+        login: true
+        createdb: true
+        connectionLimit: 25
+        validUntil: infinity
+        inRoles:
+          - readonly
+          - writers
+    - apiVersion: postgres.keiailab.io/v1alpha1
+      kind: PostgresDatabase
+      metadata:
+        name: quickstart-appdb
+        namespace: default
+      spec:
+        cluster:
+          name: quickstart
+        name: appdb
+        owner: app
+        databaseReclaimPolicy: retain
+        privileges:
+          - role: app
+            privileges: [CONNECT, TEMPORARY]
+        schemas:
+          - name: app
+            owner: app
+            privileges:
+              - role: app
+                privileges: [USAGE, CREATE]
+        extensions:
+          - name: pgcrypto
+  artifacthub.io/images: |
+    - name: manager
+      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/keiailab/postgres-operator/blob/main/README.md
+    - name: Source Code
+      url: https://github.com/keiailab/postgres-operator
+    - name: Release Process
+      url: https://github.com/keiailab/postgres-operator/blob/main/docs/releases/release-process.md
+  artifacthub.io/maturity: beta
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Deep Insights
+  artifacthub.io/prerelease: "true"
+apiVersion: v2
+appVersion: 0.4.0-beta.1
+description: 'MIT-licensed PostgreSQL Kubernetes Operator. PGO-class operational quality
+  is the target, but external operators/backends are not forked, embedded, or wrapped.
+  Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL roadmap (ADR 0001,
+  ADR 0003). '
+home: https://github.com/keiailab/postgres-operator
+keywords:
+- - postgresql
+- - postgres
+- - postgres-18
+- - operator
+- - kubernetes
+- - keiailab
+- - self-built-distributed-sql
+- - mit
+kubeVersion: '>=1.26.0-0'
+maintainers:
+- - email: support@keiailab.com
+  name: keiailab
+  url: https://github.com/keiailab
+name: postgres-operator
+sources:
+- - https://github.com/keiailab/postgres-operator
+type: application
+version: 0.4.0-beta.1
+
+...
+files:
+  postgres-operator-0.4.0-beta.1.tgz: sha256:0be21e7d4c13bc091fb73eb11969afbef40913fd0733a8fd0f46df97d2a40dd6
+
+-----BEGIN PGP SIGNATURE-----
+
+wsG5BAEBCgBtBYJqKRIwCRDzzIxq7JzrCEUUAAAAAAAcACBzYWx0QG5vdGF0aW9u
+cy5vcGVucGdwanMub3Jn9EtuyvujN+GMRNkmY+qvtfXWu6E1h9E8P6PibJEjTq4W
+IQTxpok1g+Yyp1f/Z2fzzIxq7JzrCAAAbNAQAK5CnIxUZEw8ebhVgJXWCepmZV45
+cMVMGis9z5rX0M3LqqUWLb5NO6p+5zjJkJ7SXUagyy0ziWuOqla2dXTy2/y+bl3/
+EEY7F96mGWJJcyz2Lkc6LjU2hncGAtpwLPQaYCSKHuyzr27yYgEdWe9ZUwd8XknD
+6y5ZgKLawM5oKLbxGoo3PF5JBj+QEmK3v9JzwL8Ks28noukkB01yDgyQkqcYPPQI
+h3TAnrh+VomfmtT827qYJEImBALUnVn8tqkyCESNuXNraBidcrjamFA2GILlabbr
+K34FoXYjrH35kUqnVG/LZeAMtlhYuDHw72t1nxgbzhwzTz15unv9DydYau+vY3d4
+GWBwBj937nfeCS6GwABeUdVKZ+pZWxYanQLjkRlw8Sxw6EMPDgGUbgy5aTQl/RSM
+A4xvVlykjFMYdXrYGO8+bINDCINkGPPrGR0SIpkB7Hhm3SQ5bHrQwG3mRDvAfw4G
+I7F+QVxWUD5YoN+Qnw5msRciFLdiMGJ3pywRiuewrD3h4//QoEpOBT5al1i1FiPd
+KOo9w7zp5H2VG7Wf6qC65Zs41SOAO1zuZyYpQsy1uIf0ezS30syIt9v31cZ9ATx7
+0In9iqW/yO1TAwcyXhptD8upV5noYCPw0Qj+Hq0URh4HWwWxGvOlSJ7Q1LOxRRL2
+BL5zGVG18WjGI4s0
+-----END PGP SIGNATURE-----
