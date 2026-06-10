@@ -10,6 +10,7 @@ signingKey:
   fingerprint: "F1A6893583E632A757FF6767F3CC8C6AEC9CEB08"
   armored: |
     -----BEGIN PGP PUBLIC KEY BLOCK-----
+
     mQINBGopEOUBEACwlJ6UHpLsAMbSx+WRagM9CcQJzSV3G3xCSZvAvY2+RE1BHcqq
     X4n3ESyUBhtoIJ//Mdz/enWR+7NSLsKrjtxgkE9USbb6zT/zbnWtpW/S7meZxexw
     bmYY3usBjy+o1dfgiAyxukKoHoTkC4RNsvMKTSM1WB1XssqC1o+/AVvE82HbYNjV
