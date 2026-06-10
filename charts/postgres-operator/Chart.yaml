@@ -14,7 +14,7 @@ kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — beta 단계, Level 4 Deep Insights. SemVer 준수.
 # beta.N iterative pre-release 표기.
-version: 0.4.0-beta.1
+version: 0.4.0-beta.2
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
 appVersion: "0.4.0-beta.1"
@@ -240,8 +240,4 @@ annotations:
       image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
   artifacthub.io/changes: |
     - kind: changed
-      description: "0.4.0-beta.1 — Level 4 Deep Insights. PrometheusRule 8 alerts, Grafana dashboard, WAL archiving, backup retention, config hot-reload, annotation-based switchover."
-    - kind: removed
-      description: "internal/citus/ + internal/plugin/extension/citus/ 패키지 제거. CITUS_LIBPQ_DSN 환경 변수 폐기. citus extension Helm values 제거."
-    - kind: added
-      description: ADR 0001 (self-built distributed SQL keystone) + ADR 0002~0005 + RFC 0001~0005 (PostgresCluster v2 / ShardRange / ShardSplitJob / pg-router / distributed-tx).
+      description: "서명 메타데이터 전용 chart refresh. operator appVersion/image는 0.4.0-beta.1로 유지하고 Artifact Hub 신규 인덱싱용 signed chart version만 발행한다."
