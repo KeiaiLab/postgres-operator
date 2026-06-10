@@ -1,0 +1,6 @@
+dependencies:
+- name: keiailab-commons
+  repository: oci://ghcr.io/keiailab/charts
+  version: 0.8.0
+digest: sha256:d7f419fd9f3683fae15a6412faba1251fddeaddaaa1a0c5848ffeda186f643e9
+generated: "2026-06-11T07:07:38.969065+09:00"
