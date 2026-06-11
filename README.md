@@ -17,6 +17,15 @@
   <a href="https://github.com/keiailab/postgres-operator/discussions"><img src="https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github" alt="GitHub Discussions"/></a>
 </p>
 
+## Design assets
+
+| Asset | Path | Usage |
+|---|---|---|
+| Centered service symbol | [`docs/logo/symbol.png`](docs/logo/symbol.png) | GitHub README, Artifact Hub icon/screenshot |
+| Light wordmark | [`docs/logo/light.png`](docs/logo/light.png) | Light backgrounds and docs cards |
+| Dark wordmark | [`docs/logo/dark.png`](docs/logo/dark.png) | Dark backgrounds and social cards |
+| Branding guide | [`docs/BRANDING.md`](docs/BRANDING.md) | Public visual usage rules |
+
 A Kubernetes operator for running vanilla PostgreSQL 18+, written in Go with Kubebuilder. It manages the full lifecycle of a PostgreSQL cluster — provisioning, high availability, backups, connection pooling, and declarative databases/roles — through plain Kubernetes resources.
 
 The operator runs **unmodified upstream PostgreSQL** — no forked engine, no embedded fork of another operator. Your applications keep using standard PostgreSQL extensions, types, and the libpq/JDBC/asyncpg drivers they already use.

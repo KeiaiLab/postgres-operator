@@ -1,7 +1,20 @@
 # Postgres Operator Helm Chart
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/logo/symbol.png" alt="Keiailab Postgres Operator symbol" width="96"/>
+</p>
+
 The `postgres-operator` chart deploys the operator manager, RBAC,
 CRDs, and NetworkPolicies for `keiailab/postgres-operator`.
+
+## Design assets
+
+| Asset | URL | Usage |
+|---|---|---|
+| Centered service symbol | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/logo/symbol.png | Artifact Hub package icon and screenshot |
+| Light wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/logo/light.png | Light backgrounds and docs cards |
+| Dark wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/logo/dark.png | Dark backgrounds and social cards |
+| Branding guide | https://github.com/KeiaiLab/postgres-operator/blob/main/docs/BRANDING.md | GitHub visual usage rules |
 
 ## Prerequisites
 
