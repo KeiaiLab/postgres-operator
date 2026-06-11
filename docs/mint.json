@@ -2,14 +2,14 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "keiailab/postgres-operator",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/logo/symbol.png",
   "colors": {
-    "primary": "#2563eb",
-    "light": "#60a5fa",
-    "dark": "#1e40af"
+    "primary": "#0EA5A8",
+    "light": "#38BDF8",
+    "dark": "#0F172A"
   },
   "topbarLinks": [
     { "name": "GitHub", "url": "https://github.com/keiailab/postgres-operator" }

@@ -23,11 +23,11 @@
 
 | Asset | URL | 용도 |
 |---|---|---|
-| Primary logo (SVG) | `https://keiailab.com/assets/logo.svg` | README 헤더, 슬라이드 |
-| Mono mark | `https://keiailab.com/assets/mark.svg` | 파비콘, 소셜 카드 |
-| Wordmark | `https://keiailab.com/assets/wordmark.svg` | Footer, dark 배경 |
+| Current primary logo | `docs/logo/symbol.png` | README header, slides |
+| Current favicon | `https://keiailab.com/favicon.ico` | Favicon, social cards |
+| Planned SVG kit | `https://keiailab.com/assets/{logo,mark,wordmark}.svg` | Future replacement after URLs return 200 |
 
-**로고 배치**: README 상단 중앙, width 120px. 항상 https://keiailab.com 으로 링크.
+**로고 배치**: README 상단 중앙, width 96px. 항상 https://keiailab.com 으로 링크.
 
 **Clear space**: 로고 둘레 최소 padding = 로고 너비의 25%.
 
@@ -79,7 +79,7 @@ GitHub README 의 shield.io 배지는 위 hex 사용 권장.
 
 ```markdown
 <p align="center">
-  <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
+  <img src="docs/logo/symbol.png" alt="keiailab" width="96"/>
 </p>
 
 # postgres-operator
@@ -87,7 +87,7 @@ GitHub README 의 shield.io 배지는 위 hex 사용 권장.
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0EA5A8.svg" alt="License"/></a>
   <!-- 기존 shield.io badges 유지 + 정합 -->
 </p>
 

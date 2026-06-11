@@ -15,7 +15,7 @@
 
 ## 1. Identity
 
-**組織**: [keiailab](https://keiailab.com) — Kubernetes ネイティブのデータプラットフォーム (Apache-2.0、license-clean、vanilla upstream 互換)。
+**組織**: [keiailab](https://keiailab.com) — Kubernetes ネイティブのデータプラットフォーム (MIT-licensed, license-clean、vanilla upstream 互換)。
 
 **プロジェクト**: `postgres-operator` — Kubernetes 向け MIT-licensed PostgreSQL Operator — vanilla PG18+、license-clean、K8s ネイティブの自動シャーディングロードマップ。
 
@@ -23,11 +23,11 @@
 
 | Asset | URL | 用途 |
 |---|---|---|
-| Primary logo (SVG) | `https://keiailab.com/assets/logo.svg` | README ヘッダー、スライド |
-| Mono mark | `https://keiailab.com/assets/mark.svg` | favicon、SNS カード |
-| Wordmark | `https://keiailab.com/assets/wordmark.svg` | Footer、暗背景 |
+| Current primary logo | `docs/logo/symbol.png` | README header, slides |
+| Current favicon | `https://keiailab.com/favicon.ico` | Favicon, social cards |
+| Planned SVG kit | `https://keiailab.com/assets/{logo,mark,wordmark}.svg` | Future replacement after URLs return 200 |
 
-**ロゴ配置**: README 上部中央、width 120px。常に https://keiailab.com にリンクします。
+**ロゴ配置**: README 上部中央、width 96px。常に https://keiailab.com にリンクします。
 
 **Clear space**: ロゴ周りの最小 padding はロゴ幅の 25%。
 
@@ -79,7 +79,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 
 ```markdown
 <p align="center">
-  <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
+  <img src="docs/logo/symbol.png" alt="keiailab" width="96"/>
 </p>
 
 # postgres-operator
@@ -87,7 +87,7 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0EA5A8.svg" alt="License"/></a>
   <!-- 既存の shield.io バッジを維持 + 整合 -->
 </p>
 

@@ -15,7 +15,7 @@
 
 ## 1. Identity
 
-**组织**: [keiailab](https://keiailab.com) —— Kubernetes 原生数据平台 (Apache-2.0、license-clean、与 vanilla upstream 兼容)。
+**组织**: [keiailab](https://keiailab.com) —— Kubernetes 原生数据平台 (MIT-licensed, license-clean、与 vanilla upstream 兼容)。
 
 **项目**: `postgres-operator` —— Kubernetes 上的 MIT-licensed PostgreSQL Operator —— vanilla PG18+、license-clean、K8s 原生自动分片路线图。
 
@@ -23,11 +23,11 @@
 
 | Asset | URL | 用途 |
 |---|---|---|
-| Primary logo (SVG) | `https://keiailab.com/assets/logo.svg` | README 标题、幻灯片 |
-| Mono mark | `https://keiailab.com/assets/mark.svg` | favicon、社交卡片 |
-| Wordmark | `https://keiailab.com/assets/wordmark.svg` | Footer、暗色背景 |
+| Current primary logo | `docs/logo/symbol.png` | README header, slides |
+| Current favicon | `https://keiailab.com/favicon.ico` | Favicon, social cards |
+| Planned SVG kit | `https://keiailab.com/assets/{logo,mark,wordmark}.svg` | Future replacement after URLs return 200 |
 
-**标志放置**: README 顶部居中、width 120px。始终链接到 <https://keiailab.com>。
+**标志放置**: README 顶部居中、width 96px。始终链接到 <https://keiailab.com>。
 
 **安全间距 (Clear space)**: 标志周围最小 padding 为标志宽度的 25%。
 
@@ -79,7 +79,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 
 ```markdown
 <p align="center">
-  <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
+  <img src="docs/logo/symbol.png" alt="keiailab" width="96"/>
 </p>
 
 # postgres-operator
@@ -87,7 +87,7 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0EA5A8.svg" alt="License"/></a>
   <!-- 保留并对齐现有 shield.io 徽章 -->
 </p>
 
