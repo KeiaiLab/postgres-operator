@@ -21,11 +21,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	commonsfinalizer "github.com/keiailab/keiailab-commons/pkg/finalizer"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
@@ -48,10 +49,16 @@ const (
 	PostgresUserReasonInvalidSpec         = "InvalidSpec"
 	PostgresUserReasonPasswordSecretError = "PasswordSecretError"
 	postgresUserPrimaryRequeueWait        = 15 * time.Second
-	postgresUserFinalizer                 = "postgres.keiailab.io/postgresuser-finalizer"
-	defaultPostgresUserEnsure             = postgresv1alpha1.DatabaseEnsurePresent
-	postgresUserReservedNamePostgres      = "postgres"
-	postgresUserReservedPrefixPG          = "pg_"
+	// postgresUserFinalizer — keiailab 표준 finalizer (commons pkg/finalizer
+	// 컨벤션 "<resource>.keiailab.com/finalizer", mongodb/valkey operator 정합).
+	postgresUserFinalizer = "postgresuser.keiailab.com/finalizer"
+	// Deprecated: postgresUserFinalizerLegacy 는 구 prefix finalizer.
+	// 신규 부착 금지 — 라이브 객체에 잔존하는 구 finalizer 의 인식/제거
+	// (both-recognize) 전환 경로 전용. 라이브 잔존 0 확인 후 제거 예정.
+	postgresUserFinalizerLegacy      = "postgres.keiailab.io/postgresuser-finalizer"
+	defaultPostgresUserEnsure        = postgresv1alpha1.DatabaseEnsurePresent
+	postgresUserReservedNamePostgres = "postgres"
+	postgresUserReservedPrefixPG     = "pg_"
 )
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresusers,verbs=get;list;watch;create;update;patch;delete
@@ -84,7 +91,7 @@ func (r *PostgresUserReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Attach the finalizer when the user opted into reclaimPolicy=delete so
 	// `DROP ROLE` runs before CR garbage-collection.
 	if defaultedDatabaseReclaimPolicy(user.Spec.UserReclaimPolicy) == postgresv1alpha1.DatabaseReclaimDelete &&
-		controllerutil.AddFinalizer(&user, postgresUserFinalizer) {
+		commonsfinalizer.Add(&user, postgresUserFinalizer) {
 		if err := r.Update(ctx, &user); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -159,11 +166,13 @@ func (r *PostgresUserReconciler) reconcilePostgresUserDelete(
 	user *postgresv1alpha1.PostgresUser,
 ) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("postgresuser", client.ObjectKeyFromObject(user))
-	if !controllerutil.ContainsFinalizer(user, postgresUserFinalizer) {
+	// both-recognize: 신규 + legacy finalizer 어느 쪽이든 부착되어 있으면 cleanup 진행.
+	if !commonsfinalizer.Has(user, postgresUserFinalizer) &&
+		!commonsfinalizer.Has(user, postgresUserFinalizerLegacy) {
 		return ctrl.Result{}, nil
 	}
 	if defaultedDatabaseReclaimPolicy(user.Spec.UserReclaimPolicy) != postgresv1alpha1.DatabaseReclaimDelete {
-		controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+		removePostgresUserFinalizers(user)
 		return ctrl.Result{}, r.Update(ctx, user)
 	}
 
@@ -175,7 +184,7 @@ func (r *PostgresUserReconciler) reconcilePostgresUserDelete(
 		}
 		logger.Info("PostgresUser delete skipped because referenced PostgresCluster is gone",
 			"cluster", user.Spec.Cluster.Name)
-		controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+		removePostgresUserFinalizers(user)
 		return ctrl.Result{}, r.Update(ctx, user)
 	}
 
@@ -197,8 +206,15 @@ func (r *PostgresUserReconciler) reconcilePostgresUserDelete(
 		return ctrl.Result{}, err
 	}
 
-	controllerutil.RemoveFinalizer(user, postgresUserFinalizer)
+	removePostgresUserFinalizers(user)
 	return ctrl.Result{}, r.Update(ctx, user)
+}
+
+// removePostgresUserFinalizers 는 신규 + legacy finalizer 를 모두 제거한다
+// (both-recognize 전환 — 라이브 객체의 구 prefix finalizer 잔존 대응).
+func removePostgresUserFinalizers(user *postgresv1alpha1.PostgresUser) {
+	commonsfinalizer.Remove(user, postgresUserFinalizer)
+	commonsfinalizer.Remove(user, postgresUserFinalizerLegacy)
 }
 
 func validatePostgresUserSpec(user *postgresv1alpha1.PostgresUser) string {

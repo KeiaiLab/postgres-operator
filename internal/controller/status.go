@@ -79,23 +79,33 @@ const (
 // LastTransitionTime은 status가 바뀌었을 때만 갱신된다(meta.SetStatusCondition
 // 의 표준 동작).
 //
-// RFC-0018 §3.1 부분 채택 (PR-A7, ADR-0011): generic Ready type 만
-// commons.SetReady 위임. 도메인 type (ShardsReady / RouterReady /
-// BackupHealthy / AutoSplitEligible) 은 본 wrapper 가 직접 처리하여
-// postgres-specific signal 보존.
+// RFC-0018 §3.1 완전 채택 (PR-A7.2 잔여 해소, commons v0.11.0): generic
+// Ready type + Progressing(True) 를 commons pkg/status 위임. 도메인 type
+// (ShardsReady / RouterReady / BackupHealthy / AutoSplitEligible) 은 본
+// wrapper 가 직접 처리하여 postgres-specific signal 보존.
 //
-// observedGeneration=0 — 호출자가 cluster.Generation 전달 안 함. 후속
-// PR-A7.2 에서 호출자 시그니처 확장 (Progressing/Degraded/Available
-// 위임 + observedGeneration 의무 인자).
-func setCondition(conds *[]metav1.Condition, condType string, status metav1.ConditionStatus, reason, message string) {
-	if condType == commonsstatus.TypeReady {
-		commonsstatus.SetReady(conds, status, reason, message, 0)
-		return
+// observedGeneration 은 의무 인자 — 호출자가 cluster.Generation 을 전달한다
+// (기존 observedGeneration=0 고정 결함 fix). Progressing=False 는 commons
+// SetProgressing 이 True 고정이므로 raw path 로 처리 (status 인자 보존).
+func setCondition(
+	conds *[]metav1.Condition,
+	condType string,
+	status metav1.ConditionStatus,
+	reason, message string,
+	observedGeneration int64,
+) {
+	switch {
+	case condType == commonsstatus.TypeReady:
+		commonsstatus.SetReady(conds, status, reason, message, observedGeneration)
+	case condType == commonsstatus.TypeProgressing && status == metav1.ConditionTrue:
+		commonsstatus.SetProgressing(conds, reason, message, observedGeneration)
+	default:
+		meta.SetStatusCondition(conds, metav1.Condition{
+			Type:               condType,
+			Status:             status,
+			Reason:             reason,
+			Message:            message,
+			ObservedGeneration: observedGeneration,
+		})
 	}
-	meta.SetStatusCondition(conds, metav1.Condition{
-		Type:    condType,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
-	})
 }

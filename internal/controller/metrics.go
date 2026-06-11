@@ -6,11 +6,18 @@ Copyright 2026 Keiailab.
 //
 // controller-runtime 의 글로벌 metrics registry 자동 등록.
 // SLO 추적 (p50/p95/p99 reconcile latency).
+//
+// reconcile SLO trio (reconcile_total / reconcile_duration_seconds /
+// reconcile_errors_total) 는 keiailab-commons pkg/reconcilemetrics 로 위임
+// (v0.11.0) — subsystem "postgrescluster" 주입으로 기존 시계열 이름
+// (postgrescluster_reconcile_*) 이 byte-동일하게 보존된다. 도메인 메트릭
+// (BackupJob / Pooler phase + WAL lag) 은 본 파일 잔류.
 package controller
 
 import (
 	"fmt"
 
+	"github.com/keiailab/keiailab-commons/pkg/reconcilemetrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
@@ -19,7 +26,10 @@ import (
 
 const metricSubsystem = "postgrescluster"
 
-var labelNamespaceName = []string{"namespace", "name"}
+// reconMetrics — commons reconcile SLO trio. 등록은 init() 에서
+// controller-runtime metrics.Registry 주입 (commons 는 registry 비결합).
+var reconMetrics = reconcilemetrics.New(metricSubsystem)
+
 var backupJobPhaseLabelValues = []postgresv1alpha1.BackupJobPhase{
 	postgresv1alpha1.BackupJobPending,
 	postgresv1alpha1.BackupJobRunning,
@@ -34,38 +44,15 @@ var poolerPhaseLabelValues = []postgresv1alpha1.PoolerPhase{
 
 var (
 	// MetricReconcileTotal — Reconcile 호출 횟수.
-	MetricReconcileTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Subsystem: metricSubsystem,
-			Name:      "reconcile_total",
-			Help:      "Total Reconcile invocations",
-		},
-		labelNamespaceName,
-	)
+	// commons trio alias — 콜사이트 무변경 마이그레이션 (fqName 보존).
+	MetricReconcileTotal = reconMetrics.Total
 
 	// MetricReconcileLatency — wall-clock duration. SLO p50/p95/p99 산출.
-	// Buckets 5ms~30s — typical reconcile + STS/PVC API roundtrip 범위.
-	MetricReconcileLatency = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Subsystem: metricSubsystem,
-			Name:      "reconcile_duration_seconds",
-			Help:      "Reconcile function wall-clock duration in seconds",
-			Buckets: []float64{
-				0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0,
-			},
-		},
-		[]string{"namespace", "name", "result"}, // result: success | error
-	)
+	// Buckets 5ms~30s 는 commons reconcilemetrics 가 byte-동일 보존.
+	MetricReconcileLatency = reconMetrics.Latency
 
 	// MetricReconcileErrors — component 별 reconcile 실패.
-	MetricReconcileErrors = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Subsystem: metricSubsystem,
-			Name:      "reconcile_errors_total",
-			Help:      "Total Reconcile component failures",
-		},
-		[]string{"namespace", "name", "component"},
-	)
+	MetricReconcileErrors = reconMetrics.Errors
 
 	// MetricBackupJobPhase — BackupJob phase 를 one-hot gauge 로 노출한다.
 	// PrometheusRule 의 backup failure alert 가 실제 operator metric 을 보게 한다.
@@ -105,10 +92,10 @@ var (
 )
 
 func init() {
+	// trio 는 commons 가, 도메인 메트릭은 본 파일이 등록 — 중복 등록 panic 방지를
+	// 위해 자체 trio 정의는 제거됨 (alias 만 잔존).
+	reconMetrics.MustRegister(metrics.Registry)
 	metrics.Registry.MustRegister(
-		MetricReconcileTotal,
-		MetricReconcileLatency,
-		MetricReconcileErrors,
 		MetricBackupJobPhase,
 		MetricPoolerPhase,
 		MetricPostgresClusterReplicationLagBytes,
@@ -116,17 +103,12 @@ func init() {
 }
 
 // DeleteMetricsFor — CR 삭제 시 cardinality 누적 방지.
+// trio 는 commons DeleteFor 위임, 도메인 메트릭은 이어서 자체 삭제.
 func DeleteMetricsFor(namespace, name string) {
-	MetricReconcileTotal.DeleteLabelValues(namespace, name)
-	MetricReconcileErrors.DeletePartialMatch(prometheus.Labels{
-		"namespace": namespace, "name": name,
-	})
+	reconMetrics.DeleteFor(namespace, name)
 	MetricPostgresClusterReplicationLagBytes.DeletePartialMatch(prometheus.Labels{
 		"namespace": namespace, "name": name,
 	})
-	for _, r := range []string{"success", "error"} {
-		MetricReconcileLatency.DeleteLabelValues(namespace, name, r)
-	}
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

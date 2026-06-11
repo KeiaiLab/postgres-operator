@@ -31,6 +31,9 @@ go.work
 /instance
 /cmd/instance/instance
 
+# 로컬 빌드 바이너리 (repo 추적 금지 — 12.6MB pg-router commit 사고 후속)
+/pg-router
+
 # kubebuilder make build-installer 산출물 (release artifact, repo 추적 대상 아님)
 dist/
 

@@ -1,5 +1,5 @@
 # PG 17 + Citus 13.x 베이스 이미지
-# 빌드: docker buildx build --builder masblue-builder \
+# 빌드: docker buildx build \
 #   -t ghcr.io/keiailab/pg:17-citus13-<rev> -f build/images/pg/17/Dockerfile .
 
 ARG PG_MAJOR=17

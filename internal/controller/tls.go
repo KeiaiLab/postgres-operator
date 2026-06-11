@@ -7,12 +7,10 @@ Licensed under the MIT License. See the LICENSE file for details.
 package controller
 
 import (
-	"fmt"
-
+	"github.com/keiailab/keiailab-commons/pkg/certmanager"
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // pgTLSMountPath 는 postgres pod 가 server cert/key 를 읽는 경로.
@@ -35,11 +33,8 @@ const pgTLSMountPath = "/etc/ssl/postgres"
 // 가 Certificate CR 을 reconcile 못해 Secret 자동 발급 실패 — 사용자 책임.
 
 // CertificateGVK 는 cert-manager Certificate CR 의 GroupVersionKind.
-var CertificateGVK = schema.GroupVersionKind{
-	Group:   "cert-manager.io",
-	Version: "v1",
-	Kind:    "Certificate",
-}
+// keiailab-commons pkg/certmanager 단일 진실원 alias (v0.11.0 채택).
+var CertificateGVK = certmanager.CertificateGVK
 
 // TLSCertSecretName 은 cluster 의 server cert Secret 이름을 결정한다.
 // 사용자 명시 (spec.tls.certSecretName) 우선, 미설정 시 "<cluster>-tls" default.
@@ -58,62 +53,41 @@ func TLSCertSecretName(cluster *postgresv1alpha1.PostgresCluster) string {
 //
 // duration / renewBefore / privateKey rotation 은 cert-manager default
 // (90d / 15d / Always) 사용 — 명시 필요 시 spec.tls 에 후속 field 추가.
+//
+// 조립은 keiailab-commons pkg/certmanager 위임 (v0.11.0) — IssuerKind 빈 값
+// → "Issuer" fallback / usages [server auth, client auth] 고정 /
+// privateKey ECDSA-256-Always / issuerRef.group=cert-manager.io 가 기존
+// 자체 구현과 byte-동일 (운영 cert 재발급 트리거 0 보장).
 func buildCertificate(cluster *postgresv1alpha1.PostgresCluster) *unstructured.Unstructured {
 	if cluster.Spec.TLS == nil || !cluster.Spec.TLS.Enabled || cluster.Spec.TLS.IssuerRef == nil {
 		return nil
 	}
 	issuer := cluster.Spec.TLS.IssuerRef
-	kind := issuer.Kind
-	if kind == "" {
-		kind = "Issuer"
-	}
 
-	// SAN: cluster.Name 외에 모든 shard ordinal 의 headless service DNS 포함.
-	// unstructured.SetNestedField 는 []any 만 deep copy 가능 ([]string 에서 panic).
-	dnsNames := []any{cluster.Name}
+	// SAN: cluster.Name 외에 모든 shard ordinal 의 headless service DNS
+	// 4단 FQDN (commons ServiceSANs) 포함.
+	dnsNames := []string{cluster.Name}
 	for ord := int32(0); ord < cluster.Spec.Shards.InitialCount; ord++ {
 		svc := ShardServiceName(cluster.Name, ord)
-		dnsNames = append(dnsNames,
-			svc,
-			fmt.Sprintf("%s.%s", svc, cluster.Namespace),
-			fmt.Sprintf("%s.%s.svc", svc, cluster.Namespace),
-			fmt.Sprintf("%s.%s.svc.cluster.local", svc, cluster.Namespace),
-		)
+		dnsNames = append(dnsNames, certmanager.ServiceSANs(svc, cluster.Namespace, false)...)
 	}
 
-	cert := &unstructured.Unstructured{}
-	cert.SetGroupVersionKind(CertificateGVK)
-	cert.SetName(cluster.Name + "-tls")
-	cert.SetNamespace(cluster.Namespace)
-	cert.SetLabels(map[string]string{
-		"app.kubernetes.io/name":       "postgrescluster",
-		"app.kubernetes.io/instance":   cluster.Name,
-		"app.kubernetes.io/managed-by": "keiailab-postgres-operator",
-		"postgres.keiailab.io/role":    "server-tls",
+	return certmanager.BuildCertificate(certmanager.CertParams{
+		Name:      cluster.Name + "-tls",
+		Namespace: cluster.Namespace,
+		Labels: map[string]string{
+			"app.kubernetes.io/name":       "postgrescluster",
+			"app.kubernetes.io/instance":   cluster.Name,
+			"app.kubernetes.io/managed-by": "keiailab-postgres-operator",
+			"postgres.keiailab.io/role":    "server-tls",
+		},
+		SecretName:      TLSCertSecretName(cluster),
+		CommonName:      cluster.Name,
+		DNSNames:        dnsNames,
+		IssuerName:      issuer.Name,
+		IssuerKind:      issuer.Kind, // 빈 값 → commons "Issuer" fallback (기존 동일)
+		ECDSAPrivateKey: true,
 	})
-
-	spec := map[string]any{
-		"secretName": TLSCertSecretName(cluster),
-		"commonName": cluster.Name,
-		"dnsNames":   dnsNames,
-		"issuerRef": map[string]any{
-			"name": issuer.Name,
-			"kind": kind,
-			// group default = cert-manager.io (cert-manager Issuer/ClusterIssuer 만 지원).
-			"group": "cert-manager.io",
-		},
-		"usages": []any{"server auth", "client auth"},
-		"privateKey": map[string]any{
-			"algorithm":      "ECDSA",
-			"size":           int64(256),
-			"rotationPolicy": "Always",
-		},
-	}
-	if err := unstructured.SetNestedField(cert.Object, spec, "spec"); err != nil {
-		// programming error — spec 은 단순 map. recover 불필요.
-		return nil
-	}
-	return cert
 }
 
 // tlsEnabled 는 cluster 가 TLS Phase 3 mount 를 활성한 상태인지 반환한다.

@@ -35,7 +35,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	commonscertmanager "github.com/keiailab/keiailab-commons/pkg/certmanager"
 	commonstopology "github.com/keiailab/keiailab-commons/pkg/topology"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -71,10 +71,8 @@ const (
 	poolerAutoTLSServerSecretSuffix = "-server-tls"
 	poolerAutoTLSClientSecretSuffix = "-client-tls"
 
-	// poolerAutoTLSCertificateGroup 는 cert-manager API group + version.
-	poolerAutoTLSCertificateGroup   = "cert-manager.io"
-	poolerAutoTLSCertificateVersion = "v1"
-	poolerAutoTLSCertificateKind    = "Certificate"
+	// Certificate GVK 는 keiailab-commons pkg/certmanager 의
+	// commonscertmanager.CertificateGVK 단일 진실원을 사용한다 (v0.11.0 채택).
 )
 
 const (
@@ -703,14 +701,9 @@ func poolerEffectiveClientCASecretName(pooler *postgresv1alpha1.Pooler) string {
 }
 
 // poolerAutoTLSDefaultDNSNames 는 Pooler Service 의 in-cluster DNS 형식을 반환한다.
+// 4단 FQDN 확장은 commons ServiceSANs 위임 (기존 인라인 조립과 byte-동일).
 func poolerAutoTLSDefaultDNSNames(pooler *postgresv1alpha1.Pooler) []string {
-	svc := PoolerServiceName(pooler.Name)
-	return []string{
-		svc,
-		svc + "." + pooler.Namespace,
-		svc + "." + pooler.Namespace + ".svc",
-		svc + "." + pooler.Namespace + ".svc.cluster.local",
-	}
+	return commonscertmanager.ServiceSANs(PoolerServiceName(pooler.Name), pooler.Namespace, false)
 }
 
 // ensurePoolerAutoTLS 는 cert-manager Certificate CR 두 종 (server / client) 의
@@ -783,11 +776,7 @@ func (r *PoolerReconciler) readPoolerCertificateNotAfter(
 		return nil
 	}
 	cert := &unstructured.Unstructured{}
-	cert.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   poolerAutoTLSCertificateGroup,
-		Version: poolerAutoTLSCertificateVersion,
-		Kind:    poolerAutoTLSCertificateKind,
-	})
+	cert.SetGroupVersionKind(commonscertmanager.CertificateGVK)
 	if err := r.Get(ctx, client.ObjectKey{Namespace: pooler.Namespace, Name: certName}, cert); err != nil {
 		logger.V(1).Info("readPoolerCertificateNotAfter: Certificate not yet observable",
 			"pooler", pooler.Name, "cert", certName, "error", err.Error())
@@ -858,12 +847,11 @@ func (r *PoolerReconciler) applyPoolerAutoCertificate(
 		usagesIface = append(usagesIface, u)
 	}
 
+	// Certificate spec 조립은 자체 유지 — pooler 는 usages 가변 (server/client
+	// 별 상이) + issuerRef.group 미명시 거동이라 commons BuildCertificate
+	// (usages 고정 + group 명시) 채택 시 운영 cert spec 변경 → 재발급 트리거.
 	cert := &unstructured.Unstructured{}
-	cert.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   poolerAutoTLSCertificateGroup,
-		Version: poolerAutoTLSCertificateVersion,
-		Kind:    poolerAutoTLSCertificateKind,
-	})
+	cert.SetGroupVersionKind(commonscertmanager.CertificateGVK)
 	cert.SetNamespace(pooler.Namespace)
 	cert.SetName(secretName)
 	cert.SetLabels(map[string]string{

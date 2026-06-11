@@ -1,5 +1,5 @@
 # PG 16 + Citus 13.x 베이스 이미지
-# 빌드: docker buildx build --builder masblue-builder \
+# 빌드: docker buildx build \
 #   -t ghcr.io/keiailab/pg:16-citus13-<rev> -f build/images/pg/16/Dockerfile .
 #
 # 멀티아키 금지 (전역 규칙). --platform 미지정 시 linux/amd64 단일.
