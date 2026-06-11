@@ -153,7 +153,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	combo, ok := lookupCombo(pgVersion, r.FeatureGates)
 	if !ok {
 		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonVersionRejected,
-			fmt.Sprintf("PG=%q is not in supported matrix (or feature gate missing)", pgVersion))
+			fmt.Sprintf("PG=%q is not in supported matrix (or feature gate missing)", pgVersion), cluster.Generation)
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
 		// RFC-0017 §3.4: version rejection 운영 가시 Event.
@@ -169,9 +169,9 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	resolvedImage, err := r.resolvePostgresImage(ctx, &cluster, combo)
 	if err != nil {
-		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonImageCatalogRejected, err.Error())
+		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonImageCatalogRejected, err.Error(), cluster.Generation)
 		setCondition(&cluster.Status.Conditions, ConditionProgressing, metav1.ConditionFalse, ReasonImageCatalogRejected,
-			"image catalog reference rejected before creating database pods")
+			"image catalog reference rejected before creating database pods", cluster.Generation)
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
 		if r.Recorder != nil {
@@ -185,9 +185,9 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	replicaBootstrap, err := replicaBootstrapConfigForCluster(&cluster)
 	if err != nil {
-		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonReplicaClusterRejected, err.Error())
+		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonReplicaClusterRejected, err.Error(), cluster.Generation)
 		setCondition(&cluster.Status.Conditions, ConditionProgressing, metav1.ConditionFalse, ReasonReplicaClusterRejected,
-			"replica cluster reference rejected before creating database pods")
+			"replica cluster reference rejected before creating database pods", cluster.Generation)
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
 		if r.Recorder != nil {
@@ -509,33 +509,33 @@ func applyClusterConditions(
 	if hibernating {
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseHibernated
 		setCondition(conds, ConditionHibernation, metav1.ConditionTrue, ReasonHibernated,
-			"Cluster has been hibernated")
+			"Cluster has been hibernated", cluster.Generation)
 		setCondition(conds, ConditionShardsReady, metav1.ConditionFalse, ReasonHibernated,
-			"database pods intentionally stopped; PVCs retained")
+			"database pods intentionally stopped; PVCs retained", cluster.Generation)
 		if routerActive {
 			setCondition(conds, ConditionRouterReady, metav1.ConditionFalse, ReasonHibernated,
-				"router replicas intentionally scaled to zero during hibernation")
+				"router replicas intentionally scaled to zero during hibernation", cluster.Generation)
 		} else {
 			setCondition(conds, ConditionRouterReady, metav1.ConditionTrue, ReasonNotApplicable,
-				"router disabled (shardingMode=none or router.enabled=false)")
+				"router disabled (shardingMode=none or router.enabled=false)", cluster.Generation)
 		}
 		setCondition(conds, ConditionFailoverReady, metav1.ConditionFalse, ReasonHibernated,
-			"failover suspended while cluster is hibernated")
+			"failover suspended while cluster is hibernated", cluster.Generation)
 		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonHibernated,
-			"cluster hibernated; database pods intentionally stopped")
+			"cluster hibernated; database pods intentionally stopped", cluster.Generation)
 		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonHibernated,
-			"hibernate steady state reached")
+			"hibernate steady state reached", cluster.Generation)
 		return
 	}
 	setCondition(conds, ConditionHibernation, metav1.ConditionFalse, ReasonNotHibernated,
-		"Cluster is not hibernated")
+		"Cluster is not hibernated", cluster.Generation)
 
 	if allShardPrimaryReady && shardCount > 0 {
 		setCondition(conds, ConditionShardsReady, metav1.ConditionTrue, ReasonAvailable,
-			fmt.Sprintf("%d/%d shard primary ready", shardCount, shardCount))
+			fmt.Sprintf("%d/%d shard primary ready", shardCount, shardCount), cluster.Generation)
 	} else {
 		setCondition(conds, ConditionShardsReady, metav1.ConditionFalse, ReasonProgressing,
-			"waiting for shard primary readiness")
+			"waiting for shard primary readiness", cluster.Generation)
 	}
 
 	routerReady := !routerActive ||
@@ -544,13 +544,13 @@ func applyClusterConditions(
 	switch {
 	case !routerActive:
 		setCondition(conds, ConditionRouterReady, metav1.ConditionTrue, ReasonNotApplicable,
-			"router disabled (shardingMode=none or router.enabled=false)")
+			"router disabled (shardingMode=none or router.enabled=false)", cluster.Generation)
 	case routerReady:
 		setCondition(conds, ConditionRouterReady, metav1.ConditionTrue, ReasonAvailable,
-			fmt.Sprintf("%d/%d router replicas ready", routerStatus.ReadyReplicas, routerStatus.Replicas))
+			fmt.Sprintf("%d/%d router replicas ready", routerStatus.ReadyReplicas, routerStatus.Replicas), cluster.Generation)
 	default:
 		setCondition(conds, ConditionRouterReady, metav1.ConditionFalse, ReasonProgressing,
-			"waiting for router readiness")
+			"waiting for router readiness", cluster.Generation)
 	}
 
 	failoverDegraded := wasReady && failoverDecision.Failed
@@ -559,25 +559,25 @@ func applyClusterConditions(
 		if failoverDecision.PromotionCandidate != nil {
 			message = fmt.Sprintf("%s; promotion candidate=%s", message, failoverDecision.PromotionCandidate.Pod)
 		}
-		setCondition(conds, ConditionFailoverReady, metav1.ConditionFalse, string(failoverDecision.Reason), message)
+		setCondition(conds, ConditionFailoverReady, metav1.ConditionFalse, string(failoverDecision.Reason), message, cluster.Generation)
 	} else {
 		setCondition(conds, ConditionFailoverReady, metav1.ConditionTrue, ReasonAvailable,
-			"no failover action required")
+			"no failover action required", cluster.Generation)
 	}
 
 	clusterReady := allShardPrimaryReady && shardCount > 0 && routerReady
 	if failoverDegraded {
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
-		setCondition(conds, ConditionReady, metav1.ConditionFalse, string(failoverDecision.Reason), failoverDecision.Message)
-		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonAvailable, "primary failure detected after Ready")
+		setCondition(conds, ConditionReady, metav1.ConditionFalse, string(failoverDecision.Reason), failoverDecision.Message, cluster.Generation)
+		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonAvailable, "primary failure detected after Ready", cluster.Generation)
 	} else if clusterReady {
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseReady
-		setCondition(conds, ConditionReady, metav1.ConditionTrue, ReasonAvailable, "all subsystems ready")
-		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonAvailable, "reconcile reached steady state")
+		setCondition(conds, ConditionReady, metav1.ConditionTrue, ReasonAvailable, "all subsystems ready", cluster.Generation)
+		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonAvailable, "reconcile reached steady state", cluster.Generation)
 	} else {
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseProvisioning
-		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonProgressing, "reconcile in progress")
-		setCondition(conds, ConditionProgressing, metav1.ConditionTrue, ReasonReconciling, "creating or waiting for subresources")
+		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonProgressing, "reconcile in progress", cluster.Generation)
+		setCondition(conds, ConditionProgressing, metav1.ConditionTrue, ReasonReconciling, "creating or waiting for subresources", cluster.Generation)
 	}
 }
 

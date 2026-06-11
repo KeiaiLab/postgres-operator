@@ -18,8 +18,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	commonsfinalizer "github.com/keiailab/keiailab-commons/pkg/finalizer"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
@@ -41,14 +42,20 @@ const (
 	PostgresDatabaseReasonReconciled         = "DatabaseReconciled"
 	PostgresDatabaseReasonInvalidSpec        = "InvalidSpec"
 	postgresDatabasePrimaryRequeueWait       = 15 * time.Second
-	postgresDatabaseFinalizer                = "postgres.keiailab.io/postgresdatabase-finalizer"
-	defaultPostgresDatabaseEnsure            = postgresv1alpha1.DatabaseEnsurePresent
-	defaultPostgresDatabaseReclaimPolicy     = postgresv1alpha1.DatabaseReclaimRetain
-	postgresDatabaseReservedNamePostgres     = "postgres"
-	postgresDatabaseReservedNameTemplate0    = "template0"
-	postgresDatabaseReservedNameTemplate1    = "template1"
-	postgresDatabaseObjectKindDatabase       = "DATABASE"
-	postgresDatabaseObjectKindSchema         = "SCHEMA"
+	// postgresDatabaseFinalizer — keiailab 표준 finalizer (commons pkg/finalizer
+	// 컨벤션 "<resource>.keiailab.com/finalizer", mongodb/valkey operator 정합).
+	postgresDatabaseFinalizer = "postgresdatabase.keiailab.com/finalizer"
+	// Deprecated: postgresDatabaseFinalizerLegacy 는 구 prefix finalizer.
+	// 신규 부착 금지 — 라이브 객체에 잔존하는 구 finalizer 의 인식/제거
+	// (both-recognize) 전환 경로 전용. 라이브 잔존 0 확인 후 제거 예정.
+	postgresDatabaseFinalizerLegacy       = "postgres.keiailab.io/postgresdatabase-finalizer"
+	defaultPostgresDatabaseEnsure         = postgresv1alpha1.DatabaseEnsurePresent
+	defaultPostgresDatabaseReclaimPolicy  = postgresv1alpha1.DatabaseReclaimRetain
+	postgresDatabaseReservedNamePostgres  = "postgres"
+	postgresDatabaseReservedNameTemplate0 = "template0"
+	postgresDatabaseReservedNameTemplate1 = "template1"
+	postgresDatabaseObjectKindDatabase    = "DATABASE"
+	postgresDatabaseObjectKindSchema      = "SCHEMA"
 )
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresdatabases,verbs=get;list;watch;create;update;patch;delete
@@ -84,7 +91,7 @@ func (r *PostgresDatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// AddFinalizer + Update 가 성공하면 in-memory db 의 ResourceVersion 이 갱신되므로
 	// 이후 r.Status().Update 도 충돌 없이 같은 호출에서 수행할 수 있다.
 	if defaultedDatabaseReclaimPolicy(db.Spec.DatabaseReclaimPolicy) == postgresv1alpha1.DatabaseReclaimDelete &&
-		controllerutil.AddFinalizer(&db, postgresDatabaseFinalizer) {
+		commonsfinalizer.Add(&db, postgresDatabaseFinalizer) {
 		if err := r.Update(ctx, &db); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -142,11 +149,13 @@ func (r *PostgresDatabaseReconciler) reconcilePostgresDatabaseDelete(
 	db *postgresv1alpha1.PostgresDatabase,
 ) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("postgresdatabase", client.ObjectKeyFromObject(db))
-	if !controllerutil.ContainsFinalizer(db, postgresDatabaseFinalizer) {
+	// both-recognize: 신규 + legacy finalizer 어느 쪽이든 부착되어 있으면 cleanup 진행.
+	if !commonsfinalizer.Has(db, postgresDatabaseFinalizer) &&
+		!commonsfinalizer.Has(db, postgresDatabaseFinalizerLegacy) {
 		return ctrl.Result{}, nil
 	}
 	if defaultedDatabaseReclaimPolicy(db.Spec.DatabaseReclaimPolicy) != postgresv1alpha1.DatabaseReclaimDelete {
-		controllerutil.RemoveFinalizer(db, postgresDatabaseFinalizer)
+		removePostgresDatabaseFinalizers(db)
 		return ctrl.Result{}, r.Update(ctx, db)
 	}
 
@@ -158,7 +167,7 @@ func (r *PostgresDatabaseReconciler) reconcilePostgresDatabaseDelete(
 		}
 		logger.Info("PostgresDatabase delete skipped because referenced PostgresCluster is gone",
 			"cluster", db.Spec.Cluster.Name)
-		controllerutil.RemoveFinalizer(db, postgresDatabaseFinalizer)
+		removePostgresDatabaseFinalizers(db)
 		return ctrl.Result{}, r.Update(ctx, db)
 	}
 
@@ -180,8 +189,15 @@ func (r *PostgresDatabaseReconciler) reconcilePostgresDatabaseDelete(
 		return ctrl.Result{}, err
 	}
 
-	controllerutil.RemoveFinalizer(db, postgresDatabaseFinalizer)
+	removePostgresDatabaseFinalizers(db)
 	return ctrl.Result{}, r.Update(ctx, db)
+}
+
+// removePostgresDatabaseFinalizers 는 신규 + legacy finalizer 를 모두 제거한다
+// (both-recognize 전환 — 라이브 객체의 구 prefix finalizer 잔존 대응).
+func removePostgresDatabaseFinalizers(db *postgresv1alpha1.PostgresDatabase) {
+	commonsfinalizer.Remove(db, postgresDatabaseFinalizer)
+	commonsfinalizer.Remove(db, postgresDatabaseFinalizerLegacy)
 }
 
 func validatePostgresDatabaseSpec(db *postgresv1alpha1.PostgresDatabase) string {

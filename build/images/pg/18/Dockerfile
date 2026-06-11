@@ -4,7 +4,7 @@
 # .github/workflows/upstream-watch.yml이 새 Citus 릴리스를 감지하면 CITUS_VERSION 인자 기본값을
 # 자동 PR로 갱신한다.
 #
-# 빌드: docker buildx build --builder masblue-builder \
+# 빌드: docker buildx build \
 #   --build-arg CITUS_VERSION=<X.Y> \
 #   -t ghcr.io/keiailab/pg:18-citus<X.Y>-<rev> -f build/images/pg/18/Dockerfile .
 

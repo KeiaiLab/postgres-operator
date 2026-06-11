@@ -1,7 +1,7 @@
 # 본 NetworkPolicy는 본 operator가 생성한 모든 데이터플레인 Pod
 # (coordinator, worker, router)에 default-deny를 적용한다.
 #
-# Bitnami `templates/networkpolicy.yaml` 패턴 차용 + ADR(post-RFC 0006 §NetworkPolicy).
+# 표준 default-deny NetworkPolicy 패턴 + ADR(post-RFC 0006 §NetworkPolicy).
 # 다른 NetworkPolicy(allow-cluster-internal, allow-router-ingress)와 함께 적용되어
 # *명시적으로 허용된 트래픽만* 통과하도록 강제한다.
 #

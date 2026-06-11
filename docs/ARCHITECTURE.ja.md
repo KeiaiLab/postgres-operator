@@ -125,7 +125,7 @@ Notable:
 - ADR-0022: GHA narrow exception — 3 workflow (helm-publish + release + scorecard)
 - ADR-0023: v3.x-stable baseline の承認
 - ADR-0024: lefthook pre-push incremental lint + envtest
-- ADR-0025: Repmgr / PgBouncer / Barman 統合 (bitnami parity)
+- ADR-0025: Repmgr / PgBouncer / Barman 統合 (外部 HA chart parity)
 - ADR-0026: OperatorHub.io 自動 sync
 
 全リスト: `docs/kb/adr/INDEX.md`。

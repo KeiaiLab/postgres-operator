@@ -1,7 +1,7 @@
 # Instance manager 이미지 (PID 1 Go 바이너리)
 #
 # 빌드:
-#   docker buildx build --builder masblue-builder \
+#   docker buildx build \
 #     -t ghcr.io/keiailab/postgres-operator-instance:<rev> \
 #     -f build/images/instance/Dockerfile .
 #

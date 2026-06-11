@@ -4,7 +4,7 @@
 stages: [lint, test, build]
 
 default:
-  image: golang:1.23
+  image: golang:1.26
 
 variables:
   GOFLAGS: "-mod=mod"

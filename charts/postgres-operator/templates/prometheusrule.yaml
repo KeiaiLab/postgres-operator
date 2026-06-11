@@ -1,5 +1,5 @@
 {{- /*
-PrometheusRule — bitnami postgresql-ha chart parity + controller-runtime
+PrometheusRule — 외부 postgresql-ha chart 동등 수준 + controller-runtime
 operator health alerts (8 alerts). Chart 사용자가 monitoring 활성 시 자동 렌더.
 
 *prometheus-operator CRD 미설치* 환경에서는 helm install 시 거절 —
