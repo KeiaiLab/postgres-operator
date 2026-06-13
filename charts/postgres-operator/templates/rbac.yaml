@@ -15,8 +15,13 @@ rules:
   - apiGroups: [postgres.keiailab.io]
     resources: [imagecatalogs, clusterimagecatalogs]
     verbs: [get, list, watch]
+  # 샤딩 리소스 — config/rbac/role.yaml 과 정합 (verb 집합이 다름: create/delete 없음).
+  # 누락 시 operator 가 shardsplitjobs/shardranges watch forbidden loop 진입 (issue #260).
   - apiGroups: [postgres.keiailab.io]
-    resources: [backupjobs/status, poolers/status, postgresclusters/status, postgresdatabases/status, postgresusers/status, scheduledbackups/status]
+    resources: [shardranges, shardsplitjobs]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [postgres.keiailab.io]
+    resources: [backupjobs/status, poolers/status, postgresclusters/status, postgresdatabases/status, postgresusers/status, scheduledbackups/status, shardsplitjobs/status]
     verbs: [get, update, patch]
   - apiGroups: [postgres.keiailab.io]
     resources: [backupjobs/finalizers, poolers/finalizers, postgresclusters/finalizers, postgresdatabases/finalizers, postgresusers/finalizers, scheduledbackups/finalizers]
