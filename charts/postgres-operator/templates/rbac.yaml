@@ -15,8 +15,14 @@ rules:
   - apiGroups: [postgres.keiailab.io]
     resources: [imagecatalogs, clusterimagecatalogs]
     verbs: [get, list, watch]
+  # ShardSplitJobReconciler (internal/controller/shardsplitjob_controller.go L45) —
+  # online resharding state machine 은 shardsplitjobs/shardranges 를 watch + update 한다.
+  # create/delete 는 marker 에 없음 (router building block 이 phase 부수효과 담당).
   - apiGroups: [postgres.keiailab.io]
-    resources: [backupjobs/status, poolers/status, postgresclusters/status, postgresdatabases/status, postgresusers/status, scheduledbackups/status]
+    resources: [shardranges, shardsplitjobs]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [postgres.keiailab.io]
+    resources: [backupjobs/status, poolers/status, postgresclusters/status, postgresdatabases/status, postgresusers/status, scheduledbackups/status, shardsplitjobs/status]
     verbs: [get, update, patch]
   - apiGroups: [postgres.keiailab.io]
     resources: [backupjobs/finalizers, poolers/finalizers, postgresclusters/finalizers, postgresdatabases/finalizers, postgresusers/finalizers, scheduledbackups/finalizers]
