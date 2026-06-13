@@ -1,11 +1,32 @@
+<p align="center">
+  <a href="https://keiailab.com">
+    <img src="docs/logo/symbol.png" alt="keiailab" width="96"/>
+  </a>
+</p>
+
 # postgres-operator
 
-A Kubernetes operator for running vanilla PostgreSQL 18+, written in Go with Kubebuilder. It manages the full lifecycle of a PostgreSQL cluster — provisioning, high availability, backups, connection pooling, and declarative databases/roles — through plain Kubernetes resources.
+> **Keiailab data operator family** — vanilla PostgreSQL 18+ on Kubernetes with HA, backup, pooling, and declarative database workflows.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](go.mod)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18%2B-336791?logo=postgresql)](https://www.postgresql.org/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.26%2B-326CE5?logo=kubernetes)](https://kubernetes.io/)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0EA5A8.svg" alt="License: MIT"/></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.26+"/></a>
+  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-18%2B-336791?logo=postgresql&logoColor=white" alt="PostgreSQL 18+"/></a>
+  <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/Kubernetes-1.26%2B-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes 1.26+"/></a>
+  <a href="https://github.com/keiailab/postgres-operator/pkgs/container/postgres-operator"><img src="https://img.shields.io/badge/GHCR-postgres--operator-0EA5A8?logo=github&logoColor=white" alt="GHCR image"/></a>
+  <a href="https://github.com/keiailab/postgres-operator/discussions"><img src="https://img.shields.io/github/discussions/keiailab/postgres-operator?label=discussions&logo=github" alt="GitHub Discussions"/></a>
+</p>
+
+## Design assets
+
+| Asset | Path | Usage |
+|---|---|---|
+| Centered service symbol | [`docs/logo/symbol.png`](docs/logo/symbol.png) | GitHub README, Artifact Hub icon/screenshot |
+| Light wordmark | [`docs/logo/light.png`](docs/logo/light.png) | Light backgrounds and docs cards |
+| Dark wordmark | [`docs/logo/dark.png`](docs/logo/dark.png) | Dark backgrounds and social cards |
+| Branding guide | [`docs/BRANDING.md`](docs/BRANDING.md) | Public visual usage rules |
+
+A Kubernetes operator for running vanilla PostgreSQL 18+, written in Go with Kubebuilder. It manages the full lifecycle of a PostgreSQL cluster — provisioning, high availability, backups, connection pooling, and declarative databases/roles — through plain Kubernetes resources.
 
 The operator runs **unmodified upstream PostgreSQL** — no forked engine, no embedded fork of another operator. Your applications keep using standard PostgreSQL extensions, types, and the libpq/JDBC/asyncpg drivers they already use.
 

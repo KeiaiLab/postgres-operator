@@ -21,11 +21,11 @@ This document is the canonical reference for `postgres-operator` branding decisi
 
 | Asset | URL | Usage |
 |---|---|---|
-| Primary logo (SVG) | `https://keiailab.com/assets/logo.svg` | README header, slides |
-| Mono mark | `https://keiailab.com/assets/mark.svg` | Favicon, social cards |
-| Wordmark | `https://keiailab.com/assets/wordmark.svg` | Footer, dark backgrounds |
+| Current primary logo | `docs/logo/symbol.png` | README header, slides |
+| Current favicon | `https://keiailab.com/favicon.ico` | Favicon, social cards |
+| Planned SVG kit | `https://keiailab.com/assets/{logo,mark,wordmark}.svg` | Future replacement after URLs return 200 |
 
-**Logo placement**: Top-center of README, width 120px. Always link to https://keiailab.com.
+**Logo placement**: Top-center of README, width 96px. Always link to https://keiailab.com.
 
 **Clear space**: Minimum padding around logo = 25% of logo width.
 
@@ -77,7 +77,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 
 ```markdown
 <p align="center">
-  <img src="https://keiailab.com/assets/logo.svg" alt="keiailab" width="120"/>
+  <img src="docs/logo/symbol.png" alt="keiailab" width="96"/>
 </p>
 
 # postgres-operator
@@ -85,7 +85,7 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0EA5A8.svg" alt="License"/></a>
   <!-- 기존 shield.io badges 유지 + 정합 -->
 </p>
 
