@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	commonsevents "github.com/keiailab/keiailab-commons/pkg/events"
 	commonspvc "github.com/keiailab/keiailab-commons/pkg/pvc"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -157,10 +158,8 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
 		// RFC-0017 §3.4: version rejection 운영 가시 Event.
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, ReasonVersionRejected, ReasonVersionRejected,
-				"PG=%q is not in supported matrix (or feature gate missing)", pgVersion)
-		}
+		commonsevents.EmitWarningf(r.Recorder, &cluster, ReasonVersionRejected,
+			"PG=%q is not in supported matrix (or feature gate missing)", pgVersion)
 		if err := r.Status().Update(ctx, &cluster); err != nil {
 			logger.Error(err, "Failed to update status with version rejection")
 			return ctrl.Result{}, err
@@ -174,9 +173,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			"image catalog reference rejected before creating database pods", cluster.Generation)
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, ReasonImageCatalogRejected, ReasonImageCatalogRejected, "%v", err)
-		}
+		commonsevents.EmitWarning(r.Recorder, &cluster, ReasonImageCatalogRejected, err)
 		if statusErr := r.Status().Update(ctx, &cluster); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status with image catalog rejection")
 			return ctrl.Result{}, statusErr
@@ -190,9 +187,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			"replica cluster reference rejected before creating database pods", cluster.Generation)
 		cluster.Status.Phase = postgresv1alpha1.ClusterPhaseDegraded
 		cluster.Status.ObservedGeneration = cluster.Generation
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, ReasonReplicaClusterRejected, ReasonReplicaClusterRejected, "%v", err)
-		}
+		commonsevents.EmitWarning(r.Recorder, &cluster, ReasonReplicaClusterRejected, err)
 		if statusErr := r.Status().Update(ctx, &cluster); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status with replica cluster rejection")
 			return ctrl.Result{}, statusErr
@@ -404,9 +399,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if !hibernating && allShardPrimaryReady {
 		if err := r.handleSwitchover(ctx, &cluster, shardStatuses); err != nil {
 			logger.Error(err, "Switchover failed")
-			if r.Recorder != nil {
-				r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, "SwitchoverFailed", "SwitchoverFailed", "%v", err)
-			}
+			commonsevents.EmitWarning(r.Recorder, &cluster, "SwitchoverFailed", err)
 		}
 	}
 
@@ -432,10 +425,8 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		} else if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {
 			logger.Error(err, "Failed to execute failover promotion",
 				"shard", failoverShardName, "pod", failoverDecision.PromotionCandidate.Pod)
-			if r.Recorder != nil {
-				r.Recorder.Eventf(&cluster, nil, corev1.EventTypeWarning, "FailoverPromotionFailed", "FailoverPromotionFailed",
-					"shard=%q pod=%q: %v", failoverShardName, failoverDecision.PromotionCandidate.Pod, err)
-			}
+			commonsevents.EmitWarningf(r.Recorder, &cluster, "FailoverPromotionFailed",
+				"shard=%q pod=%q: %v", failoverShardName, failoverDecision.PromotionCandidate.Pod, err)
 			failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
 		}
 	}
@@ -469,8 +460,8 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —
 	// 매 reconcile noise 회피). prevPhase 비교로 transition 감지.
-	if r.Recorder != nil && cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
-		r.Recorder.Eventf(&cluster, nil, corev1.EventTypeNormal, "ClusterReady", "ClusterReady",
+	if cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
+		commonsevents.Emitf(r.Recorder, &cluster, "ClusterReady",
 			"PostgresCluster %d/%d shards primary ready, router=%v", shardCount, shardCount, routerActive)
 	}
 
@@ -887,8 +878,8 @@ func (r *PostgresClusterReconciler) handleUpsertErr(
 		return ctrl.Result{Requeue: true}, nil
 	}
 	logger.Error(err, "upsert failed", "resource", what)
-	if r.Recorder != nil && cluster != nil {
-		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "UpsertFailed", "UpsertFailed",
+	if cluster != nil {
+		commonsevents.EmitWarningf(r.Recorder, cluster, "UpsertFailed",
 			"resource=%q: %v", what, err)
 	}
 	return ctrl.Result{}, err

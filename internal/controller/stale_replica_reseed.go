@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	commonsevents "github.com/keiailab/keiailab-commons/pkg/events"
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
 
@@ -87,11 +88,9 @@ func (r *PostgresClusterReconciler) reconcileStaleReplicas(
 			if err := r.Patch(ctx, cluster, client.MergeFrom(before)); err != nil {
 				return fmt.Errorf("record re-seed cooldown for %q: %w", rep.Pod, err)
 			}
-			if r.Recorder != nil {
-				r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "StandbyReseeded", "StandbyReseeded",
-					"standby %s not ready for %s with a ready primary; re-seeding (delete pod+PVC → fresh pg_basebackup)",
-					rep.Pod, staleStandbyReseedTimeout)
-			}
+			commonsevents.EmitWarningf(r.Recorder, cluster, "StandbyReseeded",
+				"standby %s not ready for %s with a ready primary; re-seeding (delete pod+PVC → fresh pg_basebackup)",
+				rep.Pod, staleStandbyReseedTimeout)
 		}
 	}
 	return nil
