@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	commonsevents "github.com/keiailab/keiailab-commons/pkg/events"
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 )
@@ -213,11 +214,8 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			setBackupJobCondition(&bj, metav1.ConditionFalse,
 				BackupJobReasonBackupFailed,
 				"BackupPlugin "+bj.Spec.Tool+" failed: "+err.Error())
-			if r.Recorder != nil {
-				r.Recorder.Eventf(&bj, nil, corev1.EventTypeWarning,
-					BackupJobReasonBackupFailed, BackupJobReasonBackupFailed,
-					"BackupPlugin %s failed: %v", bj.Spec.Tool, err)
-			}
+			commonsevents.EmitWarningf(r.Recorder, &bj, BackupJobReasonBackupFailed,
+				"BackupPlugin %s failed: %v", bj.Spec.Tool, err)
 			return ctrl.Result{}, r.statusUpdate(ctx, &bj)
 		}
 		bj.Status.Phase = postgresv1alpha1.BackupJobSucceeded
@@ -226,11 +224,8 @@ func (r *BackupJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		setBackupJobCondition(&bj, metav1.ConditionTrue,
 			BackupJobReasonBackupSucceeded,
 			"BackupPlugin "+bj.Spec.Tool+" succeeded: backupID="+result.BackupID)
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&bj, nil, corev1.EventTypeNormal,
-				BackupJobReasonBackupSucceeded, BackupJobReasonBackupSucceeded,
-				"BackupPlugin %s succeeded: backupID=%s bytes=%d", bj.Spec.Tool, result.BackupID, result.Bytes)
-		}
+		commonsevents.Emitf(r.Recorder, &bj, BackupJobReasonBackupSucceeded,
+			"BackupPlugin %s succeeded: backupID=%s bytes=%d", bj.Spec.Tool, result.BackupID, result.Bytes)
 		return ctrl.Result{}, r.statusUpdate(ctx, &bj)
 	}
 
@@ -320,11 +315,8 @@ func (r *BackupJobReconciler) reconcileRunnerJob(
 		setBackupJobCondition(bj, metav1.ConditionTrue,
 			BackupJobReasonRunnerJobSucceeded,
 			"Runner Job "+runner.Name+" completed successfully")
-		if r.Recorder != nil {
-			r.Recorder.Eventf(bj, nil, corev1.EventTypeNormal,
-				BackupJobReasonRunnerJobSucceeded, BackupJobReasonRunnerJobSucceeded,
-				"Runner Job %s completed successfully", runner.Name)
-		}
+		commonsevents.Emitf(r.Recorder, bj, BackupJobReasonRunnerJobSucceeded,
+			"Runner Job %s completed successfully", runner.Name)
 		return ctrl.Result{}, r.statusUpdate(ctx, bj)
 	}
 
@@ -339,11 +331,8 @@ func (r *BackupJobReconciler) reconcileRunnerJob(
 				runner.Name, strings.TrimSpace(failed.Reason), strings.TrimSpace(failed.Message))
 		}
 		setBackupJobCondition(bj, metav1.ConditionFalse, BackupJobReasonRunnerJobFailed, strings.TrimSpace(message))
-		if r.Recorder != nil {
-			r.Recorder.Eventf(bj, nil, corev1.EventTypeWarning,
-				BackupJobReasonRunnerJobFailed, BackupJobReasonRunnerJobFailed,
-				"Runner Job %s failed", runner.Name)
-		}
+		commonsevents.EmitWarningf(r.Recorder, bj, BackupJobReasonRunnerJobFailed,
+			"Runner Job %s failed", runner.Name)
 		return ctrl.Result{}, r.statusUpdate(ctx, bj)
 	}
 
@@ -565,11 +554,8 @@ func (r *BackupJobReconciler) reconcileRestore(
 		setBackupJobCondition(bj, metav1.ConditionFalse,
 			BackupJobReasonRestoreFailed,
 			"BackupPlugin "+bj.Spec.Tool+" PITR restore failed: "+err.Error())
-		if r.Recorder != nil {
-			r.Recorder.Eventf(bj, nil, corev1.EventTypeWarning,
-				BackupJobReasonRestoreFailed, BackupJobReasonRestoreFailed,
-				"BackupPlugin %s PITR restore failed: %v", bj.Spec.Tool, err)
-		}
+		commonsevents.EmitWarningf(r.Recorder, bj, BackupJobReasonRestoreFailed,
+			"BackupPlugin %s PITR restore failed: %v", bj.Spec.Tool, err)
 		return ctrl.Result{}, r.statusUpdate(ctx, bj)
 	}
 	bj.Status.Phase = postgresv1alpha1.BackupJobSucceeded
@@ -579,11 +565,8 @@ func (r *BackupJobReconciler) reconcileRestore(
 	setBackupJobCondition(bj, metav1.ConditionTrue,
 		BackupJobReasonRestoreSucceeded,
 		"BackupPlugin "+bj.Spec.Tool+" PITR restore succeeded")
-	if r.Recorder != nil {
-		r.Recorder.Eventf(bj, nil, corev1.EventTypeNormal,
-			BackupJobReasonRestoreSucceeded, BackupJobReasonRestoreSucceeded,
-			"BackupPlugin %s PITR restore succeeded", bj.Spec.Tool)
-	}
+	commonsevents.Emitf(r.Recorder, bj, BackupJobReasonRestoreSucceeded,
+		"BackupPlugin %s PITR restore succeeded", bj.Spec.Tool)
 	return ctrl.Result{}, r.statusUpdate(ctx, bj)
 }
 
@@ -596,9 +579,7 @@ func (r *BackupJobReconciler) markFailed(bj *postgresv1alpha1.BackupJob, reason,
 	bj.Status.Phase = postgresv1alpha1.BackupJobFailed
 	bj.Status.ObservedGeneration = bj.Generation
 	setBackupJobCondition(bj, metav1.ConditionFalse, reason, message)
-	if r.Recorder != nil {
-		r.Recorder.Eventf(bj, nil, corev1.EventTypeWarning, reason, reason, "%s", message)
-	}
+	commonsevents.EmitWarningf(r.Recorder, bj, reason, "%s", message)
 }
 
 // statusUpdate persists the in-memory BackupJob status. On a transient

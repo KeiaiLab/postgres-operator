@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commonsevents "github.com/keiailab/keiailab-commons/pkg/events"
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
 	"github.com/keiailab/postgres-operator/internal/instance/fencing"
@@ -407,9 +408,7 @@ func (r *PostgresClusterReconciler) handleSwitchover(
 		return fmt.Errorf("failed to clear switchover annotation: %w", err)
 	}
 
-	if r.Recorder != nil {
-		r.Recorder.Eventf(cluster, nil, corev1.EventTypeNormal, "SwitchoverCompleted", "SwitchoverCompleted",
-			"Switchover to %s completed successfully", targetPod)
-	}
+	commonsevents.Emitf(r.Recorder, cluster, "SwitchoverCompleted",
+		"Switchover to %s completed successfully", targetPod)
 	return nil
 }
