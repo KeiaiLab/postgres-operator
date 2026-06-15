@@ -42,53 +42,30 @@ const metricsRoleBindingName = "postgres-operator-metrics-binding"
 var _ = Describe("Manager", Ordered, Label("p1"), func() {
 	var controllerPodName string
 
-	// Before running the tests, set up the environment by creating the namespace,
-	// enforce the restricted security policy to the namespace, installing CRDs,
-	// and deploying the controller.
+	// 운영 사실 (PR #272 harness): operator + CRDs 는 BeforeSuite 가 dist/install.yaml
+	// 로 *이미* 배포한다 (e2e_suite_test.go). 따라서 본 Manager 블록은 namespace 생성 /
+	// make install / make deploy 를 반복하지 않는다 (AlreadyExists 충돌 + 중복 배포 회피).
+	// 본 BeforeAll 은 metrics NetworkPolicy 용 label 만 멱등 보강한다.
 	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
+		By("labeling the pre-deployed namespace for restricted PSA + metrics ingress")
+		cmd := exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
 			"pod-security.kubernetes.io/enforce=restricted", "metrics=enabled")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace")
 	})
 
-	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// AfterAll 은 본 블록이 *생성한* 테스트 artifact (curl pod + metrics ClusterRoleBinding)
+	// 만 정리한다. operator/CRDs/namespace teardown 은 하지 않는다 — BeforeSuite 가
+	// lifecycle 을 소유하며, kind 클러스터는 run 간 재사용된다 (Makefile test-e2e-pg 설계).
+	// 이전 동작 (make undeploy + delete ns) 은 후속 Ordered 블록 (ha_lease 등) 의
+	// operator 를 파괴해 cascade 실패를 유발했다.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up the metrics ClusterRoleBinding")
 		cmd = exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found")
-		_, _ = utils.Run(cmd)
-
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
 		_, _ = utils.Run(cmd)
 	})
 
