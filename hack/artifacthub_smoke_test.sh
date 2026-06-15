@@ -21,6 +21,11 @@ case "$1 $2" in
 		printf 'keiailab-postgres-operator/postgres-operator 0.3.0-alpha.16 0.3.0-alpha.16\n'
 		exit 0
 		;;
+	"show chart")
+		printf 'version: %s\n' "${EXPECTED_CHART_VERSION}"
+		printf 'appVersion: "%s"\n' "${EXPECTED_APP_VERSION}"
+		exit 0
+		;;
 esac
 echo "unexpected helm call: $*" >&2
 exit 99
@@ -64,7 +69,7 @@ case "$url" in
 		;;
 	*/repositories/search*)
 		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
-			printf '[{"repository_id":"repo-id","name":"keiailab-postgres-operator","url":"https://keiailab.github.io/postgres-operator","last_tracking_errors":null}]' >"$out"
+			printf '[{"repository_id":"repo-id","name":"keiailab-postgres-operator","url":"oci://ghcr.io/keiailab/charts/postgres-operator","last_tracking_errors":null}]' >"$out"
 		else
 			printf '[]' >"$out"
 		fi
@@ -72,6 +77,13 @@ case "$url" in
 	*/packages/helm/keiailab-postgres-operator/postgres-operator)
 		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
 			printf '{"name":"postgres-operator"}' >"$out"
+		else
+			exit 22
+		fi
+		;;
+	*/packages/helm/keiailab-postgres-operator/postgres-operator/*)
+		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
+			printf '{"name":"postgres-operator","version":"%s","app_version":"%s","signed":true}' "${EXPECTED_CHART_VERSION}" "${EXPECTED_APP_VERSION}" >"$out"
 		else
 			exit 22
 		fi
@@ -91,6 +103,9 @@ export ARTIFACTHUB_API_URL="https://artifacthub.test/api/v1"
 export ARTIFACTHUB_ORG="keiailab"
 export ARTIFACTHUB_REPOSITORY_NAME="keiailab-postgres-operator"
 export ARTIFACTHUB_PACKAGE_NAME="postgres-operator"
+export EXPECTED_ARTIFACTHUB_REPOSITORY_URL="oci://ghcr.io/keiailab/charts/postgres-operator"
+export EXPECTED_CHART_VERSION="0.4.0-beta.6"
+export EXPECTED_APP_VERSION="0.4.0-beta.1"
 export HELM_REPO_URL="https://keiailab.github.io/postgres-operator"
 
 if ARTIFACTHUB_TEST_CASE=missing bash "$repo_root/hack/artifacthub_smoke.sh" >"$tmpdir/missing.out" 2>&1; then
