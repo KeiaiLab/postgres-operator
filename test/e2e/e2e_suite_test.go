@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -44,7 +45,11 @@ func TestE2E(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
+	// 로컬 kind 노드 arch(arm64 Mac 등) 정합 — operator 이미지를 노드와 동일 arch 로
+	// 빌드해야 ImagePull "no match for platform"/not-found 회피. 운영 release 는 amd64 고정.
+	cmd := exec.Command("make", "docker-build",
+		fmt.Sprintf("IMG=%s", managerImage),
+		fmt.Sprintf("PLATFORM=linux/%s", runtime.GOARCH))
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
 
@@ -54,14 +59,17 @@ var _ = BeforeSuite(func() {
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
-	By("installing operator + CRDs (kubectl apply -f dist/install.yaml)")
+	By("installing operator + CRDs (kubectl apply --server-side -f dist/install.yaml)")
 	// dist/install.yaml 는 build-installer 타겟이 생성한다. e2e go test 의 prerequisites
 	// (manifests/generate/fmt/vet) 만으로는 install.yaml 까지 도달하지 않으므로 명시적 호출.
 	cmd = exec.Command("make", "build-installer", fmt.Sprintf("IMG=%s", managerImage))
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to run build-installer")
 
-	cmd = exec.Command("kubectl", "apply", "-f", "dist/install.yaml")
+	// 대형 CRD(backupjobs/poolers/scheduledbackups)는 client-side apply 의
+	// last-applied-configuration annotation 262144 byte 한계를 초과한다.
+	// server-side apply 는 해당 annotation 을 쓰지 않아 한계를 회피한다.
+	cmd = exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "-f", "dist/install.yaml")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply dist/install.yaml")
 
