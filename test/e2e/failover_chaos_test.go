@@ -14,6 +14,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -28,6 +29,10 @@ import (
 const (
 	chaosNamespace = "pg-failover-chaos-e2e"
 	chaosCRName    = "pg-chaos-test"
+	// 라이브 운영 사실: instance manager 가 게시하는 Pod annotation key (statusapi.AnnotationKey).
+	// instance-role *label* 은 PG Pod 에 부착되지 않으므로 role 판정은 본 annotation 으로 한다
+	// (failover_e2e_test.go p2 와 동일 패턴 — status.shards[0].primary.pod + annotation.role).
+	chaosInstanceAnno = "postgres.keiailab.io/instance-status"
 )
 
 var _ = Describe("Failover chaos drill (D.1.2)", Ordered, Label("p1"), func() {
@@ -69,12 +74,16 @@ spec:
 		var oldPrimary string
 
 		It("초기 primary 식별", func() {
-			out, _ := utils.Run(exec.Command("kubectl", "get", "pods",
-				"-n", chaosNamespace,
-				"-l", fmt.Sprintf("postgres.keiailab.io/cluster=%s,postgres.keiailab.io/instance-role=primary", chaosCRName),
-				"-o", "jsonpath={.items[0].metadata.name}"))
-			oldPrimary = strings.TrimSpace(out)
-			Expect(oldPrimary).NotTo(BeEmpty(), "초기 primary pod 식별")
+			// 라이브 사실: primary 는 status.shards[0].primary.pod 로 게시된다
+			// (instance-role label 미부착 — failover_e2e_test.go p2 와 동일).
+			Eventually(func() string {
+				out, _ := utils.Run(exec.Command("kubectl", "get", "postgrescluster",
+					chaosCRName, "-n", chaosNamespace,
+					"-o", "jsonpath={.status.shards[0].primary.pod}"))
+				oldPrimary = strings.TrimSpace(out)
+				return oldPrimary
+			}, 2*time.Minute, 2*time.Second).ShouldNot(BeEmpty(),
+				"초기 primary 가 status.shards[0].primary.pod 에 기록")
 		})
 
 		It("Primary force delete (chaos)", func() {
@@ -84,28 +93,39 @@ spec:
 		})
 
 		It("replica 가 새 primary 로 promotion (RTO < 60s)", func() {
+			// 새 primary 가 등장 (oldPrimary 와 다름) + ready=true 가 될 때까지 대기.
 			Eventually(func() string {
-				out, _ := utils.Run(exec.Command("kubectl", "get", "pods",
-					"-n", chaosNamespace,
-					"-l", fmt.Sprintf("postgres.keiailab.io/cluster=%s,postgres.keiailab.io/instance-role=primary", chaosCRName),
-					"-o", "jsonpath={.items[0].metadata.name}"))
-				name := strings.TrimSpace(out)
-				if name == "" || name == oldPrimary {
+				out, _ := utils.Run(exec.Command("kubectl", "get", "postgrescluster",
+					chaosCRName, "-n", chaosNamespace,
+					"-o", "jsonpath={.status.shards[0].primary.pod}={.status.shards[0].primary.ready}"))
+				line := strings.TrimSpace(out)
+				// "<newPod>=true" 형태 — oldPrimary 가 아니고 ready=true 여야 통과.
+				if line == "" || strings.HasPrefix(line, oldPrimary+"=") || !strings.HasSuffix(line, "=true") {
 					return ""
 				}
-				return name
+				return line
 			}, 60*time.Second, 2*time.Second).ShouldNot(BeEmpty(),
 				"새 primary 60초 이내 promotion (RTO ≤ 60s SLO)")
 		})
 
 		It("이전 primary 가 standby 로 rejoin", func() {
-			Eventually(func() string {
-				out, _ := utils.Run(exec.Command("kubectl", "get", "pod",
+			// 라이브 사실: role 은 instance-status annotation 의 JSON role 필드로 판정.
+			// oldPrimary Pod (StatefulSet ordinal-stable) 가 재기동 후 role=replica 여야 함.
+			Eventually(func(g Gomega) {
+				out, err := utils.Run(exec.Command("kubectl", "get", "pod",
 					oldPrimary, "-n", chaosNamespace,
-					"-o", "jsonpath={.metadata.labels.postgres\\.keiailab\\.io/instance-role}"))
-				return strings.TrimSpace(out)
-			}, 3*time.Minute, 5*time.Second).Should(Equal("replica"),
-				"이전 primary 가 replica 역할로 rejoin")
+					"-o", fmt.Sprintf("jsonpath={.metadata.annotations.%s}",
+						strings.ReplaceAll(chaosInstanceAnno, ".", `\.`))))
+				g.Expect(err).NotTo(HaveOccurred())
+				raw := strings.TrimSpace(out)
+				g.Expect(raw).NotTo(BeEmpty(), "이전 primary instance-status annotation 부재 (재기동 전?)")
+
+				var payload map[string]any
+				g.Expect(json.Unmarshal([]byte(raw), &payload)).To(Succeed(),
+					"instance-status annotation 이 유효 JSON 아님: %q", raw)
+				g.Expect(payload["role"]).To(Equal("replica"),
+					"이전 primary 가 replica 역할로 rejoin, got role=%v", payload["role"])
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 		})
 
 		It("Cluster Ready=True 복귀", func() {
