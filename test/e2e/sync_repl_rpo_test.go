@@ -73,6 +73,7 @@ spec:
 		It("ANY 1 (...) wiring", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", syncReplCRName), "-n", syncReplNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SHOW synchronous_standby_names"))
 			Expect(strings.TrimSpace(out)).To(ContainSubstring("ANY 1"))
@@ -82,6 +83,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", syncReplCRName), "-n", syncReplNamespace,
+					"-c", "postgres",
 					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT count(*) FROM pg_stat_replication WHERE sync_state IN ('quorum','sync')"))
 				return strings.TrimSpace(out)
@@ -93,6 +95,7 @@ spec:
 		It("INSERT 1000 row", func() {
 			_, err := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", syncReplCRName), "-n", syncReplNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-c",
 				"CREATE TABLE rpo_drill(v int); INSERT INTO rpo_drill SELECT generate_series(1,1000);"))
 			Expect(err).NotTo(HaveOccurred())
@@ -101,6 +104,7 @@ spec:
 		It("pg_wal_lsn_diff = 0 (commit_lsn == flush_lsn)", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", syncReplCRName), "-n", syncReplNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SELECT pg_wal_lsn_diff(write_lsn, flush_lsn) FROM pg_stat_replication LIMIT 1"))
 			Expect(strings.TrimSpace(out)).To(Equal("0"),

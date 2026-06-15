@@ -53,12 +53,11 @@ metadata:
   name: pitr-full-bj
   namespace: %s
 spec:
-  cluster: %s
-  type: backup
-  backup:
-    tool: pgbackrest
-    repo: repo1
-    type: full
+  cluster:
+    name: %s
+  tool: pgbackrest
+  repo: repo1
+  type: full
 `, pitrNamespace, pitrCRName)
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(manifest)
@@ -76,6 +75,7 @@ spec:
 		It("marker row 'before' 삽입 + 시점 기록", func() {
 			_, err := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-c",
 				"CREATE TABLE drill(v text); INSERT INTO drill VALUES ('before');"))
 			Expect(err).NotTo(HaveOccurred())
@@ -83,6 +83,7 @@ spec:
 			// 시점 기록 (UTC, PG 서버 시각으로).
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SELECT now() AT TIME ZONE 'UTC'"))
 			t, err := time.Parse("2006-01-02 15:04:05.999999", strings.TrimSpace(out))
@@ -94,6 +95,7 @@ spec:
 			time.Sleep(5 * time.Second)
 			_, err := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-c",
 				"INSERT INTO drill VALUES ('after');"))
 			Expect(err).NotTo(HaveOccurred())
@@ -109,11 +111,13 @@ metadata:
   name: pitr-restore-bj
   namespace: %s
 spec:
-  cluster: %s
+  cluster:
+    name: %s
+  tool: pgbackrest
+  repo: repo1
   type: restore
   restore:
     targetTime: %q
-    repo: repo1
 `, pitrNamespace, pitrCRName, pitrTarget.UTC().Format(time.RFC3339))
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(manifest)
@@ -132,6 +136,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+					"-c", "postgres",
 					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT v FROM drill WHERE v='before'"))
 				return strings.TrimSpace(out)
@@ -141,6 +146,7 @@ spec:
 		It("restore 후 'after' row 부재 (PITR 시점 정확)", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SELECT count(*) FROM drill WHERE v='after'"))
 			Expect(strings.TrimSpace(out)).To(Equal("0"),
@@ -154,6 +160,7 @@ spec:
 			// pg_verify_backup 또는 cluster-level checksum 활성 시 다른 명령 사용.
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SELECT count(*) FROM pg_stat_database WHERE checksum_failures > 0"))
 			Expect(strings.TrimSpace(out)).To(Equal("0"),
