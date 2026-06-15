@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	operatorNS     = "postgres-operator"
+	operatorNS     = "postgres-operator-system"
 	leaseName      = "postgres-operator-failover-leader"
-	operatorDeploy = "postgres-operator"
+	operatorDeploy = "postgres-operator-controller-manager"
 )
 
 var _ = Describe("HA election distributed lock (D.2.2)", Ordered, Label("p1"), func() {

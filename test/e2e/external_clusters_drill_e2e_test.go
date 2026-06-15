@@ -63,7 +63,7 @@ spec:
     pg_basebackup:
       source: src
   shards:
-    count: 1
+    initialCount: 1
     replicas: 0
     storage:
       size: 1Gi
