@@ -18,7 +18,9 @@ apiVersion: postgres.keiailab.io/v1alpha1
 kind: PostgresCluster
 metadata:
   name: quickstart
-  namespace: default
+  # namespace 미지정 = kubectl 컨텍스트 / -n 플래그가 결정한다.
+  # (e2e 는 `-n pg-e2e` 로 override; quickstart 문서는 현재 namespace 로 적용.)
+  # 하드코딩된 `namespace: default` 는 `kubectl apply -n <other>` 와 충돌하므로 제거.
 spec:
   postgresVersion: "18"
   shardingMode: none
