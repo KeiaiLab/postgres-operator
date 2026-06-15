@@ -10,6 +10,8 @@ helm_repo_url="${HELM_REPO_URL:-https://keiailab.github.io/postgres-operator}"
 curl_bin="${CURL_BIN:-curl}"
 helm_bin="${HELM_BIN:-helm}"
 jq_bin="${JQ_BIN:-jq}"
+smoke_attempts="${ARTIFACTHUB_SMOKE_ATTEMPTS:-1}"
+smoke_sleep_seconds="${ARTIFACTHUB_SMOKE_SLEEP_SECONDS:-30}"
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/postgres-operator-artifacthub.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -43,6 +45,33 @@ fetch_json() {
 	local out="$2"
 	"$curl_bin" -fsSL "$url" -o "$out"
 }
+
+chart_yaml="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/charts/${artifacthub_package_name}/Chart.yaml"
+expected_chart_version="${EXPECTED_CHART_VERSION:-${TAG:-}}"
+expected_chart_version="${expected_chart_version##refs/tags/}"
+expected_chart_version="${expected_chart_version#v}"
+if [[ -z "$expected_chart_version" && -f "$chart_yaml" ]]; then
+	expected_chart_version="$(awk -F': *' '/^version:/ {gsub(/"/, "", $2); print $2; exit}' "$chart_yaml")"
+fi
+
+expected_app_version="${EXPECTED_APP_VERSION:-${APP_VERSION:-}}"
+if [[ -z "$expected_app_version" && -f "$chart_yaml" ]]; then
+	expected_app_version="$(awk -F': *' '/^appVersion:/ {gsub(/"/, "", $2); print $2; exit}' "$chart_yaml")"
+fi
+
+if [[ -z "$expected_chart_version" ]]; then
+	echo "ERROR: expected chart version is unknown. Set EXPECTED_CHART_VERSION or TAG." >&2
+	exit 1
+fi
+if [[ -z "$expected_app_version" ]]; then
+	echo "ERROR: expected appVersion is unknown. Set EXPECTED_APP_VERSION or keep Chart.yaml available." >&2
+	exit 1
+fi
+
+echo "=== Expected release contract ==="
+echo "Chart version: ${expected_chart_version}"
+echo "App version:   ${expected_app_version}"
+echo "Smoke attempts: ${smoke_attempts} (sleep ${smoke_sleep_seconds}s)"
 
 echo "=== Helm repository reachability ==="
 "$curl_bin" -fsSL "${helm_repo_url%/}/index.yaml" -o "$tmpdir/index.yaml"
@@ -104,3 +133,50 @@ fi
 
 "$jq_bin" -e --arg name "$artifacthub_package_name" '.name == $name' "$tmpdir/package.json" >/dev/null
 echo "Artifact Hub package OK: https://artifacthub.io/packages/helm/${artifacthub_repository_name}/${artifacthub_package_name}"
+
+echo "=== Artifact Hub target version 정합성 ==="
+package_version_url="${package_url}/${expected_chart_version}"
+artifacthub_package_ready=false
+package_metadata_filter='
+	(.name // $name) == $name
+	and .version == $version
+	and .app_version == $app_version
+	and .signed == true
+'
+for attempt in $(seq 1 "$smoke_attempts"); do
+	if "$curl_bin" -fsSL "$package_version_url" -o "$tmpdir/package-version.json" 2>"$tmpdir/package-version.err"; then
+		if "$jq_bin" -e \
+			--arg name "$artifacthub_package_name" \
+			--arg version "$expected_chart_version" \
+			--arg app_version "$expected_app_version" \
+			"$package_metadata_filter" \
+			"$tmpdir/package-version.json" >/dev/null; then
+			artifacthub_package_ready=true
+			break
+		fi
+		if [[ "$attempt" -lt "$smoke_attempts" ]]; then
+			echo "Artifact Hub target metadata not ready yet (${attempt}/${smoke_attempts}); waiting ${smoke_sleep_seconds}s..."
+			"$jq_bin" '{version, app_version, signed, repository: .repository.url}' "$tmpdir/package-version.json"
+			sleep "$smoke_sleep_seconds"
+		fi
+	else
+		if [[ "$attempt" -lt "$smoke_attempts" ]]; then
+			echo "Artifact Hub target version not indexed yet (${attempt}/${smoke_attempts}); waiting ${smoke_sleep_seconds}s..."
+			sleep "$smoke_sleep_seconds"
+		fi
+	fi
+done
+if [[ "$artifacthub_package_ready" != "true" ]]; then
+	if [[ -s "$tmpdir/package-version.json" ]]; then
+		echo "ERROR: Artifact Hub package metadata did not reach the expected state." >&2
+		"$jq_bin" '{name, version, app_version, signed, repository: .repository.url}' "$tmpdir/package-version.json" >&2
+		echo "  expected chart/app/signed: ${expected_chart_version}/${expected_app_version}/true" >&2
+		exit 5
+	fi
+	cat "$tmpdir/package-version.err" >&2 || true
+	echo "ERROR: Artifact Hub repository exists but target chart version is not indexed yet." >&2
+	echo "  package API: $package_version_url" >&2
+	echo "  retry after Artifact Hub tracker runs, or push a new chart version to force reprocessing." >&2
+	exit 5
+fi
+echo "Artifact Hub target version OK: ${expected_chart_version}"

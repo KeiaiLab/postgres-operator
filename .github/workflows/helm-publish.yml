@@ -4,7 +4,8 @@ name: Helm chart publish
 #   1. gh-pages   → HTTP helm repo (https://keiailab.github.io/postgres-operator)
 #   2. ghcr.io OCI → oci://ghcr.io/keiailab/charts/postgres-operator  ← ArtifactHub 추적 소스
 #
-# 트리거 3종 — 어느 릴리스 방식이든 작동:
+# 트리거 4종 — 어느 릴리스 방식이든 작동:
+#   - push:    main        → Chart.yaml version SSOT 기준 자동 publish
 #   - release: published   → `gh release create vX.Y.Z` (GitHub UI/API/CLI)
 #   - push:    tags ['v*'] → `git push origin vX.Y.Z`
 #   - workflow_dispatch    → 수동 재실행 / 백필
@@ -12,7 +13,14 @@ on:
   release:
     types: [published]
   push:
+    branches: [main]
     tags: ['v*']
+    paths:
+      - 'charts/**'
+      - 'docs/branding/**'
+      - 'docs/BRANDING.md'
+      - 'README.md'
+      - '.github/workflows/helm-publish.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -40,14 +48,21 @@ jobs:
       - name: Chart.yaml ↔ tag parity check
         env:
           TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
           CHART_VER=$(grep '^version:' charts/postgres-operator/Chart.yaml | awk '{print $2}' | tr -d '"')
-          if [ "$CHART_VER" != "$VERSION" ]; then
-            echo "::error::Chart.yaml version ($CHART_VER) does not match tag ($VERSION)"; exit 1
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "branch" ]; then
+            VERSION="$CHART_VER"
+            echo "✓ main push uses Chart.yaml version ($VERSION)"
+          else
+            VERSION="${TAG#v}"
+            if [ "$CHART_VER" != "$VERSION" ]; then
+              echo "::error::Chart.yaml version ($CHART_VER) does not match tag ($VERSION)"; exit 1
+            fi
+            echo "✓ chart version aligned with tag ($VERSION)"
           fi
-          echo "✓ chart version aligned with tag ($VERSION)"
 
       - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
         with:

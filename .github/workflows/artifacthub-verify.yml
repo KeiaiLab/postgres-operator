@@ -1,0 +1,62 @@
+name: ArtifactHub verify
+
+on:
+  workflow_run:
+    workflows: ["Helm chart publish"]
+    types: [completed]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "이미 publish된 tag (예: v0.4.0-beta.6). Artifact Hub 인덱싱 검증 대상."
+        required: false
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'hack/artifacthub_*.sh'
+      - '.github/workflows/artifacthub-verify.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifacthub-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ah lint (메타데이터)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Install ah CLI
+        run: |
+          set -euo pipefail
+          AH_VERSION="1.22.0"
+          curl -fsSL -o /tmp/ah.tar.gz \
+            "https://github.com/artifacthub/hub/releases/download/v${AH_VERSION}/ah_${AH_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/ah.tar.gz -C /tmp ah
+          sudo install /tmp/ah /usr/local/bin/ah
+          ah version
+      - name: ah lint
+        run: ah lint --kind helm --path charts/postgres-operator
+
+  smoke:
+    name: ArtifactHub 인덱싱/서명 smoke
+    runs-on: ubuntu-latest
+    # PR 시점엔 chart가 아직 publish 전이라 false-negative. publish workflow 완료 후 또는 tag/dispatch에서 실행.
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+        with:
+          version: latest
+      - name: Run artifacthub smoke
+        env:
+          AH_API_KEY_ID: ${{ secrets.AH_API_KEY_ID }}
+          AH_API_KEY_SECRET: ${{ secrets.AH_API_KEY_SECRET }}
+          TAG: ${{ github.event.inputs.tag }}
+          ARTIFACTHUB_SMOKE_ATTEMPTS: "90"
+          ARTIFACTHUB_SMOKE_SLEEP_SECONDS: "30"
+        run: bash hack/artifacthub_smoke.sh
