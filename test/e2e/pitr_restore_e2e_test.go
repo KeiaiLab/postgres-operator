@@ -36,8 +36,39 @@ var _ = Describe("PITR restore + checksum drill (D.3.2)", Ordered, Label("p1"), 
 
 	BeforeAll(func() {
 		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", pitrNamespace))
-		// 전제: PostgresCluster + pgBackRest sidecar + S3 또는 file repo 사전 부트스트랩
-		// (smoke.sh SMOKE_BACKUP=1 으로 환경 구성).
+
+		// PostgresCluster 부트스트랩 — backup/restore 대상 cluster.
+		// pgBackRest repo 는 operator 가 filesystem(posix) repo 를 PG Pod 의
+		// /var/lib/pgbackrest EmptyDir 에 자동 구성 + stanza-create 한다 (#209).
+		// 외부 S3 불필요 — single primary(replicas=0) 로 backup→PITR restore 검증.
+		manifest := fmt.Sprintf(`
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresCluster
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  postgresVersion: "18"
+  shardingMode: none
+  shards:
+    initialCount: 1
+    replicas: 0
+    storage:
+      size: 1Gi
+`, pitrCRName, pitrNamespace)
+		cmd := exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = strings.NewReader(manifest)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred())
+
+		// primary Ready 대기 (psql exec + backup 전제).
+		Eventually(func() string {
+			out, _ := utils.Run(exec.Command("kubectl", "get", "postgrescluster",
+				pitrCRName, "-n", pitrNamespace,
+				"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}"))
+			return strings.TrimSpace(out)
+		}, 5*time.Minute, 10*time.Second).Should(Equal("True"),
+			"PITR 대상 PostgresCluster 가 Ready 에 도달")
 	})
 
 	AfterAll(func() {
@@ -58,6 +89,7 @@ spec:
   tool: pgbackrest
   repo: repo1
   type: full
+  executionMode: sidecar
 `, pitrNamespace, pitrCRName)
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(manifest)
@@ -116,6 +148,7 @@ spec:
   tool: pgbackrest
   repo: repo1
   type: restore
+  executionMode: sidecar
   restore:
     targetTime: %q
 `, pitrNamespace, pitrCRName, pitrTarget.UTC().Format(time.RFC3339))
