@@ -150,7 +150,7 @@ cluster via GitOps.
 
 **Goal**: implement sharding metadata in-house, without any external sharding runtime.
 
-> **Status correction (2026-06-04)**: `internal/router/*` (vindex / metadata_store / scatter) was **removed as dead code in #124 (3900 lines)**. The `[x]` items below describe the *pre-removal* state and are **pending re-implementation** — verified absent on the live branch. <!-- live-verified: 2026-06-04 -->
+> **Status correction (2026-06-15)**: the prior note (2026-06-04) claiming `internal/router/*` was removed in #124 and "pending re-implementation" is **stale**. The router was **revived in #207** and built out through #208 (pg-router `SSLRequest`), #212 (scatter-gather live consumer), #214 (SQL-parse single-shard routing), #215 (`CopyTable` resharding InitialCopy), and #216 (ShardSplitJob reconciler). **Live state now**: `internal/router/*` ≈ 2090 lines present (`vindex` / `scatter` / `metadata_store` / `placement` / `resharding` / `reshard_copy` / `sql_route` / `sql_executor`) + `cmd/pg-router` 151-line PoC. **Remaining for v1.0 GA** (Phases 2–4 of the v1.0.0 plan): `pg_query_go` parser, LRU plan cache, real `pgx` backend forwarding, logical-replication CDC for resharding, and the 2PC distributed-transaction coordinator (`internal/tx/` absent). <!-- live-verified: 2026-06-15 -->
 
 - [x] `ShardingMode` field (`none` / `native`) — `postgrescluster_types.go`. Constants + Spec round-trip guarded by `TestShardingMode` (`api/v1alpha1/postgrescluster_types_test.go`); enum validation is enforced at the apiserver via the `+kubebuilder:validation:Enum=none;native` marker. RFC 0001 §3.1 / RFC 0002.
 - [x] `ShardsSpec` (initial shard count / replicas / storage) — `postgrescluster_types.go`. Field round-trip + `DeepCopy` slice independence + `Replicas=0` (HA-off dev) guarded by `TestShardsSpec` (`api/v1alpha1/postgrescluster_types_test.go`). RFC 0001 §3.1.
@@ -158,10 +158,10 @@ cluster via GitOps.
 - [x] **`ShardRange` CRD** — `api/v1alpha1/shardrange_types.go` + `config/crd/bases/postgres.keiailab.io_shardranges.yaml` (RFC 0002, offline yaml parse PASS, `make manifests` 통과).
   - [x] Hash-range / list / range policy branching — `internal/router/vindex.go` (`ResolveShard` 순수 평가 + 4 vindex 분기: hash/range working + consistent-hash/lookup `ErrVindexUnsupported` deferred + 3 hash function murmur3/fnv/crc32 + `ValidateNoOverlap` overlap detection + 자체 murmur3 구현 외부 dep 0). 9 sub-test PASS (`TestResolveShard`, D.8.2, 2026-05-19). pg-router reconciler integration 은 cmd/pg-router/ PoC 후속.
   - [x] Metadata store (Postgres system catalog) — `internal/router/metadata_store.go`: `Store` interface (Migrate/Upsert/List/Delete/CurrentVersion) + `PostgresStore` `sql.DB` 구현 + `SchemaMigrations` versioned DDL (v1 namespace+tables+index, v2 placement hints columns) + transactional Upsert ON CONFLICT generation+1 + sorted List + Validation (empty cluster/keyspace/Lo/Hi/ShardID 거부). sidecar 미선택 사유 (PG ACID+replication+backup 활용 + operator 기존 SQL path 통합 + 운영 표면 추가 0) 본문 codify. 9 sub-test PASS (`TestPostgresStore` sqlmock 기반, D.8.3, 2026-05-19).
-- [ ] **`pg-router` service PoC** — new `cmd/pg-router/`.
-  - [ ] SQL parser (libpg_query or homegrown).
-  - [ ] Shard-placement lookup.
-  - [ ] Connection routing (libpq passthrough).
+- [~] **`pg-router` service PoC** — `cmd/pg-router/main.go` (151 lines; #208 `SSLRequest` / `StartupMessage` handling). Production wire-proxy pending (Phase 2).
+  - [~] SQL parser — `internal/router/sql_route.go` + `sql_executor.go` (#214 SQL-parse single-shard routing). `pg_query_go` integration pending.
+  - [~] Shard-placement lookup — `internal/router/vindex.go` (`ResolveShard`) + `placement.go`.
+  - [ ] Connection routing (libpq passthrough) — real `pgx` backend forwarding pending (Phase 2).
 - [x] **Manual shard placement** — `internal/router/placement.go` (`PlacementSpec` {ShardID, PreferredZone, PreferredNode, Weight} + `ValidatePlacement` 중복/empty/negative 거부). D.8.8 의 placement intent layer (2026-05-19).
 - [x] **GitOps drift guard** — `internal/router/placement.go` (`DetectPlacementDrift` 6 reason: Missing/Extra/ZoneMismatch/NodeMismatch/NotReady/RangeUncovered + 결정적 정렬 + `HasDrift` helper). ShardRange.ranges[].shard ↔ PlacementSpec ↔ ObservedShard 3-way cross-check. 6 sub-test + 4 ValidatePlacement sub-test PASS (D.8.8, 2026-05-19).
 - Verify: queries through `pg-router` on a 2-shard cluster are routed to the correct shard.

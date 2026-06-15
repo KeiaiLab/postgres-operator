@@ -500,12 +500,15 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager (linux/amd64, default builder).
+# PLATFORM 기본값 = linux/amd64 (운영 amd64 클러스터 대상, 글로벌 §2.3 정합 — 불변).
+# 로컬 kind e2e 는 노드 arch(예: arm64 Mac) 정합을 위해 PLATFORM=linux/arm64 로 override 한다.
+# (test infra 한정 — enforcement.md §self-repair 정합; 운영 release 경로는 amd64 고정 유지.)
+PLATFORM ?= linux/amd64
+docker-build: ## Build docker image with the manager (default linux/amd64; PLATFORM override 가능).
 	# 글로벌 §2: docker buildx 의 기본 빌더 (default) 만 사용. 커스텀 빌더 인스턴스 금지.
-	# --platform linux/amd64 명시 — macOS host 에서 native build 시 darwin/arm64 가
-	# 되어 cluster (linux) 노드 에 push 시 ImagePullError "no match for platform"
-	# (iteration 35 incident 발견). mongodb-operator 패턴 정합.
-	docker buildx build --platform linux/amd64 --load -t ${IMG} .
+	# --platform 명시 — macOS host 에서 native build 시 darwin/arm64 가 되어 linux
+	# 노드 에 push 시 ImagePullError "no match for platform" (iteration 35 incident 발견).
+	docker buildx build --platform $(PLATFORM) --load -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
