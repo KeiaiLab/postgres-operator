@@ -21534,7 +21534,8 @@ spec:
             - message: postgres and pg_* are reserved role names
               rule: self.name != 'postgres' && !self.name.startsWith('pg_')
             - message: passwordSecretRef and disablePassword cannot both be set
-              rule: '!(has(self.passwordSecretRef) && self.disablePassword)'
+              rule: '!(has(self.passwordSecretRef) && has(self.disablePassword) &&
+                self.disablePassword)'
           status:
             description: PostgresUserStatus is the observed reconcile state of the
               role.
@@ -30882,6 +30883,545 @@ spec:
     subresources:
       status: {}
 ---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: shardranges.postgres.keiailab.io
+spec:
+  group: postgres.keiailab.io
+  names:
+    categories:
+    - postgres
+    - sharding
+    - all
+    kind: ShardRange
+    listKind: ShardRangeList
+    plural: shardranges
+    shortNames:
+    - shr
+    singular: shardrange
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cluster
+      name: Cluster
+      type: string
+    - jsonPath: .spec.keyspace
+      name: Keyspace
+      type: string
+    - jsonPath: .spec.vindex.type
+      name: Vindex
+      type: string
+    - jsonPath: .status.totalRanges
+      name: Ranges
+      type: integer
+    - jsonPath: .status.generation
+      name: Generation
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ShardRange은 분산 라우팅을 위한 키스페이스 + 키범위 → 샤드 매핑의 SSOT 이다 (RFC 0002).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ShardRangeSpec은 ShardRange CRD 의 사용자 의도이다 (RFC 0002 §3.1).
+            properties:
+              cluster:
+                description: Cluster은 본 ShardRange 가 속한 PostgresCluster 의 이름이다 (동일
+                  네임스페이스).
+                minLength: 1
+                type: string
+              keyspace:
+                description: Keyspace은 논리적 파티션 단위 (분산 테이블 그룹) 이름이다.
+                pattern: ^[a-z][a-z0-9_]{0,62}$
+                type: string
+              ranges:
+                description: Ranges은 키 범위 → 샤드 매핑 목록이다. reconciler 가 overlap / gap
+                  검증한다.
+                items:
+                  description: ShardRangeEntry는 [lo, hi] 키 범위와 대상 샤드의 매핑 1건이다.
+                  properties:
+                    hi:
+                      description: Hi는 범위 상한이다.
+                      type: string
+                    lo:
+                      description: Lo는 범위 하한이다. hash vindex 의 경우 16진수 문자열, range 의
+                        경우 임의 정렬가능 값이다.
+                      type: string
+                    shard:
+                      description: Shard는 PostgresCluster.status.shards[].name 과 일치하는
+                        대상 샤드 이름이다.
+                      minLength: 1
+                      type: string
+                  required:
+                  - hi
+                  - lo
+                  - shard
+                  type: object
+                maxItems: 1024
+                minItems: 1
+                type: array
+              vindex:
+                description: Vindex은 키 → 샤드 매핑 함수 정의이다.
+                properties:
+                  column:
+                    description: Column은 해시 / range 계산에 사용하는 컬럼명이다. lookup 타입에서는 생략
+                      가능하다.
+                    type: string
+                  function:
+                    description: Function은 해시 함수이다. type=hash 또는 type=consistent-hash
+                      일 때 필요.
+                    enum:
+                    - murmur3
+                    - fnv
+                    - crc32
+                    type: string
+                  lookupRef:
+                    description: LookupRef은 lookup 타입에서 사용하는 외부 매핑 CRD 참조이다.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  type:
+                    description: Type은 vindex 종류이다 (RFC 0002 §3.2).
+                    enum:
+                    - hash
+                    - range
+                    - consistent-hash
+                    - lookup
+                    type: string
+                  virtualNodes:
+                    description: VirtualNodes은 consistent-hash 타입에서 사용하는 가상 노드 수이다.
+                    format: int32
+                    maximum: 65536
+                    minimum: 64
+                    type: integer
+                required:
+                - type
+                type: object
+            required:
+            - cluster
+            - keyspace
+            - ranges
+            - vindex
+            type: object
+            x-kubernetes-validations:
+            - message: hash vindex requires column + function
+              rule: self.vindex.type != 'hash' || (has(self.vindex.column) && has(self.vindex.function))
+            - message: lookup vindex requires lookupRef
+              rule: self.vindex.type != 'lookup' || has(self.vindex.lookupRef)
+          status:
+            description: ShardRangeStatus은 reconciler 가 관찰한 ShardRange 상태이다.
+            properties:
+              conditions:
+                description: Conditions은 표준 Kubernetes condition 집합이다 (Valid, ShardsExist
+                  등).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              generation:
+                description: Generation은 spec 변경 시마다 +1 되는 단조 증가 카운터이다. 라우터 캐시 무효화
+                  신호.
+                format: int64
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration은 reconciler 가 마지막으로 처리한 metadata.generation
+                  이다.
+                format: int64
+                type: integer
+              rangesByShard:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: RangesByShard은 샤드별 range 항목 수의 분포이다.
+                type: object
+              totalRanges:
+                description: TotalRanges은 spec.ranges 항목 수이다.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: shardsplitjobs.postgres.keiailab.io
+spec:
+  group: postgres.keiailab.io
+  names:
+    categories:
+    - postgres
+    - sharding
+    - all
+    kind: ShardSplitJob
+    listKind: ShardSplitJobList
+    plural: shardsplitjobs
+    shortNames:
+    - ssj
+    singular: shardsplitjob
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cluster
+      name: Cluster
+      type: string
+    - jsonPath: .spec.keyspace
+      name: Keyspace
+      type: string
+    - jsonPath: .spec.direction
+      name: Direction
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.currentLagBytes
+      name: Lag
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ShardSplitJob 은 G4 online resharding 의 7-step orchestrator CRD
+          이다 (RFC-0002).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ShardSplitJobSpec 는 사용자 의도된 shard split/merge 작업이다.
+            properties:
+              allowForwardOnly:
+                default: false
+                description: |-
+                  AllowForwardOnly 는 true 면 cutover 이후 rollback 불가 (D.9.10).
+                  기본 false — rollback 가능 (역방향 logical replication 유지).
+                type: boolean
+              cdcMaxLag:
+                default: 16777216
+                description: |-
+                  CDCMaxLag 은 CDC catch-up phase 에서 cutover 진입 허용 LSN 차이 (bytes).
+                  기본 16MB.
+                format: int64
+                type: integer
+              cluster:
+                description: Cluster 는 본 작업이 속한 PostgresCluster 의 이름 (동일 namespace).
+                minLength: 1
+                type: string
+              cutoverWindow:
+                default: 60s
+                description: |-
+                  CutoverWindow 는 cutover phase 의 최대 write-block 시간이다 (예: "30s").
+                  초과 시 자동 abort + rollback. 기본 60s.
+                type: string
+              direction:
+                default: split
+                description: Direction 은 split 또는 merge 방향. 기본 split.
+                enum:
+                - split
+                - merge
+                type: string
+              keyspace:
+                description: Keyspace 는 ShardRange 의 keyspace 식별자.
+                pattern: ^[a-z][a-z0-9_]{0,62}$
+                type: string
+              sources:
+                description: 'Sources 는 source shard ID 목록 (split: 1, merge: N).'
+                items:
+                  type: string
+                minItems: 1
+                type: array
+              targets:
+                description: |-
+                  Targets 는 target shard 정의 목록 (split: N, merge: 1).
+                  각 target 은 자체 키 범위와 placement hint 를 갖는다.
+                items:
+                  description: ShardSplitTarget 는 split/merge 의 target shard 1건 정의.
+                  properties:
+                    placement:
+                      description: Placement 는 target shard 의 nodeAffinity / topology
+                        hint.
+                      properties:
+                        preferredNode:
+                          description: PreferredNode 는 의도된 노드 이름 (특수 hardware).
+                          type: string
+                        preferredZone:
+                          description: PreferredZone 은 의도된 topology zone.
+                          type: string
+                      type: object
+                    ranges:
+                      description: Ranges 는 본 target 이 가질 키 범위 목록. ShardRange.spec.ranges
+                        와 동일 형식.
+                      items:
+                        description: ShardRangeEntry는 [lo, hi] 키 범위와 대상 샤드의 매핑 1건이다.
+                        properties:
+                          hi:
+                            description: Hi는 범위 상한이다.
+                            type: string
+                          lo:
+                            description: Lo는 범위 하한이다. hash vindex 의 경우 16진수 문자열, range
+                              의 경우 임의 정렬가능 값이다.
+                            type: string
+                          shard:
+                            description: Shard는 PostgresCluster.status.shards[].name
+                              과 일치하는 대상 샤드 이름이다.
+                            minLength: 1
+                            type: string
+                        required:
+                        - hi
+                        - lo
+                        - shard
+                        type: object
+                      minItems: 1
+                      type: array
+                    shardID:
+                      description: |-
+                        ShardID 는 target shard 의 식별자 (ShardRange.spec.ranges[].shard 와 동일).
+
+                        reconciler 가 shardID 를 K8s 자원명(`<cluster>-rsd-<shardID>`, ADR-0027)에
+                        직접 박으므로 *DNS-1123 label-safe* 여야 한다 — 소문자 영숫자 + 하이픈,
+                        영문자 시작, 영숫자 종료(선행/후행 하이픈 금지). 형제 필드(Keyspace /
+                        ShardRangeEntry.Shard)의 패턴은 언더스코어를 허용해 DNS 에 무효이므로 본
+                        필드는 더 엄격한 패턴을 쓴다.
+                      maxLength: 30
+                      pattern: ^[a-z]([a-z0-9-]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - ranges
+                  - shardID
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - cluster
+            - keyspace
+            - sources
+            - targets
+            type: object
+            x-kubernetes-validations:
+            - message: sources must not be empty
+              rule: size(self.sources) > 0
+            - message: targets must not be empty
+              rule: size(self.targets) > 0
+          status:
+            description: ShardSplitJobStatus 는 reconciler 가 관찰한 7-step state machine
+              상태.
+            properties:
+              completedAt:
+                description: CompletedAt 은 Completed / Failed / Aborted 진입 시각.
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions 는 표준 K8s condition 집합 (StepCompleted, RollbackPossible,
+                  etc).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              currentLagBytes:
+                description: CurrentLagBytes 는 CDCCatchup phase 동안의 lag (bytes).
+                format: int64
+                type: integer
+              cutoverStartedAt:
+                description: CutoverStartedAt 은 Cutover phase 진입 시각 (window 측정 시작).
+                format: date-time
+                type: string
+              failureReason:
+                description: FailureReason 은 Failed phase 의 원인.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration 은 마지막으로 처리한 metadata.generation.
+                format: int64
+                type: integer
+              phase:
+                description: Phase 는 현재 phase (state machine).
+                enum:
+                - Pending
+                - SnapshotWAL
+                - Bootstrap
+                - InitialCopy
+                - CDCCatchup
+                - Cutover
+                - RoutingUpdate
+                - Cleanup
+                - Completed
+                - Failed
+                - Aborted
+                type: string
+              snapshotLSN:
+                description: SnapshotLSN 은 SnapshotWAL phase 에서 확정된 source 시점 LSN.
+                type: string
+              startedAt:
+                description: StartedAt 은 본 작업이 Pending → SnapshotWAL 으로 진입한 시각.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -30955,15 +31495,9 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - ""
-  resources:
   - persistentvolumeclaims
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -30974,6 +31508,7 @@ rules:
   resources:
   - pods
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -30984,6 +31519,14 @@ rules:
   - pods/exec
   verbs:
   - create
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - apps
   resources:
@@ -31082,6 +31625,7 @@ rules:
   - postgresdatabases/status
   - postgresusers/status
   - scheduledbackups/status
+  - shardsplitjobs/status
   verbs:
   - get
   - patch
@@ -31094,6 +31638,17 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - postgres.keiailab.io
+  resources:
+  - shardranges
+  - shardsplitjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io

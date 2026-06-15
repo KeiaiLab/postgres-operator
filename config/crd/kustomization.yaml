@@ -10,3 +10,5 @@ resources:
 - bases/postgres.keiailab.io_postgresclusters.yaml
 - bases/postgres.keiailab.io_postgresusers.yaml
 - bases/postgres.keiailab.io_scheduledbackups.yaml
+- bases/postgres.keiailab.io_shardranges.yaml
+- bases/postgres.keiailab.io_shardsplitjobs.yaml
