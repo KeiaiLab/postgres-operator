@@ -42,7 +42,7 @@ metadata:
 spec:
   postgresVersion: "18"
   shards:
-    count: 1
+    initialCount: 1
     replicas: 2
     storage:
       size: 1Gi

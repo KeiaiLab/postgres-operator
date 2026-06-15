@@ -47,7 +47,7 @@ spec:
       number: 1
       dataDurability: required
   shards:
-    count: 1
+    initialCount: 1
     replicas: 2
     storage:
       size: 1Gi
