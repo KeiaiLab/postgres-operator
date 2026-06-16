@@ -103,14 +103,26 @@ require_tool "$jq_bin"
 
 echo "=== Artifact Hub repository registration ==="
 org_query="$(urlencode "$artifacthub_org")"
-fetch_json "${artifacthub_api_url%/}/repositories/search?org=${org_query}&kind=0&limit=60" "$tmpdir/repositories.json"
-
 normalized_artifacthub_repository_url="$(normalize_url "$artifacthub_repository_url")"
 repo_filter='
 	.[]?
 	| select(.name == $name and ((.url // "" | sub("/$"; "")) == $url))
 '
-repo_json="$("$jq_bin" -e -c --arg url "$normalized_artifacthub_repository_url" --arg name "$artifacthub_repository_name" "$repo_filter" "$tmpdir/repositories.json" 2>/dev/null || true)"
+repo_json=""
+for attempt in $(seq 1 "$smoke_attempts"); do
+	fetch_json "${artifacthub_api_url%/}/repositories/search?org=${org_query}&kind=0&limit=60" "$tmpdir/repositories.json"
+	repo_json="$("$jq_bin" -e -c --arg url "$normalized_artifacthub_repository_url" --arg name "$artifacthub_repository_name" "$repo_filter" "$tmpdir/repositories.json" 2>/dev/null || true)"
+	if [[ -n "$repo_json" ]]; then
+		break
+	fi
+	if [[ -z "$artifacthub_api_key_id" || -z "$artifacthub_api_key_secret" ]]; then
+		break
+	fi
+	if [[ "$attempt" -lt "$smoke_attempts" ]]; then
+		echo "Artifact Hub repository is not visible yet (${attempt}/${smoke_attempts}); waiting ${smoke_sleep_seconds}s..."
+		sleep "$smoke_sleep_seconds"
+	fi
+done
 
 if [[ -z "$repo_json" ]]; then
 	echo "ERROR: Artifact Hub repository is not registered." >&2
