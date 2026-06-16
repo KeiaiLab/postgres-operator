@@ -109,7 +109,9 @@ spec:
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
 				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-c",
-				"CREATE TABLE drill(v text); INSERT INTO drill VALUES ('before');"))
+				// idempotent: 직전 run 이 Retain/local-path PVC 에 남긴 drill 테이블
+				// 재사용 대비 (라이브 RCA 2026-06-16: "relation drill already exists").
+				"DROP TABLE IF EXISTS drill; CREATE TABLE drill(v text); INSERT INTO drill VALUES ('before');"))
 			Expect(err).NotTo(HaveOccurred())
 
 			// 시점 기록 (UTC, PG 서버 시각으로).

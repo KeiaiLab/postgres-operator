@@ -63,25 +63,32 @@ var _ = Describe("HA election distributed lock (D.2.2)", Ordered, Label("p1"), f
 		})
 
 		It("두 Pod 중 1개만 leader 보유", func() {
-			out, _ := utils.Run(exec.Command("kubectl", "get", "lease",
-				leaseName, "-n", operatorNS,
-				"-o", "jsonpath={.spec.holderIdentity}"))
-			holder := strings.TrimSpace(out)
+			// 라이브 RCA (2026-06-16): operator 재배포/scale 직후 Lease.holderIdentity
+			// 가 직전 run 의 사라진 Pod 를 ~LeaseDuration(15s) 동안 가리킬 수 있다
+			// (옛 holder 만료 후 현재 Pod 가 재획득). holder 가 *현재* 2 Pod 중 정확히
+			// 1개로 수렴할 때까지 대기(단발 체크 금지 — execution.md §1.4 deterministic).
+			Eventually(func() int {
+				out, _ := utils.Run(exec.Command("kubectl", "get", "lease",
+					leaseName, "-n", operatorNS,
+					"-o", "jsonpath={.spec.holderIdentity}"))
+				holder := strings.TrimSpace(out)
 
-			pods, _ := utils.Run(exec.Command("kubectl", "get", "pods",
-				"-n", operatorNS, "-l", "app.kubernetes.io/name=postgres-operator",
-				"-o", "jsonpath={.items[*].metadata.name}"))
-			podList := strings.Fields(pods)
-			Expect(podList).To(HaveLen(2))
-
-			found := 0
-			for _, p := range podList {
-				if p == holder {
-					found++
+				pods, _ := utils.Run(exec.Command("kubectl", "get", "pods",
+					"-n", operatorNS, "-l", "app.kubernetes.io/name=postgres-operator",
+					"-o", "jsonpath={.items[*].metadata.name}"))
+				podList := strings.Fields(pods)
+				if len(podList) != 2 {
+					return -1
 				}
-			}
-			Expect(found).To(Equal(1),
-				"holderIdentity 가 정확히 1 Pod 와 일치")
+				found := 0
+				for _, p := range podList {
+					if p == holder {
+						found++
+					}
+				}
+				return found
+			}, 45*time.Second, 3*time.Second).Should(Equal(1),
+				"holderIdentity 가 현재 2 Pod 중 정확히 1개로 수렴")
 		})
 	})
 
