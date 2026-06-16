@@ -3,10 +3,10 @@ set -euo pipefail
 
 artifacthub_api_url="${ARTIFACTHUB_API_URL:-https://artifacthub.io/api/v1}"
 artifacthub_org="${ARTIFACTHUB_ORG:-keiailab}"
-artifacthub_repository_name="${ARTIFACTHUB_REPOSITORY_NAME:-keiailab-postgres-operator}"
+artifacthub_repository_name="${ARTIFACTHUB_REPOSITORY_NAME:-keiailab}"
 artifacthub_package_name="${ARTIFACTHUB_PACKAGE_NAME:-postgres-operator}"
 helm_oci_repo="${HELM_OCI_REPO:-oci://ghcr.io/keiailab/charts}"
-helm_repo_url="${HELM_REPO_URL:-${helm_oci_repo%/}/${artifacthub_package_name}}"
+helm_repo_url="${HELM_REPO_URL:-https://keiailab.github.io/charts}"
 
 curl_bin="${CURL_BIN:-curl}"
 jq_bin="${JQ_BIN:-jq}"
@@ -29,7 +29,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 json_body="$("$jq_bin" -n \
 	--arg name "$artifacthub_repository_name" \
-	--arg displayName "Postgres Operator (Keiailab)" \
+	--arg displayName "Keiailab Helm Catalog" \
 	--arg url "${helm_repo_url%/}" \
 	'{kind: 0, name: $name, display_name: $displayName, url: $url}')"
 
