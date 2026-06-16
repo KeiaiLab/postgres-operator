@@ -7,9 +7,12 @@ Licensed under the MIT License. See the LICENSE file for details.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -17,6 +20,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -27,6 +31,7 @@ import (
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller"
+	"github.com/keiailab/postgres-operator/internal/controller/failover"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 	pluginbackuppgbackrest "github.com/keiailab/postgres-operator/internal/plugin/backup/pgbackrest"
 	pluginextpgaudit "github.com/keiailab/postgres-operator/internal/plugin/extension/pgaudit"
@@ -49,6 +54,47 @@ func init() {
 	utilruntime.Must(postgresv1alpha1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
+}
+
+// leaderElectionAgnosticRunnable runs on every manager replica regardless of
+// the controller-runtime manager's own leader election. The failover lease must
+// be contested by all replicas (it is a separate lease from the manager lease),
+// so its runnable must not be gated behind manager leadership.
+type leaderElectionAgnosticRunnable struct {
+	start func(context.Context) error
+}
+
+func (r leaderElectionAgnosticRunnable) Start(ctx context.Context) error { return r.start(ctx) }
+func (r leaderElectionAgnosticRunnable) NeedLeaderElection() bool        { return false }
+
+// failoverIdentity returns a unique-per-Pod identity for the failover lease.
+// In-cluster, os.Hostname() returns the Pod name; POD_NAME env overrides for
+// explicit Downward-API wiring.
+func failoverIdentity() string {
+	if v := os.Getenv("POD_NAME"); v != "" {
+		return v
+	}
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
+	}
+	return "postgres-operator-failover"
+}
+
+// operatorNamespace resolves the namespace the operator runs in: POD_NAMESPACE
+// env first, then the in-cluster ServiceAccount namespace file.
+func operatorNamespace() (string, error) {
+	if v := os.Getenv("POD_NAMESPACE"); v != "" {
+		return v, nil
+	}
+	data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		return "", fmt.Errorf("resolve operator namespace: %w", err)
+	}
+	ns := strings.TrimSpace(string(data))
+	if ns == "" {
+		return "", fmt.Errorf("resolve operator namespace: empty ServiceAccount namespace file")
+	}
+	return ns, nil
 }
 
 // nolint:gocyclo
@@ -298,6 +344,46 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up ready check")
+		os.Exit(1)
+	}
+
+	// HA failover leader election (ROADMAP G1 §automatic failover). A dedicated
+	// lease (failover.FailoverLeaseName), separate from the controller-runtime
+	// manager lease, elects the single operator replica responsible for failover
+	// decisions. Registered as a leader-election-agnostic runnable so every
+	// replica contests the lease and it hands off when the holder Pod is lost.
+	failoverClientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "Failed to build clientset for failover lease")
+		os.Exit(1)
+	}
+	failoverNS, err := operatorNamespace()
+	if err != nil {
+		setupLog.Error(err, "Failed to resolve operator namespace for failover lease")
+		os.Exit(1)
+	}
+	failoverLease, err := failover.NewLease(failover.LeaseConfig{
+		Client:    failoverClientset,
+		Namespace: failoverNS,
+		Identity:  failoverIdentity(),
+		OnStartedLeading: func(context.Context) {
+			setupLog.Info("Acquired failover leadership", "lease", failover.FailoverLeaseName, "identity", failoverIdentity())
+		},
+		OnStoppedLeading: func() {
+			setupLog.Info("Lost failover leadership", "lease", failover.FailoverLeaseName, "identity", failoverIdentity())
+		},
+	})
+	if err != nil {
+		setupLog.Error(err, "Failed to construct failover lease")
+		os.Exit(1)
+	}
+	if err := mgr.Add(leaderElectionAgnosticRunnable{start: func(ctx context.Context) error {
+		if rerr := failoverLease.Run(ctx); rerr != nil && ctx.Err() == nil {
+			return rerr
+		}
+		return nil
+	}}); err != nil {
+		setupLog.Error(err, "Failed to register failover lease runnable")
 		os.Exit(1)
 	}
 
