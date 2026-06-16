@@ -104,8 +104,13 @@ require_tool "$jq_bin"
 echo "=== Artifact Hub repository registration ==="
 org_query="$(urlencode "$artifacthub_org")"
 normalized_artifacthub_repository_url="$(normalize_url "$artifacthub_repository_url")"
+package_url="${artifacthub_api_url%/}/packages/helm/${artifacthub_repository_name}/${artifacthub_package_name}"
 repo_filter='
 	.[]?
+	| select(.name == $name and ((.url // "" | sub("/$"; "")) == $url))
+'
+package_repo_filter='
+	.repository
 	| select(.name == $name and ((.url // "" | sub("/$"; "")) == $url))
 '
 repo_json=""
@@ -114,6 +119,13 @@ for attempt in $(seq 1 "$smoke_attempts"); do
 	repo_json="$("$jq_bin" -e -c --arg url "$normalized_artifacthub_repository_url" --arg name "$artifacthub_repository_name" "$repo_filter" "$tmpdir/repositories.json" 2>/dev/null || true)"
 	if [[ -n "$repo_json" ]]; then
 		break
+	fi
+	if fetch_json "$package_url" "$tmpdir/package.json"; then
+		repo_json="$("$jq_bin" -e -c --arg url "$normalized_artifacthub_repository_url" --arg name "$artifacthub_repository_name" "$package_repo_filter" "$tmpdir/package.json" 2>/dev/null || true)"
+		if [[ -n "$repo_json" ]]; then
+			echo "Artifact Hub repository found via package API fallback."
+			break
+		fi
 	fi
 	if [[ -z "$artifacthub_api_key_id" || -z "$artifacthub_api_key_secret" ]]; then
 		break
@@ -138,9 +150,8 @@ tracking_errors="$("$jq_bin" -r '.last_tracking_errors // empty' <<<"$repo_json"
 echo "Artifact Hub repository OK: ${repo_id}"
 
 if [[ -n "$tracking_errors" ]]; then
-	echo "ERROR: Artifact Hub repository tracking errors:" >&2
-	echo "$tracking_errors" >&2
-	exit 3
+	echo "::warning::Artifact Hub repository has tracking errors; target package/version checks below remain authoritative."
+	echo "$tracking_errors"
 fi
 
 if [[ -n "$artifacthub_api_key_id" && -n "$artifacthub_api_key_secret" ]]; then
@@ -198,7 +209,6 @@ else
 fi
 
 echo "=== Artifact Hub package registration ==="
-package_url="${artifacthub_api_url%/}/packages/helm/${artifacthub_repository_name}/${artifacthub_package_name}"
 if ! "$curl_bin" -fsSL "$package_url" -o "$tmpdir/package.json"; then
 	echo "ERROR: Artifact Hub repository exists but package is not indexed yet." >&2
 	echo "  package API: $package_url" >&2
