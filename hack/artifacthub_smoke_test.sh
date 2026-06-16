@@ -44,6 +44,9 @@ while [[ $# -gt 0 ]]; do
 			out="$2"
 			shift 2
 			;;
+		-X|-H|-d)
+			shift 2
+			;;
 		-f|-s|-S|-L|-fsSL)
 			shift
 			;;
@@ -70,19 +73,36 @@ case "$url" in
 	*/repositories/search*)
 		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
 			printf '[{"repository_id":"repo-id","name":"keiailab-postgres-operator","url":"oci://ghcr.io/keiailab/charts/postgres-operator","last_tracking_errors":null}]' >"$out"
+		elif [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "delayed" ]]; then
+			count_file="${ARTIFACTHUB_TEST_DELAY_FILE:?}"
+			count="$(cat "$count_file" 2>/dev/null || printf '0')"
+			count="$((count + 1))"
+			printf '%s' "$count" >"$count_file"
+			if [[ "$count" -ge 2 ]]; then
+				printf '[{"repository_id":"repo-id","name":"keiailab-postgres-operator","url":"oci://ghcr.io/keiailab/charts/postgres-operator","last_tracking_errors":null}]' >"$out"
+			else
+				printf '[]' >"$out"
+			fi
 		else
 			printf '[]' >"$out"
 		fi
 		;;
+	*/repositories/org/keiailab/keiailab-postgres-operator)
+		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "delayed" ]]; then
+			printf '{}' >"$out"
+		else
+			exit 22
+		fi
+		;;
 	*/packages/helm/keiailab-postgres-operator/postgres-operator)
-		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
+		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" || "${ARTIFACTHUB_TEST_CASE:-missing}" == "delayed" ]]; then
 			printf '{"name":"postgres-operator"}' >"$out"
 		else
 			exit 22
 		fi
 		;;
 	*/packages/helm/keiailab-postgres-operator/postgres-operator/*)
-		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" ]]; then
+		if [[ "${ARTIFACTHUB_TEST_CASE:-missing}" == "registered" || "${ARTIFACTHUB_TEST_CASE:-missing}" == "delayed" ]]; then
 			printf '{"name":"postgres-operator","version":"%s","app_version":"%s","signed":true}' "${EXPECTED_CHART_VERSION}" "${EXPECTED_APP_VERSION}" >"$out"
 		else
 			exit 22
@@ -113,6 +133,16 @@ if ARTIFACTHUB_TEST_CASE=missing bash "$repo_root/hack/artifacthub_smoke.sh" >"$
 	exit 1
 fi
 grep -q "Artifact Hub repository is not registered" "$tmpdir/missing.out"
+
+export ARTIFACTHUB_API_KEY_ID="key-id"
+export ARTIFACTHUB_API_KEY_SECRET="key-secret"
+export ARTIFACTHUB_SMOKE_ATTEMPTS="2"
+export ARTIFACTHUB_SMOKE_SLEEP_SECONDS="0"
+export ARTIFACTHUB_TEST_DELAY_FILE="$tmpdir/delayed.count"
+ARTIFACTHUB_TEST_CASE=delayed bash "$repo_root/hack/artifacthub_smoke.sh" >"$tmpdir/delayed.out" 2>&1
+grep -q "Artifact Hub repository is not visible yet (1/2)" "$tmpdir/delayed.out"
+grep -q "Artifact Hub package OK" "$tmpdir/delayed.out"
+unset ARTIFACTHUB_API_KEY_ID ARTIFACTHUB_API_KEY_SECRET ARTIFACTHUB_SMOKE_ATTEMPTS ARTIFACTHUB_SMOKE_SLEEP_SECONDS ARTIFACTHUB_TEST_DELAY_FILE
 
 ARTIFACTHUB_TEST_CASE=registered bash "$repo_root/hack/artifacthub_smoke.sh" >"$tmpdir/registered.out" 2>&1
 grep -q "Artifact Hub package OK" "$tmpdir/registered.out"
