@@ -5,7 +5,8 @@ IMG ?= $(IMAGE_REPOSITORY):$(IMAGE_TAG)
 
 HELM_CHART ?= charts/postgres-operator
 HELM_REPO_URL ?= https://keiailab.github.io/postgres-operator
-ARTIFACTHUB_REPOSITORY_NAME ?= keiailab-postgres-operator
+ARTIFACTHUB_REPOSITORY_NAME ?= keiailab
+ARTIFACTHUB_REPOSITORY_URL ?= https://keiailab.github.io/charts
 ARTIFACTHUB_PACKAGE_NAME ?= postgres-operator
 ARTIFACTHUB_ORG ?= keiailab
 ARTIFACTHUB_API_URL ?= https://artifacthub.io/api/v1
@@ -475,6 +476,7 @@ artifacthub-smoke: ## Artifact Hub 등록/검색 상태를 실제 API로 확인.
 		ARTIFACTHUB_ORG="$(ARTIFACTHUB_ORG)" \
 		ARTIFACTHUB_PACKAGE_NAME="$(ARTIFACTHUB_PACKAGE_NAME)" \
 		ARTIFACTHUB_REPOSITORY_NAME="$(ARTIFACTHUB_REPOSITORY_NAME)" \
+		EXPECTED_ARTIFACTHUB_REPOSITORY_URL="$(ARTIFACTHUB_REPOSITORY_URL)" \
 		HELM_REPO_URL="$(HELM_REPO_URL)" \
 		bash hack/artifacthub_smoke.sh
 
@@ -483,7 +485,7 @@ artifacthub-register: ## Artifact Hub org repository를 API로 등록. ARTIFACTH
 	@ARTIFACTHUB_API_URL="$(ARTIFACTHUB_API_URL)" \
 		ARTIFACTHUB_ORG="$(ARTIFACTHUB_ORG)" \
 		ARTIFACTHUB_REPOSITORY_NAME="$(ARTIFACTHUB_REPOSITORY_NAME)" \
-		HELM_REPO_URL="$(HELM_REPO_URL)" \
+		HELM_REPO_URL="$(ARTIFACTHUB_REPOSITORY_URL)" \
 		bash hack/artifacthub_register.sh
 
 ##@ Build

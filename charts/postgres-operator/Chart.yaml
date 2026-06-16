@@ -246,7 +246,7 @@ annotations:
           - name: pgcrypto
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
+      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.8
   artifacthub.io/changes: |
     - kind: changed
       description: "Add opt-in ExternalSecret rendering for PostgresUser, Pooler, and external replica-source credentials while keeping operator appVersion/image at 0.4.0-beta.1."
