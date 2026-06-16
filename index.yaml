@@ -215,6 +215,254 @@ entries:
           url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/light.png
     apiVersion: v2
     appVersion: 0.4.0-beta.8
+    created: "2026-06-16T04:53:29.687965285Z"
+    dependencies:
+    - name: keiailab-commons
+      repository: oci://ghcr.io/keiailab/charts
+      version: 0.8.0
+    description: 'MIT-licensed PostgreSQL Kubernetes Operator. PGO-class operational
+      quality is the target, but external operators/backends are not forked, embedded,
+      or wrapped. Vanilla PostgreSQL 18+ baseline with a self-built distributed SQL
+      roadmap (ADR 0001, ADR 0003). '
+    digest: 274f4992ff0167608dcf1961cf68c239093fd713a22d010fded264326a9e7a1a
+    home: https://github.com/keiailab/postgres-operator
+    icon: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png
+    keywords:
+    - postgresql
+    - postgres
+    - postgres-18
+    - operator
+    - kubernetes
+    - keiailab
+    - external-secrets
+    - self-built-distributed-sql
+    - mit
+    kubeVersion: '>=1.26.0-0'
+    maintainers:
+    - email: support@keiailab.com
+      name: keiailab
+      url: https://github.com/keiailab
+    name: postgres-operator
+    sources:
+    - https://github.com/keiailab/postgres-operator
+    type: application
+    urls:
+    - https://github.com/KeiaiLab/postgres-operator/releases/download/postgres-operator-0.4.0-beta.8/postgres-operator-0.4.0-beta.8.tgz
+    version: 0.4.0-beta.8
+  - annotations:
+      artifacthub.io/alternativeName: keiailab-postgres-operator
+      artifacthub.io/category: database
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Add opt-in ExternalSecret rendering for PostgresUser, Pooler, and external replica-source credentials while keeping operator appVersion/image at 0.4.0-beta.1."
+      artifacthub.io/crds: |
+        - kind: PostgresCluster
+          version: v1alpha1
+          name: postgresclusters.postgres.keiailab.io
+          displayName: PostgresCluster
+          description: coordinator, worker pool, stateless router 로 구성된 자체 분산 PostgreSQL 토폴로지를 선언한다 (vanilla PG18 default, ADR 0001 자체 분산 SQL).
+        - kind: ImageCatalog
+          version: v1alpha1
+          name: imagecatalogs.postgres.keiailab.io
+          displayName: ImageCatalog
+          description: namespace 범위 PostgreSQL runtime image catalog 를 선언한다
+        - kind: ClusterImageCatalog
+          version: v1alpha1
+          name: clusterimagecatalogs.postgres.keiailab.io
+          displayName: ClusterImageCatalog
+          description: cluster 전체에서 공유할 PostgreSQL runtime image catalog 를 선언한다
+        - kind: BackupJob
+          version: v1alpha1
+          name: backupjobs.postgres.keiailab.io
+          displayName: BackupJob
+          description: PostgresCluster 대상의 단일 백업 또는 복구 실행 요청을 선언한다
+        - kind: ScheduledBackup
+          version: v1alpha1
+          name: scheduledbackups.postgres.keiailab.io
+          displayName: ScheduledBackup
+          description: cron schedule 에 따라 PostgresCluster 대상 BackupJob 을 생성한다
+        - kind: Pooler
+          version: v1alpha1
+          name: poolers.postgres.keiailab.io
+          displayName: Pooler
+          description: PostgresCluster 대상 PgBouncer connection pool 계층을 선언한다
+        - kind: PostgresDatabase
+          version: v1alpha1
+          name: postgresdatabases.postgres.keiailab.io
+          displayName: PostgresDatabase
+          description: ready primary Pod 의 psql 로 database, tablespace, schema, extension, FDW, foreign server 선언을 적용한다
+        - kind: PostgresUser
+          version: v1alpha1
+          name: postgresusers.postgres.keiailab.io
+          displayName: PostgresUser
+          description: ready primary Pod 의 psql 로 PostgreSQL role flags, membership, password, validUntil 을 적용한다
+      artifacthub.io/crdsExamples: |
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ImageCatalog
+          metadata:
+            name: postgresql
+            namespace: default
+          spec:
+            images:
+              - major: 18
+                image: ghcr.io/keiailab/pg:18
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ClusterImageCatalog
+          metadata:
+            name: postgresql-standard
+          spec:
+            images:
+              - major: 17
+                image: ghcr.io/keiailab/pg:17
+              - major: 18
+                image: ghcr.io/keiailab/pg:18
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresCluster
+          metadata:
+            name: quickstart
+            namespace: default
+          spec:
+            imageCatalogRef:
+              apiGroup: postgres.keiailab.io
+              kind: ImageCatalog
+              name: postgresql
+              major: 18
+            shardingMode: none
+            shards:
+              initialCount: 1
+              replicas: 1
+              storage:
+                size: 10Gi
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: BackupJob
+          metadata:
+            name: quickstart-full-backup
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            tool: pgbackrest
+            repo: repo1
+            type: full
+            executionMode: job
+            jobTemplate:
+              spec:
+                backoffLimit: 1
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                      - name: pgbackrest
+                        image: ghcr.io/keiailab/pg:18
+                        command: ["/bin/sh", "-c"]
+                        args:
+                          - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: ScheduledBackup
+          metadata:
+            name: quickstart-nightly-backup
+            namespace: default
+          spec:
+            schedule: "0 0 2 * * *"
+            cluster:
+              name: quickstart
+            tool: pgbackrest
+            repo: repo1
+            type: full
+            executionMode: job
+            backupOwnerReference: self
+            jobTemplate:
+              spec:
+                backoffLimit: 1
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                      - name: pgbackrest
+                        image: ghcr.io/keiailab/pg:18
+                        command: ["/bin/sh", "-c"]
+                        args:
+                          - pgbackrest --stanza="${POSTGRES_CLUSTER_NAME}" --repo="${BACKUP_REPO}" backup --type="${BACKUP_TYPE}"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: Pooler
+          metadata:
+            name: quickstart-rw
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            instances: 3
+            type: rw
+            pgbouncer:
+              image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+              poolMode: transaction
+              authSecretRef:
+                name: quickstart-pooler-auth
+              parameters:
+                max_client_conn: "1000"
+                default_pool_size: "20"
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresUser
+          metadata:
+            name: quickstart-app
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            name: app
+            login: true
+            createdb: true
+            connectionLimit: 25
+            validUntil: infinity
+            inRoles:
+              - readonly
+              - writers
+        - apiVersion: postgres.keiailab.io/v1alpha1
+          kind: PostgresDatabase
+          metadata:
+            name: quickstart-appdb
+            namespace: default
+          spec:
+            cluster:
+              name: quickstart
+            name: appdb
+            owner: app
+            databaseReclaimPolicy: retain
+            privileges:
+              - role: app
+                privileges: [CONNECT, TEMPORARY]
+            schemas:
+              - name: app
+                owner: app
+                privileges:
+                  - role: app
+                    privileges: [USAGE, CREATE]
+            extensions:
+              - name: pgcrypto
+      artifacthub.io/images: |
+        - name: manager
+          image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.1
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/keiailab/postgres-operator/blob/main/README.md
+        - name: Source Code
+          url: https://github.com/keiailab/postgres-operator
+        - name: Release Process
+          url: https://github.com/keiailab/postgres-operator/blob/main/docs/releases/release-process.md
+        - name: Design Assets
+          url: https://github.com/KeiaiLab/postgres-operator/blob/main/docs/BRANDING.md
+      artifacthub.io/maturity: beta
+      artifacthub.io/operator: "true"
+      artifacthub.io/operatorCapabilities: Deep Insights
+      artifacthub.io/prerelease: "true"
+      artifacthub.io/screenshots: |
+        - title: Keiailab Postgres Operator centered service symbol
+          url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png
+        - title: Keiailab Postgres Operator light wordmark
+          url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/light.png
+    apiVersion: v2
+    appVersion: 0.4.0-beta.8
     created: "2026-06-16T04:53:25.102939612Z"
     dependencies:
     - name: keiailab-commons
@@ -1477,4 +1725,4 @@ entries:
     urls:
     - https://keiailab.github.io/postgres-operator/postgres-operator-0.3.0-alpha.2.tgz
     version: 0.3.0-alpha.2
-generated: "2026-06-16T04:53:25.103050489Z"
+generated: "2026-06-16T04:53:29.688098662Z"
