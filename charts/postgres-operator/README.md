@@ -1,7 +1,7 @@
 # Postgres Operator Helm Chart
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/symbol.png" alt="Keiailab Postgres Operator symbol" width="96"/>
+  <img src="https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png" alt="Keiailab Postgres Operator symbol" width="96"/>
 </p>
 
 The `postgres-operator` chart deploys the operator manager, RBAC,
@@ -11,11 +11,11 @@ CRDs, and NetworkPolicies for `keiailab/postgres-operator`.
 
 | Asset | URL | Usage |
 |---|---|---|
-| Centered service symbol | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/symbol.png | Artifact Hub package icon and screenshot |
-| Keiailab base symbol | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/base-symbol.png | Source reference for the outer rotating-arrow mark |
-| Light wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/light.png | Light backgrounds and docs cards |
-| Dark wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/dark.png | Dark backgrounds and social cards |
-| Branding guide | https://github.com/KeiaiLab/postgres-operator/blob/stable/docs/BRANDING.md | GitHub visual usage rules |
+| Centered service symbol | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png | Artifact Hub package icon and screenshot |
+| Keiailab base symbol | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/base-symbol.png | Source reference for the outer rotating-arrow mark |
+| Light wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/light.png | Light backgrounds and docs cards |
+| Dark wordmark | https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/dark.png | Dark backgrounds and social cards |
+| Branding guide | https://github.com/KeiaiLab/postgres-operator/blob/main/docs/BRANDING.md | GitHub visual usage rules |
 
 ## Prerequisites
 

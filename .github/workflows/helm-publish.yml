@@ -13,7 +13,7 @@ on:
   release:
     types: [published]
   push:
-    branches: [stable]
+    branches: [main]
     tags: ['v*']
     paths:
       - 'charts/**'
@@ -55,7 +55,7 @@ jobs:
           CHART_VER=$(grep '^version:' charts/postgres-operator/Chart.yaml | awk '{print $2}' | tr -d '"')
           if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "branch" ]; then
             VERSION="$CHART_VER"
-            echo "✓ stable push uses Chart.yaml version ($VERSION)"
+            echo "✓ branch push uses Chart.yaml version ($VERSION)"
           else
             VERSION="${TAG#v}"
             if [ "$CHART_VER" != "$VERSION" ]; then

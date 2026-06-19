@@ -6,7 +6,7 @@ on:
     # Weekly, offset from the rest of the security cron jobs.
     - cron: '23 5 * * 1'
   push:
-    branches: [dev]
+    branches: [main]
   workflow_dispatch:
 
 permissions: read-all

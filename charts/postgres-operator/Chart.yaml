@@ -14,7 +14,7 @@ kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — beta 단계, Level 4 Deep Insights. SemVer 준수.
 # beta.N iterative pre-release 표기.
-version: 0.4.0-beta.8
+version: 0.4.0-beta.9
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
 appVersion: "0.4.0-beta.8"
@@ -36,7 +36,7 @@ maintainers:
   - name: keiailab
     email: support@keiailab.com
     url: https://github.com/keiailab
-icon: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/symbol.png
+icon: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png
 annotations:
   # 본 chart의 beta 신호. Helm hub/artifacthub에 beta 라벨로 표시되도록.
   artifacthub.io/alternativeName: keiailab-postgres-operator
@@ -48,18 +48,18 @@ annotations:
   artifacthub.io/prerelease: "true"
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/keiailab/postgres-operator/blob/stable/README.md
+      url: https://github.com/keiailab/postgres-operator/blob/main/README.md
     - name: Source Code
       url: https://github.com/keiailab/postgres-operator
     - name: Release Process
-      url: https://github.com/keiailab/postgres-operator/blob/stable/docs/releases/release-process.md
+      url: https://github.com/keiailab/postgres-operator/blob/main/docs/releases/release-process.md
     - name: Design Assets
-      url: https://github.com/KeiaiLab/postgres-operator/blob/stable/docs/BRANDING.md
+      url: https://github.com/KeiaiLab/postgres-operator/blob/main/docs/BRANDING.md
   artifacthub.io/screenshots: |
     - title: Keiailab Postgres Operator centered service symbol
-      url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/symbol.png
+      url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/symbol.png
     - title: Keiailab Postgres Operator light wordmark
-      url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/stable/docs/branding/light.png
+      url: https://raw.githubusercontent.com/KeiaiLab/postgres-operator/main/docs/branding/light.png
   artifacthub.io/crds: |
     - kind: PostgresCluster
       version: v1alpha1
