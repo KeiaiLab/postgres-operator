@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -128,6 +129,34 @@ func TestReal_PIDZeroBeforeStart(t *testing.T) {
 	r := newRealForTest(t)
 	if pid := r.PID(); pid != 0 {
 		t.Errorf("PID before Start = %d, want 0", pid)
+	}
+}
+
+// TestReal_cleanStaleLocks_RemovesPostmasterPid 는 INC-2026-06-22 회귀 가드:
+// 컨테이너 PID 재활용 환경에서 직전 crash 가 남긴 postmaster.pid 를
+// cleanStaleLocks (Start 의 fork 직전) 가 제거해야 "FATAL: lock file already
+// exists" 무한 CrashLoopBackOff 를 차단한다. 본 라인 제거 시 본 테스트 실패.
+func TestReal_cleanStaleLocks_RemovesPostmasterPid(t *testing.T) {
+	r := newRealForTest(t)
+	pidPath := filepath.Join(r.cfg.DataDir, "postmaster.pid")
+	// 직전 crash 가 남긴 stale postmaster.pid 모사 (PID 15 = 컨테이너 재활용 PID).
+	if err := os.WriteFile(pidPath, []byte("15\n/var/lib/postgresql/data/pgdata\n"), 0o600); err != nil {
+		t.Fatalf("seed postmaster.pid: %v", err)
+	}
+	r.cleanStaleLocks()
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Errorf("postmaster.pid 가 cleanStaleLocks 후 잔존 (stat err=%v) — 제거 기대", err)
+	}
+}
+
+// TestReal_cleanStaleLocks_NoPidIsNoError 는 cold start (pid 부재) best-effort
+// 안전성 — 파일 부재 시 panic/생성 없이 no-op.
+func TestReal_cleanStaleLocks_NoPidIsNoError(t *testing.T) {
+	r := newRealForTest(t)
+	r.cleanStaleLocks() // pid 부재 상태 — error/panic 없어야.
+	pidPath := filepath.Join(r.cfg.DataDir, "postmaster.pid")
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Errorf("부재 pid 가 생성됨: stat err=%v", err)
 	}
 }
 
