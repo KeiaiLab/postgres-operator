@@ -73,6 +73,12 @@ type RejoinOptions struct {
 	BinDir                    string
 	Runner                    CommandRunner
 	BasebackupOnRewindFailure bool
+	// SelfEndpoint 는 본 인스턴스 자신의 endpoint(host:port). PrimaryEndpoint 가
+	// SelfEndpoint 와 같으면 operator 가 *본 노드를 primary 로 지정*한 것이므로
+	// standby 화(pg_rewind to self → connection refused 무한 crashloop)를 skip 한다.
+	// INC-2026-06-23: 죽은 옛 primary 가 PRIMARY_ENDPOINT 에 남아 standby 화 시도 →
+	// DNS 실패 crashloop 했고, 수동 marker 제거로만 복구되던 라이브 사고의 코드 fix.
+	SelfEndpoint string
 }
 
 // IsStandby 는 dataDir 안에 standby.signal 파일이 존재하는지 검사한다.
@@ -137,6 +143,18 @@ func PrepareRestartedPrimaryAsStandbyWithRewind(ctx context.Context, opts Rejoin
 			return false, nil
 		}
 		return false, fmt.Errorf("stat %s: %w", marker, err)
+	}
+	// INC-2026-06-23 guard: operator 가 PRIMARY_ENDPOINT 를 *본 노드 자신* 으로
+	// 지정했다면 본 노드가 primary 다. marker 가 남아있어도 standby 화(pg_rewind to
+	// self → "connection refused" 무한 crashloop)를 하면 안 된다. marker 를 정리하고
+	// primary 로 부팅하도록 skip. (죽은 옛 primary endpoint 가 PRIMARY_ENDPOINT 에
+	// stale 하게 남아 standby 화 시도 → DNS 실패 crashloop 한 라이브 사고의 코드 fix —
+	// 그때 수동 marker 제거로만 복구됐다.)
+	if opts.SelfEndpoint != "" && opts.PrimaryEndpoint == opts.SelfEndpoint {
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return false, fmt.Errorf("remove self-primary marker %s: %w", marker, err)
+		}
+		return false, nil
 	}
 	if opts.PrimaryEndpoint == "" {
 		return false, errors.New("primaryEndpoint must not be empty")

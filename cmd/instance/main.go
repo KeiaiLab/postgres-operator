@@ -159,7 +159,7 @@ func main() {
 	primaryEndpoint := os.Getenv("PRIMARY_ENDPOINT")
 	endpoint := instanceEndpoint(podName, cluster, int32(shardOrdinal), namespace)
 	restartedPrimaryAsStandby, err := prepareRestartedPrimaryAsStandby(
-		dataDir, primaryEndpoint, binDir, podName, memberCount, logger,
+		dataDir, primaryEndpoint, endpoint, binDir, podName, memberCount, logger,
 	)
 	if err != nil {
 		logger.Error("Failed to prepare restarted former primary as standby",
@@ -477,7 +477,7 @@ func parsePodOrdinalOrDie(podName string) int {
 }
 
 func prepareRestartedPrimaryAsStandby(
-	dataDir, primaryEndpoint, binDir, applicationName string,
+	dataDir, primaryEndpoint, selfEndpoint, binDir, applicationName string,
 	memberCount int,
 	logger *slog.Logger,
 ) (bool, error) {
@@ -487,6 +487,7 @@ func prepareRestartedPrimaryAsStandby(
 	prepared, err := supervise.PrepareRestartedPrimaryAsStandbyWithRewind(context.Background(), supervise.RejoinOptions{
 		DataDir:                   dataDir,
 		PrimaryEndpoint:           primaryEndpoint,
+		SelfEndpoint:              selfEndpoint,
 		ApplicationName:           applicationName,
 		BinDir:                    binDir,
 		BasebackupOnRewindFailure: true,
