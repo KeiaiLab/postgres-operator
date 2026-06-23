@@ -50,6 +50,7 @@ func TestPrepareRestartedPrimaryAsStandby_UsesCurrentPrimaryEndpointForAnyOrdina
 	prepared, err := prepareRestartedPrimaryAsStandby(
 		dir,
 		"demo-shard-0-2.demo-shard-0-headless.ns1.svc.cluster.local:5432",
+		"demo-shard-0-0.demo-shard-0-headless.ns1.svc.cluster.local:5432", // selfEndpoint ≠ primary → standby 화 동작 유지
 		"",
 		"demo-shard-0-0",
 		2,

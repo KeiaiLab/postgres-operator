@@ -73,6 +73,36 @@ func TestPrepareRestartedPrimaryAsStandby_NoMarker(t *testing.T) {
 	}
 }
 
+// TestPrepareRestartedPrimaryAsStandby_SelfPrimarySkips 는 INC-2026-06-23 회귀 가드:
+// PrimaryEndpoint 가 SelfEndpoint 와 같으면(operator 가 본 노드를 primary 로 지정)
+// marker 가 있어도 standby 화를 skip 하고 marker 를 제거해야 한다 (self pg_rewind →
+// connection refused 무한 crashloop 차단). 본 guard 제거 시 본 테스트 실패.
+func TestPrepareRestartedPrimaryAsStandby_SelfPrimarySkips(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, RestartPrimaryAsStandbyMarker)
+	if err := os.WriteFile(marker, []byte("1"), 0o600); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+	self := "postgres-prod-shard-0-0.svc.cluster.local:5432"
+	prepared, err := PrepareRestartedPrimaryAsStandbyWithRewind(context.Background(), RejoinOptions{
+		DataDir:         dir,
+		PrimaryEndpoint: self, // operator 가 본 노드를 primary 로 지정
+		SelfEndpoint:    self,
+	})
+	if err != nil {
+		t.Fatalf("PrepareRestartedPrimaryAsStandbyWithRewind: %v", err)
+	}
+	if prepared {
+		t.Fatal("prepared = true; self-primary 는 standby 화 skip(false) 해야")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("marker 가 self-primary skip 후 잔존(stat err=%v) — 제거 기대", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "standby.signal")); !os.IsNotExist(err) {
+		t.Error("standby.signal 이 self-primary 인데 생성됨 — primary 부팅 차단")
+	}
+}
+
 func TestPrepareRestartedPrimaryAsStandby_ConfiguresStandby(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, RestartPrimaryAsStandbyMarker)
