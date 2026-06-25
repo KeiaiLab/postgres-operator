@@ -2,6 +2,8 @@
 
 > Windows 환경에서 VS Code Dev Container를 이용해 postgres-operator 개발 환경을 구성하는 가이드.
 > 실제 코드는 Linux 컨테이너 안에서 실행되므로 Makefile, bash 스크립트, envtest가 모두 정상 동작한다.
+>
+> 📍 문서 지도: [DOCS_MAP.ko.md](DOCS_MAP.ko.md) · 대안 환경: [dev-setup-wsl.md](dev-setup-wsl.md) · E2E 실행 시나리오: [WORK_HANDOFF.ko.md §3](WORK_HANDOFF.ko.md)
 
 ## 사전 요구사항
 

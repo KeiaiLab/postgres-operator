@@ -3,6 +3,7 @@
 > 다른 환경(다른 머신·Dev Container·실 Kubernetes)에서 이 작업을 이어받거나 재검증하기 위한 인수인계 문서.
 > 작성 기준: 2026-06-25. 브랜치 `chore/ha-pitr-e2e-consolidation` (main 미푸시).
 >
+> 문서 지도: [DOCS_MAP.ko.md](DOCS_MAP.ko.md) — 분석/작업/환경 문서군의 입구·역할·SSOT.
 > 관련 문서: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) · [FEATURE_DEEP_DIVE.md](FEATURE_DEEP_DIVE.md) · [TEST_ANALYSIS.md](TEST_ANALYSIS.md) · [E2E_TEST_REPORT.ko.md](E2E_TEST_REPORT.ko.md) · [dev-setup-devcontainer.md](dev-setup-devcontainer.md) · [dev-setup-wsl.md](dev-setup-wsl.md)
 
 ---

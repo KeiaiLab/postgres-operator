@@ -251,9 +251,13 @@ kubectl wait postgrescluster/quickstart --for=condition=Ready --timeout=5m
 
 | 문서 | 위치 | 설명 |
 |---|---|---|
+| **문서 지도** | `docs/DOCS_MAP.ko.md` | 분석/작업/환경 문서군의 입구·역할·SSOT·관계 (여기부터) |
 | 기능 심층 분석 | `docs/FEATURE_DEEP_DIVE.md` | 각 기능 상세 동작 분석 |
-| Dev Container 설정 | `docs/dev-setup-devcontainer.md` | Windows Dev Container 개발 환경 |
-| WSL2 설정 | `docs/dev-setup-wsl.md` | Windows WSL2 개발 환경 |
+| 단위·통합 테스트 분석 | `docs/TEST_ANALYSIS.md` | 패키지별 커버리지·TC 상세 (테스트 수치 SSOT) |
+| E2E 테스트 보고서 | `docs/E2E_TEST_REPORT.ko.md` | E2E 라이브 드릴 RCA 누적 로그 |
+| 작업 인수인계 | `docs/WORK_HANDOFF.ko.md` | 현재 브랜치 커밋 구성·검증·남은 일·재현법 |
+| Dev Container 설정 | `docs/dev-setup-devcontainer.md` | Windows Dev Container 개발 환경 (권장) |
+| WSL2 설정 | `docs/dev-setup-wsl.md` | Windows WSL2 개발 환경 (대안) |
 | 아키텍처 | `docs/ARCHITECTURE.md` | 설계 결정 및 트레이드오프 |
 | 로드맵 | `docs/ROADMAP.md` | 단계별 개발 계획 |
 | ADR 인덱스 | `docs/kb/adr/INDEX.md` | Architecture Decision Records |

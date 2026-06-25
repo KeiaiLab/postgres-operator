@@ -2,6 +2,8 @@
 
 > Windows WSL2(Ubuntu) 환경에서 postgres-operator 개발 환경을 구성하는 가이드.
 > WSL2의 네이티브 Linux 파일시스템을 사용하므로 빌드 속도와 도구 호환성이 네이티브에 가깝다.
+>
+> 📍 문서 지도: [DOCS_MAP.ko.md](DOCS_MAP.ko.md) · 권장 환경: [dev-setup-devcontainer.md](dev-setup-devcontainer.md) · E2E 실행 시나리오: [WORK_HANDOFF.ko.md §3](WORK_HANDOFF.ko.md)
 
 ## 사전 요구사항
 
