@@ -88,3 +88,13 @@ make bundle VERSION=X.Y.Z  # OLM bundle 재생성
   Apache 헤더 발견 시 보고 후 교체 (pg-router 정리 선례).
 - 의존성 갱신: `renovate.json` (mongodb-operator 와 동일 기준 — k8s.io 그룹 / major 분리).
 - CI (`.gitlab-ci.yml`): golang 이미지 버전은 `go.mod` 의 go directive 와 정합 유지.
+
+### 문서 작성 (`docs/`)
+
+`docs/` 의 한국어 분석/작업 문서는 [`docs/DOCS_MAP.ko.md`](docs/DOCS_MAP.ko.md) 의 지침을 **구속력 있는 규칙**으로 따른다. Claude / Codex / Cursor 등 어떤 에이전트나 작업자라도 `docs/` 를 편집할 때 동일하게 준수한다.
+
+- **주제별 SSOT 준수**: 같은 사실(검증 수치·CRLF 조치·E2E 명령 등)을 여러 문서에 복제하지 않는다. 본문은 DOCS_MAP §3 이 지정한 출처 1곳에만 두고, 나머지는 링크한다.
+- **계층 유지**: 요약은 `PROJECT_OVERVIEW`, 상세 동작은 `FEATURE_DEEP_DIVE`. 개요 문서에 상세를 복붙하지 않는다.
+- **보강 위치**: 새 내용을 어디에 쓸지는 DOCS_MAP §5 를 따른다(기능→OVERVIEW/DEEP_DIVE, 테스트→TEST_ANALYSIS/E2E_REPORT, 작업→WORK_HANDOFF+메모리, 환경→dev-setup).
+- **지도 갱신 의무**: 새 분석/작업 문서를 추가하면 DOCS_MAP §1 표와 §2 관계도에 한 줄 추가한다.
+- 미완 여부·현재 상태는 문서 단정 대신 코드/`git log` 로 확인한다(과거 "미구현" 오진 선례).
