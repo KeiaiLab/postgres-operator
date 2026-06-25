@@ -82,8 +82,10 @@ const (
 	externalClusterCredentialsVolumeName = "external-cluster-credentials"
 	externalClusterCredentialsMountPath  = "/etc/postgres-external/source"
 
-	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 가 마운트되는 위치다.
-	backupRepoMountPath   = "/var/lib/pgbackrest"
+	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 위치다.
+	// 별도 subPath mount는 kubelet이 root-owned 디렉터리를 만들 수 있어 non-root
+	// postgres 컨테이너가 쓰지 못한다. 이미 writable인 data PVC 내부 경로를 쓴다.
+	backupRepoMountPath   = pgDataMountPath + "/pgbackrest"
 	primaryPGPassFile     = "/tmp/primary.pgpass"
 	primaryClientKeyFile  = "/tmp/primary-client.key"
 	primaryClientCertFile = "/tmp/primary-client.crt"
@@ -179,8 +181,7 @@ func dataplaneEphemeralVolumeMounts() []corev1.VolumeMount {
 		{Name: "ephemeral-tmp", MountPath: "/tmp"},
 		{Name: "ephemeral-run", MountPath: "/run"},
 		{Name: "ephemeral-pg-run", MountPath: "/var/run/postgresql"},
-		// #209: filesystem pgBackRest repo (WAL archive-push + full backup land here).
-		{Name: "pgbackrest-repo", MountPath: backupRepoMountPath},
+		{Name: "ephemeral-pgbackrest-spool", MountPath: "/var/spool/pgbackrest"},
 	}
 }
 
@@ -191,7 +192,7 @@ func dataplaneEphemeralVolumes() []corev1.Volume {
 		{Name: "ephemeral-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-pg-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		{Name: "pgbackrest-repo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "ephemeral-pgbackrest-spool", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 }
 
@@ -386,14 +387,14 @@ func archiveConfigForCluster(cluster *postgresv1alpha1.PostgresCluster) *archive
 	// `exec VAR=val cmd` 는 POSIX 에서 VAR=val 을 실행 파일로 오인한다 (exec 는 special
 	// builtin → env 할당 prefix 불가, "exec: VAR=val: not found"). `env` 명령으로 감싸
 	// 변수 설정 후 pgbackrest 를 exec 한다 (라이브 sidecar exec 2026-06-04 회귀 fix).
-	// pgbackrest 공통 옵션 (plugin.go pgbackrestCommonArgs 미러, 라이브 검증 2026-06-04):
-	// readOnlyRootFilesystem + uid 70 + deb /etc/pgbackrest.conf(640) 환경 회피
-	// (--config=/dev/null + --log-level-file=off + --pg1-path + --pg1-user/database).
-	commonArgs := "--config=/dev/null --log-level-file=off --pg1-path=" + pgDataSubdir +
-		" --pg1-user=postgres --pg1-database=postgres"
+	// stanza-create는 DB 접속 옵션이 필요하지만, archive-push는 해당 옵션을 받지 않는다.
+	// WAL path는 PostgreSQL의 %p placeholder를 직접 전달해 shell positional argument
+	// escape 문제를 피한다.
+	archiveArgs := "--config=/dev/null --log-level-file=off --pg1-path=" + pgDataSubdir
+	stanzaArgs := archiveArgs + " --pg1-user=postgres --pg1-database=postgres"
 	cmd := fmt.Sprintf(
-		`sh -c "env %s pgbackrest %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s pgbackrest %s --stanza=%s archive-push \"$1\"" -- %%p`,
-		repoEnv, commonArgs, stanza, repoEnv, commonArgs, stanza)
+		`sh -c "env %s pgbackrest %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s pgbackrest %s --stanza=%s archive-push \"%%p\""`,
+		repoEnv, stanzaArgs, stanza, repoEnv, archiveArgs, stanza)
 	return &archivePostgresConfig{
 		Enabled: true,
 		Command: cmd,
@@ -1068,6 +1069,12 @@ func buildPGStatefulSet(
 		instanceEnv = append(instanceEnv, corev1.EnvVar{Name: "POSTGRES_RESHARD_TARGET", Value: reshardTargetID})
 	}
 
+	pvcLabels := make(map[string]string, len(labels)+1)
+	for k, v := range labels {
+		pvcLabels[k] = v
+	}
+	pvcLabels["postgres.keiailab.io/cluster"] = cluster.Name
+
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -1145,7 +1152,7 @@ func buildPGStatefulSet(
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "data",
-					Labels: labels,
+					Labels: pvcLabels,
 				},
 				Spec: pvcSpec,
 			}},

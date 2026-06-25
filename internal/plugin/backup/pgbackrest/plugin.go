@@ -152,6 +152,13 @@ func (p *Plugin) RestorePIT(ctx context.Context, target plugin.ClusterTarget, ts
 const pgbackrestCommonArgs = "--config=/dev/null --log-level-file=off " +
 	"--pg1-path=/var/lib/postgresql/data/pgdata --pg1-user=postgres --pg1-database=postgres"
 
+const pgbackrestRestoreArgs = "--config=/dev/null --log-level-file=off " +
+	"--pg1-path=/var/lib/postgresql/data/pgdata"
+
+const filesystemRepoPath = "/var/lib/postgresql/data/pgbackrest"
+const pgDataPath = "/var/lib/postgresql/data/pgdata"
+const postgresqlAutoConfPath = pgDataPath + "/postgresql.auto.conf"
+
 func (p *Plugin) BackupCommand(target plugin.ClusterTarget, opts plugin.BackupOptions) ([]string, error) {
 	backupType, err := normalizeBackupType(opts.Type)
 	if err != nil {
@@ -163,13 +170,13 @@ func (p *Plugin) BackupCommand(target plugin.ClusterTarget, opts plugin.BackupOp
 	// #209: pass filesystem repo config inline and ensure the stanza exists, so
 	// the backup has a configured repository (mirrors the archive_command wrapper
 	// in builders.go archiveConfigForCluster). Repo path = backupRepoMountPath.
-	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"
+	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=" + filesystemRepoPath
 	return []string{
 		"sh", "-c",
 		// `env VAR=val cmd` (not `exec VAR=val cmd`): exec is a POSIX special builtin
 		// and rejects env-assignment prefixes ("exec: VAR=val: not found"). (#209 live fix)
-		// --archive-check=n: emptyDir repo 의 초기 WAL 미archive 허용 (online backup).
-		fmt.Sprintf("env %s %s %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s %s %s --stanza=%s --repo=%s --type=%s --archive-check=n backup",
+		// archive-check 기본값을 유지한다. WAL archive 없는 백업 성공은 PITR에서 복구 불가능하다.
+		fmt.Sprintf("env %s %s %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s %s %s --stanza=%s --repo=%s --type=%s backup",
 			repoEnv, p.command, pgbackrestCommonArgs, target.Name,
 			repoEnv, p.command, pgbackrestCommonArgs, target.Name, normalizeRepo(opts.Repo), backupType),
 	}, nil
@@ -182,12 +189,18 @@ func (p *Plugin) RestoreCommand(target plugin.ClusterTarget, ts time.Time) ([]st
 	}
 	// #209: PITR restore also needs the repo configured (same filesystem repo as
 	// archive_command / BackupCommand).
-	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"
+	const repoEnv = "PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=" + filesystemRepoPath
 	return []string{
 		"sh", "-c",
-		fmt.Sprintf("exec env %s %s %s --stanza=%s --type=time --target=%s restore",
-			repoEnv, p.command, pgbackrestCommonArgs, target.Name, formatTargetTime(ts)),
+		fmt.Sprintf("rm -f %s/postmaster.pid; env %s %s %s --stanza=%s --type=time --target=%s --delta restore && %s",
+			pgDataPath, repoEnv, p.command, pgbackrestRestoreArgs, target.Name, shellSingleQuote(formatTargetTime(ts)),
+			p.restoreCommandOverride(target.Name, repoEnv)),
 	}, nil
+}
+
+func (p *Plugin) restoreCommandOverride(stanza, repoEnv string) string {
+	return fmt.Sprintf(`touch %s && sed -i "/^[[:space:]]*restore_command[[:space:]]*=/d" %s && printf "%%s\n" "restore_command = 'env %s %s --config=/dev/null --log-level-file=off --pg1-path=%s --stanza=%s archive-get %%f \"%%p\"'" >> %s`,
+		postgresqlAutoConfPath, postgresqlAutoConfPath, repoEnv, p.command, pgDataPath, stanza, postgresqlAutoConfPath)
 }
 
 // ParseBackupResult 는 pgbackrest 출력에서 backup label 을 추출한다.
@@ -230,5 +243,9 @@ func parseBackupLabel(output []byte) string {
 }
 
 func formatTargetTime(ts time.Time) string {
-	return ts.UTC().Format("2006-01-02 15:04:05-07:00")
+	return ts.UTC().Format("2006-01-02 15:04:05.999999-07:00")
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

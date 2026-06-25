@@ -90,6 +90,69 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
 }
 
+func TestBuildPGStatefulSet_VolumeClaimTemplateHasClusterLabel(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+
+	if got, want := len(sts.Spec.VolumeClaimTemplates), 1; got != want {
+		t.Fatalf("volumeClaimTemplates = %d, want %d", got, want)
+	}
+	labels := sts.Spec.VolumeClaimTemplates[0].Labels
+	if got := labels["postgres.keiailab.io/cluster"]; got != "demo" {
+		t.Fatalf("PVC cluster label = %q, want %q (labels=%v)", got, "demo", labels)
+	}
+}
+
+func TestBuildPGStatefulSet_PgBackRestRepoUsesDataPVCPath(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+
+	if !strings.HasPrefix(backupRepoMountPath, pgDataMountPath+"/") {
+		t.Fatalf("backupRepoMountPath = %q, want path inside data PVC mount %q", backupRepoMountPath, pgDataMountPath)
+	}
+	container := sts.Spec.Template.Spec.Containers[0]
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == "pgbackrest-repo" {
+			t.Fatalf("pgBackRest repo must not use EmptyDir volume: %+v", volume)
+		}
+	}
+	for _, mount := range container.VolumeMounts {
+		if mount.MountPath == backupRepoMountPath {
+			t.Fatalf("pgBackRest repo must not use a separate subPath mount; got %+v", mount)
+		}
+	}
+}
+
 func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 	t.Parallel()
 
@@ -619,9 +682,10 @@ func assertDataplaneSecurityContext(t *testing.T, podSpec *corev1.PodSpec, label
 
 	// 3. emptyDir mount 3개 (readOnlyRootFilesystem 동반)
 	wantMounts := map[string]string{
-		"ephemeral-tmp":    "/tmp",
-		"ephemeral-run":    "/run",
-		"ephemeral-pg-run": "/var/run/postgresql",
+		"ephemeral-tmp":              "/tmp",
+		"ephemeral-run":              "/run",
+		"ephemeral-pg-run":           "/var/run/postgresql",
+		"ephemeral-pgbackrest-spool": "/var/spool/pgbackrest",
 	}
 	mountsByName := make(map[string]string, len(cnt.VolumeMounts))
 	for _, vm := range cnt.VolumeMounts {
@@ -795,7 +859,7 @@ func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
 		Spec: postgresv1alpha1.PostgresClusterSpec{
 			Backup: &postgresv1alpha1.ClusterBackupSpec{
 				Enabled: true,
-				Repo:    &postgresv1alpha1.ClusterBackupRepoSpec{Type: "filesystem", Path: "/var/lib/pgbackrest"},
+				Repo:    &postgresv1alpha1.ClusterBackupRepoSpec{Type: "filesystem", Path: "/var/lib/postgresql/data/pgbackrest"},
 			},
 		},
 	}
@@ -806,8 +870,27 @@ func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
 	if strings.Contains(cfg.Command, "'") {
 		t.Errorf("archive_command must not contain single quote (breaks postgresql.conf): %q", cfg.Command)
 	}
-	if !strings.Contains(cfg.Command, "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest") {
+	if !strings.Contains(cfg.Command, "PGBACKREST_REPO1_PATH=/var/lib/postgresql/data/pgbackrest") {
 		t.Errorf("archive_command must carry repo env: %q", cfg.Command)
+	}
+	if strings.Contains(cfg.Command, "--spool-path=") {
+		t.Errorf("archive_command must not include restore-only pgBackRest spool path: %q", cfg.Command)
+	}
+	if !strings.Contains(cfg.Command, `archive-push \"%p\"`) {
+		t.Errorf("archive_command must pass PostgreSQL %%p WAL path directly: %q", cfg.Command)
+	}
+	if strings.Contains(cfg.Command, "$1") {
+		t.Errorf("archive_command must not rely on shell positional args for WAL path: %q", cfg.Command)
+	}
+	pushStart := strings.LastIndex(cfg.Command, "exec env ")
+	if pushStart < 0 {
+		t.Fatalf("archive_command missing archive-push exec segment: %q", cfg.Command)
+	}
+	pushCommand := cfg.Command[pushStart:]
+	for _, invalid := range []string{"--pg1-user=", "--pg1-database="} {
+		if strings.Contains(pushCommand, invalid) {
+			t.Errorf("archive-push command must not include backup-only option %q: %q", invalid, pushCommand)
+		}
 	}
 	// `exec VAR=val` 은 not-found → `exec env VAR=val` 이어야 (live 127 회귀 가드).
 	if !strings.Contains(cfg.Command, "exec env ") {
