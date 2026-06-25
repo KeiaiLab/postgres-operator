@@ -19,6 +19,7 @@
 | [WORK_HANDOFF.ko.md](WORK_HANDOFF.ko.md) | 현재 **작업 인수인계** — 브랜치 커밋 구성·검증 요약·남은 일·재현법 | 진행 중 작업 스냅샷(브랜치 `chore/ha-pitr-e2e-consolidation`) |
 | [dev-setup-devcontainer.md](dev-setup-devcontainer.md) | **Dev Container** 개발 환경 구성 (현재 권장) | Windows에서 컨테이너로 빌드/테스트하는 절차 |
 | [dev-setup-wsl.md](dev-setup-wsl.md) | **WSL2** 개발 환경 구성 (대안) | WSL2 네이티브로 빌드/테스트하는 절차 |
+| [GLOSSARY.ko.md](GLOSSARY.ko.md) | **용어집** — 용어/약어 정의 | 용어 정의(각 문서 마지막 장 "용어집" 발췌의 원본) |
 
 > 이 지도 자체와 위 표는 새 분석/작업 문서가 생길 때마다 갱신한다.
 
@@ -56,6 +57,7 @@
 | E2E 실행 명령(`make test-e2e-*`) | `WORK_HANDOFF.ko.md §3` | dev-setup은 환경 기동까지만, 시나리오는 링크 |
 | 기능 내부 동작 상세 | `FEATURE_DEEP_DIVE.md` | `PROJECT_OVERVIEW`는 요약 + 링크 |
 | 현재 작업/브랜치 상태 | `WORK_HANDOFF.ko.md` + 메모리 `analysis-progress` | 다른 문서에 작업 상태를 복제하지 않음 |
+| 용어/약어 정의 | `GLOSSARY.ko.md` | 각 분석 문서는 **마지막 장에 "용어집" 절**을 두고, 그 문서에 등장한 용어만 GLOSSARY 정의를 **그대로 발췌** + 전체 링크 |
 
 ---
 
@@ -76,4 +78,5 @@
 - **테스트를 돌렸다**: 단위/통합이면 `TEST_ANALYSIS`, 라이브 E2E면 `E2E_TEST_REPORT`에 날짜 섹션으로 append.
 - **작업 브랜치를 진행했다**: `WORK_HANDOFF.ko.md`를 갱신하고 메모리 `analysis-progress`도 같이.
 - **환경 절차가 바뀌었다**: 해당 dev-setup 문서. make 타겟·e2e 명령이 바뀌면 §3 SSOT 문서를 먼저 고치고 링크 측은 그대로.
-- **새 분석 문서를 추가했다**: 이 DOCS_MAP §1 표와 §2 관계도에 한 줄 추가.
+- **새 분석 문서를 추가했다**: 이 DOCS_MAP §1 표와 §2 관계도에 한 줄 추가. 그 문서 마지막 장에 "용어집" 절도 둔다.
+- **새 용어가 등장했다**: `GLOSSARY.ko.md`에 한 줄 정의로 추가하고, 그 용어를 쓰는 문서의 마지막 장 "용어집" 절에 동일 문구로 발췌한다. 정의를 고치면 GLOSSARY를 먼저 고치고 발췌 측을 맞춘다.

@@ -337,3 +337,20 @@ git commit -m "chore: normalize line endings via .gitattributes"
 # Linux/macOS/WSL 또는 Dev Container 내부에서
 find . -name "*.sh" -exec sed -i 's/\r//' {} +
 ```
+
+---
+
+## 7. 용어집
+
+> 정의는 [GLOSSARY.ko.md](GLOSSARY.ko.md)에서 발췌해 동일하게 유지한다. 전체 용어는 해당 문서 참고.
+
+| 용어 | 정의 |
+|---|---|
+| envtest | 실제 클러스터 없이 API 서버/etcd만 띄워 컨트롤러를 통합 테스트하는 도구. |
+| kind | Docker 컨테이너 안에 K8s 클러스터를 띄우는 도구. e2e 테스트에 사용. |
+| 게이트(make gate) | lint + test + audit + validate를 묶은 릴리스 품질 게이트. |
+| Reconcile / Reconciler | 실제 상태를 원하는 상태(spec)로 수렴시키는 controller-runtime 루프. |
+| Lease (임대) | Kubernetes Lease 오브젝트. 외부 HA 에이전트 없이 이를 DCS로 써서 Primary 선출을 한다. |
+| Fencing (PVC Fencing) | 옛/이상 Primary가 데이터에 쓰지 못하도록 PVC 접근을 차단해 split-brain을 막는 격리. |
+| StatefulSet (STS) | 안정적 식별자·스토리지를 갖는 Pod 집합. PostgreSQL 인스턴스를 띄우는 워크로드. |
+| DinD / DooD | Docker-in-Docker(컨테이너 안에서 또 데몬) / Docker-out-of-Docker(호스트 데몬 공유). |

@@ -896,3 +896,22 @@ go test -tags=e2e ./test/e2e -timeout 25m -v \
 운영 기준에서는 Pending을 해제하는 순간 해당 테스트는 release gate가 된다. 따라서 failover chaos는 앞으로 flaky하면 다시 Pending 처리하는 것이 아니라, promotion 경로 또는 테스트 전제 조건 중 어느 쪽이 깨졌는지 RCA를 수행해야 한다.
 
 한 줄 결론: failover chaos p1 Pending은 해제했고, 현재 라이브 검증 기준 남은 명시적 E2E Pending은 PITR restore/checksum이다.
+
+---
+
+## 16. 용어집
+
+> 정의는 [GLOSSARY.ko.md](GLOSSARY.ko.md)에서 발췌해 동일하게 유지한다. 전체 용어는 해당 문서 참고.
+
+| 용어 | 정의 |
+|---|---|
+| Failover (장애 조치) | Primary 장애 감지 후 Replica 하나를 새 Primary로 자동 승격해 서비스를 잇는 동작. |
+| Promotion (승격) | Replica를 Primary로 올리는 행위. 본 operator는 `pg_promote()`(SQL)로 수행. |
+| RTO (Recovery Time Objective) | 장애에서 서비스 복구까지 허용되는 목표 시간. 본 프로젝트 failover 드릴 기준 30초. |
+| Fencing (PVC Fencing) | 옛/이상 Primary가 데이터에 쓰지 못하도록 PVC 접근을 차단해 split-brain을 막는 격리. |
+| Pod readiness | Pod/컨테이너가 트래픽을 받을 준비가 됐는지의 K8s 상태. 승격 후보 검증에 사용. |
+| PITR (Point-In-Time Recovery) | WAL을 재생해 데이터베이스를 특정 과거 시점으로 복원하는 기법. |
+| Replica Cluster | 외부 클러스터를 streaming standby로 복제하는 구성. |
+| Hibernation | 클러스터를 STS scale-0으로 내려 PVC는 보존한 채 휴면시키는 기능. |
+| kind | Docker 컨테이너 안에 K8s 클러스터를 띄우는 도구. e2e 테스트에 사용. |
+| RCA (Root Cause Analysis) | 장애·실패의 근본 원인 분석. |

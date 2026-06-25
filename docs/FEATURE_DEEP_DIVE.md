@@ -957,3 +957,27 @@ spec:
 | PDB minAvailable | `1` | `pdb.go` | 가용 Pod 최소 수 (HA 보호) |
 | TLS 자동 갱신 | 만료 30일 전 | `pooler_controller.go` | Self-signed 인증서 갱신 트리거 |
 | Failover lease 기간 | 15s / 10s / 2s | `internal/instance/election/` | LeaseDuration / RenewDeadline / RetryPeriod |
+
+---
+
+## 용어집
+
+> 정의는 [GLOSSARY.ko.md](GLOSSARY.ko.md)에서 발췌해 동일하게 유지한다. 전체 용어는 해당 문서 참고.
+
+| 용어 | 정의 |
+|---|---|
+| Failover (장애 조치) | Primary 장애 감지 후 Replica 하나를 새 Primary로 자동 승격해 서비스를 잇는 동작. |
+| Promotion (승격) | Replica를 Primary로 올리는 행위. 본 operator는 `pg_promote()`(SQL)로 수행. |
+| Switchover (계획 전환) | 장애가 아닌 의도된 상황에서 Primary를 다른 인스턴스로 무중단 전환하는 동작. |
+| Fencing (PVC Fencing) | 옛/이상 Primary가 데이터에 쓰지 못하도록 PVC 접근을 차단해 split-brain을 막는 격리. |
+| Debounce (디바운스) | 일시적 신호로 인한 오탐 failover를 막기 위해 장애를 일정 시간(기본 8초) 유지될 때만 인정하는 대기. |
+| Lease (임대) | Kubernetes Lease 오브젝트. 외부 HA 에이전트 없이 이를 DCS로 써서 Primary 선출을 한다. |
+| Rogue Primary | 정상 승격 절차 밖에서 자신이 Primary라 여기는 이상 인스턴스. 감지 시 re-seed로 정리. |
+| Re-seed (재시드) | 뒤처지거나 이상한 인스턴스의 데이터를 새 Primary 기준으로 다시 복제해 정상화. |
+| PITR (Point-In-Time Recovery) | WAL을 재생해 데이터베이스를 특정 과거 시점으로 복원하는 기법. |
+| WAL (Write-Ahead Log) | 변경을 먼저 기록하는 PostgreSQL의 로그. 복제·PITR의 기반. |
+| pgBackRest | 본 operator의 기본 백업 도구(플러그인). WAL-G·Barman은 대체 플러그인. |
+| Hibernation | 클러스터를 STS scale-0으로 내려 PVC는 보존한 채 휴면시키는 기능. |
+| Replica Cluster | 외부 클러스터를 streaming standby로 복제하는 구성. |
+| CEL validation | CRD 스키마에서 표현식으로 값 제약을 거는 검증(예: 보호된 이름 차단). |
+| ShardRange / ShardSplitJob / AutoSplit | 샤드 범위 정의 CRD / 온라인 샤드 분할 작업 / 임계치 도달 시 자동 분할 트리거. |

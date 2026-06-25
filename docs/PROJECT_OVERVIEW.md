@@ -264,3 +264,21 @@ kubectl wait postgrescluster/quickstart --for=condition=Ready --timeout=5m
 | RFC 인덱스 | `docs/rfcs/INDEX.md` | Request for Comments |
 | Operator 가이드 | `docs/operator-guide/` | 배포 / HA / 모니터링 가이드 |
 | Runbook | `docs/runbooks/` | 백업 / 복구 / HA / 보안 절차 |
+| 용어집 | `docs/GLOSSARY.ko.md` | 용어 정의 SSOT (각 문서 마지막 장 발췌의 원본) |
+
+---
+
+## 12. 용어집
+
+> 정의는 [GLOSSARY.ko.md](GLOSSARY.ko.md)에서 발췌해 동일하게 유지한다. 전체 용어는 해당 문서 참고.
+
+| 용어 | 정의 |
+|---|---|
+| Operator | Kubernetes 위에서 애플리케이션(여기선 PostgreSQL)의 생성·운영·복구를 CRD + 컨트롤러로 자동화하는 소프트웨어. |
+| CRD (Custom Resource Definition) | K8s API를 확장하는 사용자 정의 리소스 타입(PostgresCluster 등). |
+| Reconcile / Reconciler | 실제 상태를 원하는 상태(spec)로 수렴시키는 controller-runtime 루프. |
+| StatefulSet (STS) | 안정적 식별자·스토리지를 갖는 Pod 집합. PostgreSQL 인스턴스를 띄우는 워크로드. |
+| Hibernation | 클러스터를 STS scale-0으로 내려 PVC는 보존한 채 휴면시키는 기능. |
+| ShardRange | 샤드 범위를 정의하는 CRD. 분산 메타데이터의 source of truth. |
+| G0~G6 게이트 | 로드맵 단계 게이트(G1 단일 샤드 HA, G2 운영 품질, G3 샤딩 기반 등). |
+| Helm chart | K8s 매니페스트를 패키징·배포하는 단위. operator 배포에 사용. |

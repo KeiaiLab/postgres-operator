@@ -98,3 +98,4 @@ make bundle VERSION=X.Y.Z  # OLM bundle 재생성
 - **보강 위치**: 새 내용을 어디에 쓸지는 DOCS_MAP §5 를 따른다(기능→OVERVIEW/DEEP_DIVE, 테스트→TEST_ANALYSIS/E2E_REPORT, 작업→WORK_HANDOFF+메모리, 환경→dev-setup).
 - **지도 갱신 의무**: 새 분석/작업 문서를 추가하면 DOCS_MAP §1 표와 §2 관계도에 한 줄 추가한다.
 - 미완 여부·현재 상태는 문서 단정 대신 코드/`git log` 로 확인한다(과거 "미구현" 오진 선례).
+- **용어집 유지**: 각 분석 문서는 **마지막 장에 "용어집" 절**을 둔다. 용어 정의 SSOT 는 [`docs/GLOSSARY.ko.md`](docs/GLOSSARY.ko.md) — 각 문서는 등장 용어만 **그 정의를 그대로 발췌**(어디서 보든 동일) + 전체 링크. 새 용어는 GLOSSARY 에 먼저 추가하고 발췌 측을 맞춘다.
