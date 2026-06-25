@@ -59,6 +59,40 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 	})
 
 	Context("when shardingMode=none with single shard and no router", func() {
+		It("sets deterministic ordinal-zero PRIMARY_ENDPOINT on initial HA bootstrap", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "ha-bootstrap", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNone,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			stsName := ShardStatefulSetName("ha-bootstrap", 0)
+			svcName := ShardServiceName("ha-bootstrap", 0)
+			wantEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:5432", stsName, svcName, namespace)
+
+			Eventually(func(g Gomega) {
+				var sts appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts)).To(Succeed())
+				g.Expect(*sts.Spec.Replicas).To(Equal(int32(2)), "primary 1 + async 1")
+
+				initEnv := envMap(sts.Spec.Template.Spec.InitContainers[0].Env)
+				g.Expect(initEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+
+				mainEnv := envMap(sts.Spec.Template.Spec.Containers[0].Env)
+				g.Expect(mainEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
 		It("creates exactly one shard's resources and reaches Ready after STS readiness", func() {
 			cluster := &postgresv1alpha1.PostgresCluster{
 				ObjectMeta: metav1.ObjectMeta{Name: "single", Namespace: namespace},
@@ -241,6 +275,47 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).To(Equal(ReasonNotHibernated))
 				g.Expect(got.Status.Phase).NotTo(Equal(postgresv1alpha1.ClusterPhaseHibernated))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+	})
+
+	Context("when offline restore is in progress", func() {
+		It("keeps shard StatefulSets scaled to zero without reporting user hibernation", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "restore-freeze",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"postgres.keiailab.io/restore-in-progress": "restore-bj",
+					},
+				},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNone,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			stsName := ShardStatefulSetName("restore-freeze", 0)
+			Eventually(func(g Gomega) {
+				var sts appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts)).To(Succeed())
+				g.Expect(sts.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*sts.Spec.Replicas).To(Equal(int32(0)))
+
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "restore-freeze"}, &got)).To(Succeed())
+				hibernation := meta.FindStatusCondition(got.Status.Conditions, ConditionHibernation)
+				g.Expect(hibernation).NotTo(BeNil())
+				g.Expect(hibernation.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(hibernation.Reason).To(Equal(ReasonNotHibernated))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 	})

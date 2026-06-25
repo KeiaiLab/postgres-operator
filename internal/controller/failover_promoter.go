@@ -49,6 +49,19 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 		PodExecutor: r.PromotionPodExecutor,
 		Now:         time.Now,
 	}
+	oldPrimary := shardPrimaryPod(cluster, shardName)
+	if oldPrimary != "" && decision.PromotionCandidate != nil &&
+		oldPrimary != decision.PromotionCandidate.Pod &&
+		r.podAbsentOrNotReady(ctx, cluster.Namespace, oldPrimary) {
+		if err := r.fencePodPVC(ctx, cluster.Namespace, oldPrimary); err != nil {
+			return fmt.Errorf("pre-fence failed old primary %q: %w", oldPrimary, err)
+		}
+	}
+	if decision.PromotionCandidate != nil {
+		if err := r.promotionCandidateReadyForExec(ctx, cluster.Namespace, decision.PromotionCandidate.Pod); err != nil {
+			return err
+		}
+	}
 	if err := failover.PromoteFromDecision(ctx, shardName, decision, promoter); err != nil {
 		return err
 	}
@@ -56,13 +69,35 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 	// pg_basebackup standby of the new primary — never as a rogue primary booting
 	// from stale PGDATA (split-brain). Gated on the old primary being genuinely
 	// down/not-ready so a spurious promotion can never destroy a healthy primary.
-	oldPrimary := shardPrimaryPod(cluster, shardName)
 	if oldPrimary != "" && decision.PromotionCandidate != nil &&
 		oldPrimary != decision.PromotionCandidate.Pod &&
 		r.podAbsentOrNotReady(ctx, cluster.Namespace, oldPrimary) {
 		if err := r.reseedStandby(ctx, cluster, oldPrimary); err != nil {
 			return fmt.Errorf("reseed failed old primary %q: %w", oldPrimary, err)
 		}
+	}
+	return nil
+}
+
+func (r *PostgresClusterReconciler) fencePodPVC(ctx context.Context, namespace, podName string) error {
+	pvcName := "data-" + podName
+	var pvc corev1.PersistentVolumeClaim
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: pvcName}, &pvc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get pvc %q: %w", pvcName, err)
+	}
+	if pvc.Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
+		return nil
+	}
+	before := pvc.DeepCopy()
+	if pvc.Labels == nil {
+		pvc.Labels = map[string]string{}
+	}
+	pvc.Labels[fencing.FenceLabelKey] = fencing.FenceLabelValue
+	if err := r.Patch(ctx, &pvc, client.MergeFrom(before)); err != nil {
+		return fmt.Errorf("fence pvc %q: %w", pvcName, err)
 	}
 	return nil
 }
@@ -94,6 +129,46 @@ func (r *PostgresClusterReconciler) podAbsentOrNotReady(ctx context.Context, nam
 		}
 	}
 	return true
+}
+
+func (r *PostgresClusterReconciler) promotionCandidateReadyForExec(ctx context.Context, namespace, podName string) error {
+	var pod corev1.Pod
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, &pod); err != nil {
+		return fmt.Errorf("promotion candidate pod %q not ready for promotion exec: %w", podName, err)
+	}
+	if pod.DeletionTimestamp != nil {
+		return fmt.Errorf("promotion candidate pod %q not ready for promotion exec: deleting", podName)
+	}
+	if pod.Status.Phase != "" && pod.Status.Phase != corev1.PodRunning {
+		return fmt.Errorf("promotion candidate pod %q not ready for promotion exec: phase=%s", podName, pod.Status.Phase)
+	}
+
+	podReadySeen := false
+	podReady := false
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			podReadySeen = true
+			podReady = pod.Status.Conditions[i].Status == corev1.ConditionTrue
+			break
+		}
+	}
+	if !podReadySeen || !podReady {
+		return fmt.Errorf("promotion candidate pod %q not ready for promotion exec: PodReady=%t", podName, podReady)
+	}
+
+	containerSeen := false
+	containerReady := false
+	for i := range pod.Status.ContainerStatuses {
+		if pod.Status.ContainerStatuses[i].Name == pgContainerName {
+			containerSeen = true
+			containerReady = pod.Status.ContainerStatuses[i].Ready
+			break
+		}
+	}
+	if !containerSeen || !containerReady {
+		return fmt.Errorf("promotion candidate pod %q not ready for promotion exec: container %q Ready=%t", podName, pgContainerName, containerReady)
+	}
+	return nil
 }
 
 type clusterPodPromoter struct {
@@ -323,10 +398,16 @@ if is_primary; then
   exit 0
 fi
 
-# #220: clear both standby artifacts before promoting. Leaving the rejoin marker
-# in place would make this newly-promoted primary rewind itself back to its STALE
-# bootstrap PRIMARY_ENDPOINT (the old primary) on any future restart — discarding
-# its own post-failover writes. A primary must never carry a rejoin-as-standby marker.
+PROMOTED="$("$BIN/psql" "$DSN" -v ON_ERROR_STOP=1 -Atqc "SELECT pg_promote(true, 30)")"
+PROMOTED="$(printf "%s" "$PROMOTED" | tr -d '[:space:]')"
+if [ "$PROMOTED" != "t" ] && ! is_primary; then
+  echo "pg_promote did not reach primary state within 30s (result=$PROMOTED)" >&2
+  exit 1
+fi
+
+# #220: mutate PGDATA only after promotion succeeds. A failed exec must leave
+# standby.signal and the promoted marker untouched; otherwise a restarted standby
+# enters the Real elector branch and can rejoin the lease race before promotion.
 rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
 # #220: durable marker — this PGDATA is now an operator-promoted primary. The
 # bootstrap init container (builders.go) reads it on restart and refuses to restore
@@ -335,7 +416,6 @@ rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
 # fenced (fail-closed) and reseeded, never silently demoted. Name must match
 # builders.go promotedPrimaryMarker.
 touch "$DATA/.keiailab-promoted-primary"
-"$BIN/pg_ctl" promote -D "$DATA"
 
 i=0
 while [ "$i" -lt 30 ]; do

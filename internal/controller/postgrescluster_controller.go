@@ -71,6 +71,11 @@ const (
 	// 같은 annotation 이다. cnpg.io/hibernation=on 이면 database Pod 를 0개로
 	// 줄이고 PVC 소유권은 재수화를 위해 보존한다.
 	AnnotationHibernation = "cnpg.io/hibernation"
+
+	// AnnotationRestoreInProgress 는 BackupJob restore 가 데이터 PVC 를 독점
+	// 마운트하는 동안 PostgresCluster reconciler 가 shard StatefulSet 을 다시
+	// 기동하지 않도록 하는 컨트롤러 간 락이다. 값은 소유 BackupJob 이름이다.
+	AnnotationRestoreInProgress = "postgres.keiailab.io/restore-in-progress"
 )
 
 // PostgresClusterReconciler 는 PostgresCluster CR 을 reconcile 한다.
@@ -181,6 +186,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 	replicaBootstrap, err := replicaBootstrapConfigForCluster(&cluster)
+	standaloneReplica := replicaBootstrap != nil
 	if err != nil {
 		setCondition(&cluster.Status.Conditions, ConditionReady, metav1.ConditionFalse, ReasonReplicaClusterRejected, err.Error(), cluster.Generation)
 		setCondition(&cluster.Status.Conditions, ConditionProgressing, metav1.ConditionFalse, ReasonReplicaClusterRejected,
@@ -210,8 +216,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	shardCount := cluster.Spec.Shards.InitialCount
 	members := int32(1) + cluster.Spec.Shards.Replicas
 	hibernating := hibernationRequested(&cluster)
+	restoreActive := restoreInProgress(&cluster)
+	databasePodsStopped := hibernating || restoreActive
 	desiredMembers := members
-	if hibernating {
+	if databasePodsStopped {
 		desiredMembers = 0
 	}
 	shardStatuses := make([]postgresv1alpha1.ShardStatus, 0, shardCount)
@@ -230,18 +238,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "shard Service", logger)
 		}
-		// primaryEndpoint 결정: 이전 reconcile 에서 관측된 primary 가 존재하면
-		// 그 endpoint 를 init container 로 전달 → ord!=0 의 첫 부팅 시 pg_basebackup
-		// path 를 활성화한다. 없으면 빈 값 — bootstrap script 가 ord==0 또는 endpoint
-		// 부재일 때 자동으로 initdb path 로 fallback.
-		primaryEndpoint := ""
-		if replicaBootstrap != nil {
-			primaryEndpoint = replicaBootstrap.Endpoint
-		} else if !hibernating && int(ord) < len(cluster.Status.Shards) {
-			if p := cluster.Status.Shards[ord].Primary; p != nil {
-				primaryEndpoint = p.Endpoint
-			}
-		}
+		// primaryEndpoint 결정: 관측된 primary 를 우선하되, HA 초기 bootstrap 에서는
+		// deterministic ord-0 DNS 를 즉시 넣어 후속 reconcile 의 template drift 로
+		// primary Pod 가 rolling restart 되는 false failover window 를 만들지 않는다.
+		primaryEndpoint := primaryEndpointForShard(&cluster, ord, svcName, replicaBootstrap, databasePodsStopped)
 		desiredSTS := buildPGStatefulSet(
 			&cluster, stsName, svcName,
 			ord,
@@ -257,7 +257,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// shard PDB (PR #31): members>=2 시 자동 생성.
-		if !hibernating && shouldAutoCreatePDB(members) {
+		if !databasePodsStopped && shouldAutoCreatePDB(members) {
 			pdb := BuildShardPDB(&cluster, ord, members)
 			if err := r.upsert(ctx, &cluster, pdb); err != nil {
 				return r.handleUpsertErr(ctx, &cluster, err, "shard PDB", logger)
@@ -281,7 +281,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if !primaryReady {
 			allShardPrimaryReady = false
 		}
-		if hibernating {
+		if databasePodsStopped {
 			shardStatuses = append(shardStatuses, postgresv1alpha1.ShardStatus{
 				Name:    fmt.Sprintf("shard-%d", ord),
 				Ordinal: ord,
@@ -292,35 +292,37 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// 결과가 비면 STS readyReplicas 기반 fallback (annotation 부재 시).
 		shardStat := aggregateShardStatus(ctx, r.Client, &cluster, ord, svcName)
 		if shardStat.Primary == nil || shardStat.Primary.Pod == "" {
-			// fallback — STS-time 근사값 (annotation 미수집 / Pod 부팅 전 일시).
-			// Ready 는 fallbackPrimaryReady 로 산출한다: STS readyReplicas proxy
-			// 는 HA shard 에서 standby readiness 까지 합산하므로, primary 가 죽고
-			// standby 만 Ready 인 상황을 Ready=true 로 마스킹해 DetectPrimaryFailure
-			// 를 ReasonNone 으로 만들어 자동 failover 를 영영 막았다 (live RCA
-			// 2026-06-04 pg-ha-drill cordon chaos). Ready replica 가 관측되면
-			// primary 부재 = outage 로 보고 Ready=false 를 강제한다.
-			// #220: preserve the LAST-KNOWN primary (previous reconcile) rather than
-			// hardcoding ordinal-0. After a failover the primary is ord-1; hardcoding
-			// ord-0 makes the StatefulSet PRIMARY_ENDPOINT flicker back to ord-0 during
-			// a transient status lapse, so a reseeded former primary boots with env=self
-			// and initdb's itself into a rogue primary (oscillation). On first bootstrap
-			// no previous primary exists → falls through to ord-0 (#218/#219 unchanged).
-			fbPod := fmt.Sprintf("%s-0", stsName)
-			fbEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort)
-			for k := range cluster.Status.Shards {
-				prev := &cluster.Status.Shards[k]
-				if prev.Ordinal == ord && prev.Primary != nil && prev.Primary.Pod != "" {
-					fbPod = prev.Primary.Pod
-					if prev.Primary.Endpoint != "" {
-						fbEndpoint = prev.Primary.Endpoint
+			if !standaloneReplica {
+				// fallback — STS-time 근사값 (annotation 미수집 / Pod 부팅 전 일시).
+				// Ready 는 fallbackPrimaryReady 로 산출한다: STS readyReplicas proxy
+				// 는 HA shard 에서 standby readiness 까지 합산하므로, primary 가 죽고
+				// standby 만 Ready 인 상황을 Ready=true 로 마스킹해 DetectPrimaryFailure
+				// 를 ReasonNone 으로 만들어 자동 failover 를 영영 막았다 (live RCA
+				// 2026-06-04 pg-ha-drill cordon chaos). Ready replica 가 관측되면
+				// primary 부재 = outage 로 보고 Ready=false 를 강제한다.
+				// #220: preserve the LAST-KNOWN primary (previous reconcile) rather than
+				// hardcoding ordinal-0. After a failover the primary is ord-1; hardcoding
+				// ord-0 makes the StatefulSet PRIMARY_ENDPOINT flicker back to ord-0 during
+				// a transient status lapse, so a reseeded former primary boots with env=self
+				// and initdb's itself into a rogue primary (oscillation). On first bootstrap
+				// no previous primary exists → falls through to ord-0 (#218/#219 unchanged).
+				fbPod := fmt.Sprintf("%s-0", stsName)
+				fbEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:%d", stsName, svcName, cluster.Namespace, pgPort)
+				for k := range cluster.Status.Shards {
+					prev := &cluster.Status.Shards[k]
+					if prev.Ordinal == ord && prev.Primary != nil && prev.Primary.Pod != "" {
+						fbPod = prev.Primary.Pod
+						if prev.Primary.Endpoint != "" {
+							fbEndpoint = prev.Primary.Endpoint
+						}
+						break
 					}
-					break
 				}
-			}
-			shardStat.Primary = &postgresv1alpha1.ShardEndpoint{
-				Pod:      fbPod,
-				Endpoint: fbEndpoint,
-				Ready:    fallbackPrimaryReady(primaryReady, shardStat.Replicas),
+				shardStat.Primary = &postgresv1alpha1.ShardEndpoint{
+					Pod:      fbPod,
+					Endpoint: fbEndpoint,
+					Ready:    fallbackPrimaryReady(primaryReady, shardStat.Replicas),
+				}
 			}
 		}
 		shardStatuses = append(shardStatuses, shardStat)
@@ -344,7 +346,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		// router 이미지: P12-T2 까지 PG 베이스 이미지 placeholder.
 		routerReplicas := cluster.Spec.Router.Replicas
-		if hibernating {
+		if databasePodsStopped {
 			routerReplicas = 0
 		}
 		desiredDep := buildRouterDeployment(
@@ -396,14 +398,14 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	cluster.Status.ManagedRolesStatus = managedRolesStatus
 	cluster.Status.ObservedGeneration = cluster.Generation
 	// Switchover: annotation-triggered planned primary change (Sprint S5).
-	if !hibernating && allShardPrimaryReady {
+	if !standaloneReplica && !databasePodsStopped && allShardPrimaryReady {
 		if err := r.handleSwitchover(ctx, &cluster, shardStatuses); err != nil {
 			logger.Error(err, "Switchover failed")
 			commonsevents.EmitWarning(r.Recorder, &cluster, "SwitchoverFailed", err)
 		}
 	}
 
-	failoverShardName, failoverDecision := clusterFailoverDecision(shardStatuses)
+	failoverShardName, failoverDecision := clusterFailoverDecision(&cluster, shardStatuses)
 	// 가짜 promotion 차단 (#220 라이브 드릴 RCA): 실패가 debounce window 동안 지속될
 	// 때만 promote. 일시적 status flicker 는 fenceNonTargetMembers 를 통해 건강한 멤버를
 	// fence 할 수 있으므로 instantaneous 트리거 금지.
@@ -433,7 +435,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// #205: re-seed any standby that failed to rejoin (not-ready too long with a
 	// ready primary, e.g. stuck in startup recovery after a primary restart).
 	// Best-effort — log and continue.
-	if !hibernating {
+	if !standaloneReplica && !databasePodsStopped {
 		if err := r.reconcileStaleReplicas(ctx, &cluster, shardStatuses, time.Now()); err != nil {
 			logger.Error(err, "stale standby re-seed failed (best-effort)")
 		}
@@ -443,12 +445,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Error(err, "rogue primary re-seed failed (best-effort)")
 		}
 	}
-	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating,
+	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)
 
 	// Config hot-reload: if cluster is Ready and primary Pods are running with
 	// a stale configHash, signal PostgreSQL to reload without restarting.
-	if !hibernating && allShardPrimaryReady {
+	if !databasePodsStopped && allShardPrimaryReady {
 		for _, ss := range shardStatuses {
 			if ss.Primary != nil && ss.Primary.Ready && ss.Primary.Pod != "" {
 				if err := r.reloadPostgresConfig(ctx, cluster.Namespace, ss.Primary.Pod); err != nil {
@@ -484,6 +486,13 @@ func hibernationRequested(cluster *postgresv1alpha1.PostgresCluster) bool {
 	return strings.EqualFold(strings.TrimSpace(cluster.Annotations[AnnotationHibernation]), "on")
 }
 
+func restoreInProgress(cluster *postgresv1alpha1.PostgresCluster) bool {
+	if cluster == nil || cluster.Annotations == nil {
+		return false
+	}
+	return strings.TrimSpace(cluster.Annotations[AnnotationRestoreInProgress]) != ""
+}
+
 // applyClusterConditions 는 reconcile 산출물 (shard 준비 상태, router 활성/준비
 // 상태) 를 RFC 0001 §3.4 Condition 카탈로그 + ClusterPhase 로 변환하여 cluster
 // 객체에 직접 기록한다.
@@ -493,6 +502,7 @@ func applyClusterConditions(
 	allShardPrimaryReady, routerActive bool,
 	routerStatus *postgresv1alpha1.ClusterRouterStatus,
 	hibernating bool,
+	standaloneReplica bool,
 	wasReady bool,
 	failoverDecision failover.Decision,
 ) {
@@ -522,8 +532,12 @@ func applyClusterConditions(
 		"Cluster is not hibernated", cluster.Generation)
 
 	if allShardPrimaryReady && shardCount > 0 {
+		message := fmt.Sprintf("%d/%d shard primary ready", shardCount, shardCount)
+		if standaloneReplica {
+			message = fmt.Sprintf("%d/%d replica shard ready", shardCount, shardCount)
+		}
 		setCondition(conds, ConditionShardsReady, metav1.ConditionTrue, ReasonAvailable,
-			fmt.Sprintf("%d/%d shard primary ready", shardCount, shardCount), cluster.Generation)
+			message, cluster.Generation)
 	} else {
 		setCondition(conds, ConditionShardsReady, metav1.ConditionFalse, ReasonProgressing,
 			"waiting for shard primary readiness", cluster.Generation)
@@ -552,8 +566,12 @@ func applyClusterConditions(
 		}
 		setCondition(conds, ConditionFailoverReady, metav1.ConditionFalse, string(failoverDecision.Reason), message, cluster.Generation)
 	} else {
+		message := "no failover action required"
+		if standaloneReplica {
+			message = "local failover disabled for standalone replica cluster"
+		}
 		setCondition(conds, ConditionFailoverReady, metav1.ConditionTrue, ReasonAvailable,
-			"no failover action required", cluster.Generation)
+			message, cluster.Generation)
 	}
 
 	clusterReady := allShardPrimaryReady && shardCount > 0 && routerReady
@@ -606,7 +624,13 @@ func (r *PostgresClusterReconciler) shouldPromoteAfterDebounce(key string, faile
 	return now.Sub(first) >= failoverDebounceThreshold
 }
 
-func clusterFailoverDecision(shards []postgresv1alpha1.ShardStatus) (string, failover.Decision) {
+func clusterFailoverDecision(
+	cluster *postgresv1alpha1.PostgresCluster,
+	shards []postgresv1alpha1.ShardStatus,
+) (string, failover.Decision) {
+	if standaloneReplicaEnabled(cluster) {
+		return "", failover.Decision{Reason: failover.ReasonNone}
+	}
 	for _, shard := range shards {
 		decision := failover.DetectPrimaryFailure(shard)
 		if decision.Failed {

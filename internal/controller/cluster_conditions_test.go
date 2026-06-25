@@ -34,7 +34,7 @@ func TestApplyClusterConditionsDegradesWhenPreviouslyReadyPrimaryFails(t *testin
 		},
 	}
 
-	applyClusterConditions(cluster, 1, false, false, nil, false, true, decision)
+	applyClusterConditions(cluster, 1, false, false, nil, false, false, true, decision)
 
 	if cluster.Status.Phase != postgresv1alpha1.ClusterPhaseDegraded {
 		t.Fatalf("Phase = %q, want Degraded", cluster.Status.Phase)

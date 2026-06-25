@@ -32,6 +32,15 @@ const statusStaleThresh = 30 * time.Second
 // reseeds these into clean standbys (#220 clean-rejoin).
 const roguePrimaryReason = "rogue-primary"
 
+// fencedMemberReason marks a shard member whose PVC is fenced. Fenced members
+// must not be promotion candidates even if their last instance-status heartbeat
+// still says Ready=true.
+const fencedMemberReason = "fenced"
+
+// podNotReadyReason marks a member whose instance-status heartbeat still says
+// Ready=true but the Kubernetes Pod/container is not ready for exec/probes.
+const podNotReadyReason = "pod-not-ready"
+
 // aggregateShardStatus 는 단일 shard 의 모든 Pod (StatefulSet replicas) 를 list 한 뒤
 // 각 Pod 의 statusapi annotation 을 parse 해 ShardStatus 를 합성한다 (RFC 0006 R2).
 //
@@ -126,6 +135,10 @@ func aggregateShardStatus(
 				"pod", pod.Name, "lastUpdate", st.LastUpdate)
 			ready = false
 		}
+		podNotReady := kubernetesPodNotReady(pod)
+		if podNotReady {
+			ready = false
+		}
 		ep := postgresv1alpha1.ShardEndpoint{
 			Pod:      pod.Name,
 			Endpoint: st.Endpoint,
@@ -134,8 +147,26 @@ func aggregateShardStatus(
 			Reason:   st.Reason,
 			Message:  st.Message,
 		}
+		if podNotReady {
+			if ep.Reason == "" {
+				ep.Reason = podNotReadyReason
+			}
+			if ep.Message == "" {
+				ep.Message = "Kubernetes Pod or postgres container is not ready"
+			}
+		}
+		podFenced := fencedPVC["data-"+pod.Name]
+		if podFenced {
+			ep.Ready = false
+			if ep.Reason == "" {
+				ep.Reason = fencedMemberReason
+			}
+			if ep.Message == "" {
+				ep.Message = "PVC is fenced; member is excluded from promotion candidates"
+			}
+		}
 		switch {
-		case st.Role == statusapi.RolePrimary && fencedPVC["data-"+pod.Name]:
+		case st.Role == statusapi.RolePrimary && podFenced:
 			// #220: fenced known-failed primary (e.g. a returning old primary that
 			// self-reports Primary before its fence stops it) — never the shard primary.
 			logger.Info("ignoring Primary self-report from fenced member", "pod", pod.Name)
@@ -167,6 +198,30 @@ func aggregateShardStatus(
 	out.Primary = primaryCandidate
 	out.Replicas = replicas
 	return out
+}
+
+func kubernetesPodNotReady(pod *corev1.Pod) bool {
+	if pod == nil {
+		return true
+	}
+	if pod.DeletionTimestamp != nil {
+		return true
+	}
+	switch pod.Status.Phase {
+	case corev1.PodPending, corev1.PodFailed, corev1.PodSucceeded:
+		return true
+	}
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			return pod.Status.Conditions[i].Status != corev1.ConditionTrue
+		}
+	}
+	for i := range pod.Status.ContainerStatuses {
+		if pod.Status.ContainerStatuses[i].Name == pgContainerName {
+			return !pod.Status.ContainerStatuses[i].Ready
+		}
+	}
+	return false
 }
 
 // parsePodStatus 는 Pod annotation 에서 statusapi.Status 를 디코드한다.

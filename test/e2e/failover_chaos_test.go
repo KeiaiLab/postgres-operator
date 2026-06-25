@@ -87,18 +87,11 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", chaosNamespace, "--wait=false"))
 	})
 
-	// PENDING (GA #248, ADR-0027 ground-up): reliable automatic standby promotion
-	// on primary loss is not yet implemented. Live RCA (2026-06-16): even with a
-	// ready standby present (the BeforeAll gate above), status.shards[0].primary is
-	// not updated to a promoted standby within 60s. The StatefulSet recreates the
-	// force-deleted primary on the same PVC within ~30s and preempts the failover
-	// detect/debounce window, so a transient pod-delete is "self-healed" rather than
-	// failed-over. True failover (node loss / PVC loss) needs the ground-up
-	// shard-identity redesign tracked by ADR-0027. Marked Pending (not a false pass,
-	// not a silent skip) so the p1 gate stays honest: implemented features green,
-	// this unimplemented behavior visibly Pending. Flip PContext→Context when the
-	// promotion path lands.
-	PContext("Primary kill chaos → 자동 failover (PENDING: auto-failover promotion unimplemented — GA #248 / ADR-0027)", func() {
+	// 2026-06-24: operator-driven promotion path now pre-fences the failed old
+	// primary PVC, filters fenced/NotReady candidates, and mutates PGDATA only
+	// after SQL pg_promote succeeds. Keep this live chaos drill active so the p1
+	// gate catches regressions where StatefulSet self-heal preempts promotion.
+	Context("Primary kill chaos → 자동 failover", func() {
 		var oldPrimary string
 
 		It("초기 primary 식별", func() {
