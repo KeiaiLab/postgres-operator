@@ -8,6 +8,7 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -1070,9 +1071,7 @@ func buildPGStatefulSet(
 	}
 
 	pvcLabels := make(map[string]string, len(labels)+1)
-	for k, v := range labels {
-		pvcLabels[k] = v
-	}
+	maps.Copy(pvcLabels, labels)
 	pvcLabels["postgres.keiailab.io/cluster"] = cluster.Name
 
 	return &appsv1.StatefulSet{

@@ -558,8 +558,8 @@ func (r *BackupJobReconciler) reconcileSidecarRestore(
 	cluster *postgresv1alpha1.PostgresCluster,
 	commandPlugin plugin.BackupCommandPlugin,
 ) (ctrl.Result, error) {
-	if result, ok, err := r.ensureClusterRestoreAnnotation(ctx, bj, cluster); !ok || err != nil {
-		return result, err
+	if ok, err := r.ensureClusterRestoreAnnotation(ctx, bj, cluster); !ok || err != nil {
+		return ctrl.Result{}, err
 	}
 
 	stsName := ShardStatefulSetName(cluster.Name, 0)
@@ -765,15 +765,15 @@ func (r *BackupJobReconciler) ensureClusterRestoreAnnotation(
 	ctx context.Context,
 	bj *postgresv1alpha1.BackupJob,
 	cluster *postgresv1alpha1.PostgresCluster,
-) (ctrl.Result, bool, error) {
+) (bool, error) {
 	owner := strings.TrimSpace(cluster.Annotations[AnnotationRestoreInProgress])
 	if owner == bj.Name {
-		return ctrl.Result{}, true, nil
+		return true, nil
 	}
 	if owner != "" {
 		r.markFailed(bj, BackupJobReasonRestoreAlreadyInProgress,
 			"PostgresCluster "+cluster.Name+" already has offline restore owner BackupJob "+owner)
-		return ctrl.Result{}, false, r.statusUpdate(ctx, bj)
+		return false, r.statusUpdate(ctx, bj)
 	}
 
 	before := cluster.DeepCopy()
@@ -784,9 +784,9 @@ func (r *BackupJobReconciler) ensureClusterRestoreAnnotation(
 	annotations[AnnotationRestoreInProgress] = bj.Name
 	cluster.Annotations = annotations
 	if err := r.patchClusterMetadata(ctx, before, cluster); err != nil {
-		return ctrl.Result{}, false, err
+		return false, err
 	}
-	return ctrl.Result{}, true, nil
+	return true, nil
 }
 
 func (r *BackupJobReconciler) releaseClusterRestoreAnnotation(
