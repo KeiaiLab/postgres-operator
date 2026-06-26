@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -82,6 +83,9 @@ type ScatterGather struct {
 	Policy FailurePolicy
 	// Merge 는 결과 합치기 전략 (default MergeConcat).
 	Merge MergeStrategy
+	// Limit 은 >0 이면 merge 결과의 행 수를 제한한다 (LIMIT pushdown 근사 — 각 샤드는
+	// 전량 반환하고 merge 후 자른다; 진짜 per-shard LIMIT 주입은 planner 책임).
+	Limit int
 }
 
 // NewScatterGather 는 ScatterGather 인스턴스를 반환한다. Shard 가 nil 이면
@@ -139,7 +143,11 @@ func (s *ScatterGather) Execute(ctx context.Context, query string, shards []Shar
 	if s.Policy == BestEffort && len(collected) == 0 {
 		return nil, fmt.Errorf("%w: all %d shards failed", ErrShardFailure, len(failed))
 	}
-	return s.merge(shards, collected), nil
+	merged := s.merge(shards, collected)
+	if s.Limit > 0 && len(merged) > s.Limit {
+		merged = merged[:s.Limit]
+	}
+	return merged, nil
 }
 
 func (s *ScatterGather) merge(order []ShardID, collected map[ShardID][]Row) []Row {
@@ -177,25 +185,69 @@ func mergeOrderBy(order []ShardID, collected map[ShardID][]Row) []Row {
 }
 
 func cmpFirstValue(a, b Row) int {
-	if len(a.Values) == 0 && len(b.Values) == 0 {
-		return 0
-	}
-	if len(a.Values) == 0 {
-		return -1
-	}
-	if len(b.Values) == 0 {
-		return 1
-	}
-	as := fmt.Sprintf("%v", a.Values[0])
-	bs := fmt.Sprintf("%v", b.Values[0])
 	switch {
-	case as < bs:
-		return -1
-	case as > bs:
-		return 1
-	default:
+	case len(a.Values) == 0 && len(b.Values) == 0:
 		return 0
+	case len(a.Values) == 0:
+		return -1
+	case len(b.Values) == 0:
+		return 1
 	}
+	return compareValues(a.Values[0], b.Values[0])
+}
+
+// compareValues 는 두 값을 *타입 인지* 비교한다 — 숫자는 수치로 비교(문자열 비교 시
+// "10" < "9" 가 되는 버그 회피), []byte/문자열은 사전식, 그 외는 %v fallback.
+func compareValues(a, b any) int {
+	if af, aok := toFloat(a); aok {
+		if bf, bok := toFloat(b); bok {
+			switch {
+			case af < bf:
+				return -1
+			case af > bf:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+	return strings.Compare(toStr(a), toStr(b))
+}
+
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case float32:
+		return float64(n), true
+	case float64:
+		return n, true
+	}
+	return 0, false
+}
+
+func toStr(v any) string {
+	switch s := v.(type) {
+	case []byte:
+		return string(s)
+	case string:
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // 컴파일 타임 interface 만족 검사.
