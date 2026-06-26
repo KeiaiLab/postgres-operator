@@ -39,6 +39,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("pg-router: build routing: %v", err)
 	}
+	dialer := newBackendDialer(
+		envDuration("PGROUTER_DIAL_TIMEOUT", 5*time.Second),
+		envDuration("PGROUTER_DIAL_BACKOFF", 100*time.Millisecond),
+		envDuration("PGROUTER_BREAKER_COOLDOWN", 5*time.Second),
+		envInt("PGROUTER_DIAL_RETRIES", 1),
+		envInt("PGROUTER_BREAKER_THRESHOLD", 3),
+	)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("pg-router: listen %s: %v", addr, err)
@@ -69,7 +77,7 @@ func main() {
 			log.Printf("pg-router: accept: %v", err)
 			continue
 		}
-		go handleConn(conn, provider, resolve)
+		go handleConn(conn, provider, resolve, dialer)
 	}
 }
 
@@ -203,7 +211,7 @@ func (r clusterStatusReader) ClusterShardStatus(ctx context.Context, ns, cluster
 	return pc.Status.Shards, nil
 }
 
-func handleConn(clientConn net.Conn, provider router.TopologyProvider, resolve router.BackendResolver) {
+func handleConn(clientConn net.Conn, provider router.TopologyProvider, resolve router.BackendResolver, dialer *backendDialer) {
 	defer func() { _ = clientConn.Close() }()
 
 	raw, params, err := readStartup(clientConn)
@@ -234,7 +242,7 @@ func handleConn(clientConn net.Conn, provider router.TopologyProvider, resolve r
 		writePgError(clientConn, "08006", fmt.Sprintf("shard %s unavailable: %v", shardID, err))
 		return
 	}
-	server, err := net.DialTimeout("tcp", backend, envDuration("PGROUTER_DIAL_TIMEOUT", 5*time.Second))
+	server, err := dialer.Dial(backend)
 	if err != nil {
 		log.Printf("pg-router: dial backend %s (shard %s): %v", backend, shardID, err)
 		writePgError(clientConn, "08006", fmt.Sprintf("cannot reach shard %s (%s): %v", shardID, backend, err))
@@ -373,4 +381,18 @@ func envDuration(k string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// envInt parses an int env var, falling back to def on absence/parse error.
+func envInt(k string, def int) int {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("pg-router: invalid %s=%q, using %d", k, v, def)
+		return def
+	}
+	return n
 }
