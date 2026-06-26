@@ -118,6 +118,13 @@ parameterized/`t.col`/주석·문자열 내부 오인 방지까지 검증. **기
 
 > "더 좋은 방향"이지만 규모가 큰 후속 작업을 *미리 기록*해 둔다(사용자 요청 2026-06-26).
 > 각 항목은 능력 사다리(§4) 단계 또는 회복력/운영 축에 매핑된다. 우선순위는 가변.
+>
+> **2026-06-26 세션 진행** (검증·커밋 완료): 커넥션 풀링(D) ✅ · 라우터 HA(dial retry/backoff
+> + circuit-breaker) ✅ · 읽기→replica *부품*(StatusBackendResolver.ResolveRead +
+> IsReadOnlyQuery) ✅ · reference table *부품*(CRD referenceTables + ExtractTables/
+> ReferenceOnly/AnyShard) ✅ · scatter merge(타입 정렬 + LIMIT) ✅ · **(E) 라우팅 결정
+> 엔진 QueryRouter** ✅. — 이들의 *쿼리 단위 결선*(프록시가 실제로 호출)은 (E) 프로토콜
+> 종단이 되어야 완성. 아래 항목은 그 종단/운영-코어/라이브검증 필요분.
 
 **라우팅 핵심 (능력 사다리)**
 - [ ] **(E) 프로토콜 종단 — 쿼리 단위 라우팅 (vtgate급, 최대 작업)**: 라우터가 클라이언트 연결을 종단하고 자체 인증 + 백엔드 연결 풀 + 결과 재조립. 현재 `RouteKeyExtractor`(regex/parser/auto)가 그 부품. *왜 큰가*: PG는 인증→쿼리 순서라, 쿼리 내용으로 라우팅하려면 라우터가 PG 서버를 완전히 흉내내야 함. 사다리 1~2단계의 진짜 완성.
