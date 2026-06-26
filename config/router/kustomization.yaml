@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deployable router component (RFC 0004 / ROADMAP G3). Apply into the namespace
+# of the PostgresCluster it fronts:
+#
+#   kustomize build config/router | kubectl apply -n <cluster-ns> -f -
+#
+# Build/push the image first (separate from the operator manager):
+#   docker build -f Dockerfile.router -t ghcr.io/keiailab/pg-router:<tag> .
+resources:
+  - service_account.yaml
+  - role.yaml
+  - role_binding.yaml
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: pg-router
+    newName: ghcr.io/keiailab/pg-router
+    newTag: latest

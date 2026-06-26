@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-router
+  labels:
+    app.kubernetes.io/name: pg-router
+    app.kubernetes.io/component: router
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Stateless: scale horizontally behind the Service. The router holds no state;
+  # topology comes from the ShardRange CRD (hot-reloaded).
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pg-router
+      app.kubernetes.io/component: router
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pg-router
+        app.kubernetes.io/component: router
+    spec:
+      serviceAccountName: pg-router
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-router
+          image: pg-router:latest
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: PGROUTER_LISTEN
+              value: ":5432"
+            # Source the routing topology from ShardRange CRDs (production mode).
+            - name: PGROUTER_TOPOLOGY
+              value: crd
+            - name: PGROUTER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The PostgresCluster + keyspace this router fronts. Adjust per deployment.
+            - name: PGROUTER_CLUSTER
+              value: quickstart
+            - name: PGROUTER_KEYSPACE
+              value: default
+            # Re-read topology + primary status on this interval (hot-reload).
+            - name: PGROUTER_REFRESH
+              value: "10s"
+            # Resolve each shard's backend from its *current Ready primary* in
+            # PostgresCluster.status (failover-aware): when a shard primary dies, the
+            # operator promotes a replica and updates status, and the router follows.
+            # A shard with no Ready primary returns a graceful error to the client.
+            - name: PGROUTER_BACKEND
+              value: status
+            # Fail fast instead of hanging on an unreachable shard.
+            - name: PGROUTER_DIAL_TIMEOUT
+              value: "5s"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      terminationGracePeriodSeconds: 10

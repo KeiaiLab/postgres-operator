@@ -1,0 +1,19 @@
+# The router is the client-facing PostgreSQL endpoint. Applications connect here
+# instead of to a single shard; the router forwards to the resolved shard.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-router
+  labels:
+    app.kubernetes.io/name: pg-router
+    app.kubernetes.io/component: router
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    app.kubernetes.io/name: pg-router
+    app.kubernetes.io/component: router
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

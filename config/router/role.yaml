@@ -1,0 +1,22 @@
+# The router only *reads* in its own namespace (least privilege):
+#   - shardranges      : routing topology (key -> shard).
+#   - postgresclusters : per-shard current primary endpoint, for failover-aware
+#                        backend resolution (PGROUTER_BACKEND=status).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pg-router
+  labels:
+    app.kubernetes.io/name: pg-router
+    app.kubernetes.io/component: router
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups:
+      - postgres.keiailab.io
+    resources:
+      - shardranges
+      - postgresclusters
+    verbs:
+      - get
+      - list
+      - watch
