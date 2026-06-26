@@ -68,6 +68,11 @@ type CRDTopologyProvider struct {
 	Namespace string
 	Cluster   string
 	Keyspace  string
+	// ClearCacheOnMissing 가 true 면, list 는 성공했으나 매칭 ShardRange 가 없을 때(예:
+	// keyspace 삭제) 캐시를 비운다 → Current 가 stale 토폴로지 대신 에러를 낸다. false
+	// (기본)면 transient 보호를 위해 마지막 캐시를 유지한다. list 자체 실패(API blip)는
+	// 항상 캐시를 보존한다.
+	ClearCacheOnMissing bool
 
 	mu     sync.RWMutex
 	cached Topology
@@ -103,6 +108,12 @@ func (p *CRDTopologyProvider) Refresh(ctx context.Context) (Topology, error) {
 		p.cached, p.loaded = t, true
 		p.mu.Unlock()
 		return t, nil
+	}
+	// list 는 성공했으나 매칭 없음 (keyspace 삭제 등). 정책에 따라 캐시 비움.
+	if p.ClearCacheOnMissing {
+		p.mu.Lock()
+		p.cached, p.loaded = Topology{}, false
+		p.mu.Unlock()
 	}
 	return Topology{}, fmt.Errorf(
 		"router: no ShardRange for cluster=%q keyspace=%q in namespace=%q",

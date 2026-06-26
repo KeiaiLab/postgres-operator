@@ -67,6 +67,35 @@ func TestDialer_CircuitOpensAndCooldown(t *testing.T) {
 	}
 }
 
+// TestDialer_HalfOpenReopensOnFailure 는 cooldown 경과 후 단일 probe 만 나가고, 그
+// probe 가 실패하면 즉시 재오픈되어 다음 Dial 이 다시 fast-fail 됨을 검증한다.
+func TestDialer_HalfOpenReopensOnFailure(t *testing.T) {
+	now := time.Now()
+	d := newBackendDialer(time.Second, 0, 10*time.Second, 0, 2)
+	d.now = func() time.Time { return now }
+	calls := 0
+	d.dial = func(_, _ string, _ time.Duration) (net.Conn, error) {
+		calls++
+		return nil, errors.New("refused")
+	}
+	_, _ = d.Dial("a")
+	_, _ = d.Dial("a") // 2 fails → open
+	now = now.Add(11 * time.Second)
+	before := calls
+	_, _ = d.Dial("a") // half-open 단일 probe (dial 1회), 실패 → 재오픈
+	if calls != before+1 {
+		t.Fatalf("half-open should probe exactly once: %d -> %d", before, calls)
+	}
+	c := calls
+	_, err := d.Dial("a") // 재오픈 상태 → fast-fail, dial 호출 안 됨
+	if !errors.Is(err, errCircuitOpen) {
+		t.Fatalf("after failed probe should be open: %v", err)
+	}
+	if calls != c {
+		t.Fatalf("dial called while reopened: %d -> %d", c, calls)
+	}
+}
+
 // TestDialer_SuccessResetsBreaker 는 성공이 실패 카운트를 초기화함을 검증한다.
 func TestDialer_SuccessResetsBreaker(t *testing.T) {
 	now := time.Now()

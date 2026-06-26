@@ -32,16 +32,20 @@ const (
 	defaultMaxOpenConns    = 10
 	defaultMaxIdleConns    = 5
 	defaultConnMaxIdleTime = 5 * time.Minute
+	defaultConnMaxLifetime = 30 * time.Minute
 )
 
 // SQLShardExecutor 는 shard 별 DSN 으로 *sql.DB 풀을 캐시·재사용하여 query 를 실행한다.
 type SQLShardExecutor struct {
 	// DSNs 는 shard → PostgreSQL DSN ("postgres://user:pw@host:port/db?sslmode=...").
 	DSNs map[ShardID]string
-	// MaxOpenConns / MaxIdleConns / ConnMaxIdleTime 은 shard 풀 튜닝 (0 = 기본값).
+	// MaxOpenConns / MaxIdleConns / ConnMaxIdleTime / ConnMaxLifetime 은 shard 풀 튜닝
+	// (0 = 기본값). ConnMaxLifetime 은 재시작된 backend(예: failover 후)로의 stale 연결을
+	// 주기적으로 폐기한다.
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxIdleTime time.Duration
+	ConnMaxLifetime time.Duration
 
 	mu    sync.Mutex
 	pools map[ShardID]*sql.DB
@@ -71,6 +75,11 @@ func (e *SQLShardExecutor) pool(shard ShardID) (*sql.DB, error) {
 		db.SetConnMaxIdleTime(e.ConnMaxIdleTime)
 	} else {
 		db.SetConnMaxIdleTime(defaultConnMaxIdleTime)
+	}
+	if e.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(e.ConnMaxLifetime)
+	} else {
+		db.SetConnMaxLifetime(defaultConnMaxLifetime)
 	}
 	if e.pools == nil {
 		e.pools = make(map[ShardID]*sql.DB)
