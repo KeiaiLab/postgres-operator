@@ -83,9 +83,17 @@ type ScatterGather struct {
 	Policy FailurePolicy
 	// Merge 는 결과 합치기 전략 (default MergeConcat).
 	Merge MergeStrategy
-	// Limit 은 >0 이면 merge 결과의 행 수를 제한한다 (LIMIT pushdown 근사 — 각 샤드는
-	// 전량 반환하고 merge 후 자른다; 진짜 per-shard LIMIT 주입은 planner 책임).
+	// Limit 은 >0 이면 merge 결과의 행 수를 제한한다.
 	Limit int
+	// OrderByCol 은 MergeOrderBy 의 정렬 기준 컬럼 index (default 0). planner 가 ORDER BY
+	// 컬럼 위치를 전달.
+	OrderByCol int
+	// OrderByDesc 는 MergeOrderBy 를 내림차순으로 정렬한다 (default 오름차순).
+	OrderByDesc bool
+	// PushDownLimit 가 true + Limit>0 이면 각 샤드 query 에 `LIMIT n` 을 주입해 샤드별
+	// 전송량을 줄인다 (이미 LIMIT 가 있거나 다중문이면 건드리지 않음). merge 후 Limit 가
+	// 최종 cap 으로 다시 적용된다.
+	PushDownLimit bool
 }
 
 // NewScatterGather 는 ScatterGather 인스턴스를 반환한다. Shard 가 nil 이면
@@ -101,6 +109,11 @@ func (s *ScatterGather) Execute(ctx context.Context, query string, shards []Shar
 	}
 	if s.Shard == nil {
 		return nil, fmt.Errorf("router: ShardExecutor not configured")
+	}
+
+	// LIMIT pushdown: 각 샤드 전송량을 줄인다 (보수적 — 기존 LIMIT/다중문은 건드리지 않음).
+	if s.PushDownLimit && s.Limit > 0 {
+		query = withLimitPushdown(query, s.Limit)
 	}
 
 	// Cancellation: FailFast 에서 1 fail 발견 시 다른 in-flight 도 즉시 cancel.
@@ -151,12 +164,20 @@ func (s *ScatterGather) Execute(ctx context.Context, query string, shards []Shar
 }
 
 func (s *ScatterGather) merge(order []ShardID, collected map[ShardID][]Row) []Row {
-	switch s.Merge {
-	case MergeOrderBy:
-		return mergeOrderBy(order, collected)
-	default:
+	if s.Merge != MergeOrderBy {
 		return mergeConcat(order, collected)
 	}
+	// 각 shard 의 row 는 이미 정렬(PG 가 ORDER BY 처리)되어 있다고 가정 — flatten 후
+	// 지정 컬럼/방향으로 안정 정렬. (k-way streaming merge 는 large result 시 future.)
+	flat := mergeConcat(order, collected)
+	sort.SliceStable(flat, func(i, j int) bool {
+		c := cmpAtCol(flat[i], flat[j], s.OrderByCol)
+		if s.OrderByDesc {
+			return c > 0
+		}
+		return c < 0
+	})
+	return flat
 }
 
 // mergeConcat 는 shards 순서대로 단순 concat — UNION ALL.
@@ -172,28 +193,48 @@ func mergeConcat(order []ShardID, collected map[ShardID][]Row) []Row {
 	return out
 }
 
-// mergeOrderBy 는 첫 column 기준 사전식 k-way merge.
-// 각 shard 의 row slice 가 *이미 정렬된* 상태라고 가정 (PG 가 정렬한 결과).
-func mergeOrderBy(order []ShardID, collected map[ShardID][]Row) []Row {
-	// flatten 후 사전 정렬 — k-way streaming merge 는 future optimization.
-	// 정확성 우선, 성능은 후속 turn (large result 시 k-way heap 도입).
-	flat := mergeConcat(order, collected)
-	sort.SliceStable(flat, func(i, j int) bool {
-		return cmpFirstValue(flat[i], flat[j]) < 0
-	})
-	return flat
-}
-
-func cmpFirstValue(a, b Row) int {
+// cmpAtCol 은 두 Row 를 col 번째 컬럼 값으로 비교한다 (nil 은 가장 작음).
+func cmpAtCol(a, b Row, col int) int {
+	av, bv := valueAt(a, col), valueAt(b, col)
 	switch {
-	case len(a.Values) == 0 && len(b.Values) == 0:
+	case av == nil && bv == nil:
 		return 0
-	case len(a.Values) == 0:
+	case av == nil:
 		return -1
-	case len(b.Values) == 0:
+	case bv == nil:
 		return 1
 	}
-	return compareValues(a.Values[0], b.Values[0])
+	return compareValues(av, bv)
+}
+
+// valueAt 은 Row 의 col 번째 값을 반환한다 (범위 밖이면 nil).
+func valueAt(r Row, col int) any {
+	if col >= 0 && col < len(r.Values) {
+		return r.Values[col]
+	}
+	return nil
+}
+
+// withLimitPushdown 은 query 에 `LIMIT n` 을 주입한다. 이미 LIMIT 가 있거나 다중문
+// (top-level `;`)이면 안전을 위해 그대로 둔다. ORDER BY 가 있으면 `... ORDER BY x
+// LIMIT n` 이 되어 각 샤드의 top-n 만 받고 merge 후 다시 cap 하므로 정확하다.
+func withLimitPushdown(query string, n int) string {
+	q := strings.TrimRight(strings.TrimSpace(query), "; \t\n")
+	if strings.Contains(q, ";") || hasLimitClause(q) {
+		return query
+	}
+	return fmt.Sprintf("%s LIMIT %d", q, n)
+}
+
+// hasLimitClause 는 query 에 top-level LIMIT 키워드가 있는지 토큰 단위로 본다
+// (문자열/주석 내부 'limit' 오인 방지).
+func hasLimitClause(query string) bool {
+	for _, t := range tokenize(query) {
+		if t.kind == tokIdent && strings.EqualFold(t.text, "limit") {
+			return true
+		}
+	}
+	return false
 }
 
 // compareValues 는 두 값을 *타입 인지* 비교한다 — 숫자는 수치로 비교(문자열 비교 시
