@@ -20,9 +20,32 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/keiailab/postgres-operator/api/v1alpha1"
 )
+
+// ringCache 는 fingerprint(function|vnodes|정렬된 shard 집합) → *ConsistentHashRing.
+// ResolveShard 가 매 호출 링을 재구성하던 핫패스 낭비를 제거한다. 링은 불변(읽기 전용
+// Lookup)이라 동시성 안전. 토폴로지가 바뀌면 fingerprint 가 달라져 새 링이 만들어진다
+// (옛 엔트리는 누수되나 토폴로지 종류가 적어 무시 가능).
+var ringCache sync.Map
+
+// ringFingerprint 는 링 구성에 영향을 주는 필드(해시 함수 + 가상 노드 수 + distinct
+// shard 집합)로 캐시 키를 만든다.
+func ringFingerprint(spec v1alpha1.ShardRangeSpec) string {
+	seen := make(map[string]bool)
+	var shards []string
+	for _, r := range spec.Ranges {
+		if r.Shard != "" && !seen[r.Shard] {
+			seen[r.Shard] = true
+			shards = append(shards, r.Shard)
+		}
+	}
+	sort.Strings(shards)
+	return string(spec.Vindex.Function) + "|" + strconv.Itoa(int(spec.Vindex.VirtualNodes)) + "|" + strings.Join(shards, ",")
+}
 
 // defaultVirtualNodes 는 VirtualNodes 미지정(0) 시 가상 노드 수. 클수록 분포가 고르나
 // 링 구성 비용 증가. CRD 는 64~65536 을 강제하므로 0 은 "미설정" 의미.
@@ -87,11 +110,20 @@ func (r *ConsistentHashRing) Lookup(h uint32) string {
 	return r.points[i].shard
 }
 
-// resolveConsistentHash 는 ResolveShard 의 consistent-hash 분기다.
+// resolveConsistentHash 는 ResolveShard 의 consistent-hash 분기다. 링은 fingerprint
+// 로 캐시되어 재사용된다.
 func resolveConsistentHash(spec v1alpha1.ShardRangeSpec, key string) (string, error) {
-	ring, err := NewConsistentHashRing(spec)
-	if err != nil {
-		return "", err
+	fp := ringFingerprint(spec)
+	var ring *ConsistentHashRing
+	if v, ok := ringCache.Load(fp); ok {
+		ring = v.(*ConsistentHashRing)
+	} else {
+		r, err := NewConsistentHashRing(spec)
+		if err != nil {
+			return "", err
+		}
+		actual, _ := ringCache.LoadOrStore(fp, r) // 동시 생성 시 한쪽으로 정규화.
+		ring = actual.(*ConsistentHashRing)
 	}
 	h, err := hashKey(spec.Vindex.Function, key)
 	if err != nil {
