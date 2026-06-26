@@ -22,8 +22,8 @@ import (
 // 함수 (D.8.2 / ROADMAP G3 L150). 본 패키지는 *순수 함수* 만 노출 — K8s
 // reconciler 와 wire-protocol 은 별도 layer. RFC-0002 §3.2 분기 정합.
 
-// ErrVindexUnsupported 는 lookup / consistent-hash 등 본 turn 미구현 vindex
-// 호출 시 반환된다. 호출자 (pg-router) 는 본 sentinel 로 fallback 라우팅
+// ErrVindexUnsupported 는 lookup 등 미구현 vindex 호출 시 반환된다 (hash · range ·
+// consistent-hash 는 구현됨). 호출자 (pg-router) 는 본 sentinel 로 fallback 라우팅
 // 또는 명시적 에러 응답을 선택.
 var ErrVindexUnsupported = errors.New("router: vindex type not supported in this build")
 
