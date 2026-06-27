@@ -97,6 +97,34 @@ func (qr queryRouter) anyShard() (shard, backend string, err error) {
 	return shard, backend, err
 }
 
+// shardBackend 는 한 샤드와 그 backend 주소다.
+type shardBackend struct {
+	shard   string
+	backend string
+}
+
+// allShards 는 현재 토폴로지의 모든 distinct 샤드 + backend 를 반환한다 (scatter fan-out).
+func (qr queryRouter) allShards() ([]shardBackend, error) {
+	topo, err := qr.provider.Current(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []shardBackend
+	for _, r := range topo.Spec.Ranges {
+		if r.Shard == "" || seen[r.Shard] {
+			continue
+		}
+		seen[r.Shard] = true
+		backend, err := qr.write(r.Shard) // 읽기 replica 분산은 후속.
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, shardBackend{shard: r.Shard, backend: backend})
+	}
+	return out, nil
+}
+
 // handleQueryMode 는 쿼리 인지 라우팅으로 한 연결을 처리한다. backendPassword 는
 // 백엔드 인증 대행(scram/cleartext)용 — "" 면 trust 백엔드만 동작.
 func handleQueryMode(client net.Conn, qr queryRouter, dialer *backendDialer, serverVersion, backendPassword string) {
@@ -184,15 +212,16 @@ func logRoute(typ byte, d router.RouteDecision) {
 	log.Printf("pg-router: routed (%c) shard=%s backend=%s read=%v", typ, d.Shard, d.Backend, d.Read)
 }
 
-// routeAndProxy 는 simple Query 경로의 라우팅 + proxy.
+// routeAndProxy 는 simple Query 경로의 라우팅 + proxy. 라우팅 키가 없으면(Scatter) 모든
+// 샤드에 fan-out 한다.
 func routeAndProxy(client net.Conn, qr queryRouter, sql string, raw []byte, msgs []pgMessage, dialer *backendDialer, backendPassword string) {
 	d, err := qr.routeSQL(sql)
-	if err != nil {
-		writePgError(client, "08006", "routing failed: "+err.Error())
+	if d.Scatter { // 키 없음 → 멀티샤드 scatter-gather.
+		scatterQuery(client, qr, msgs[0], raw, dialer, backendPassword)
 		return
 	}
-	if d.Scatter {
-		writePgError(client, "0A000", "multi-shard query not supported yet (single-shard fast-path only)")
+	if err != nil {
+		writePgError(client, "08006", "routing failed: "+err.Error())
 		return
 	}
 	logRoute('Q', d)
