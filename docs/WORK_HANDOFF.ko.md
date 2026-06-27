@@ -224,9 +224,10 @@ SSOT는 [ROUTER-GAP-ANALYSIS §4 능력 사다리 + §6 백로그](sharding/ROUT
 | ~~·~~ ✅ | ~~수평 스케일 실증(단일 호스트)~~ | **완료(2026-06-28)** — baseline §3.0d. read/write 모든 워크로드 2샤드 ≤ 1샤드 확정. 단일 호스트 CPU·스토리지 공유라 물리적 불가 — 진짜 수치는 멀티머신 필요(방법 기록). |
 | ~~·~~ ✅ | ~~reference table·read-replica 프록시 결선~~ | **완료(2026-06-28)** — main.go read resolver(env replica/status ResolveRead)+PGROUTER_REFERENCE_TABLES. 라이브: read→replica, ref→AnyShard, write→primary. |
 | ~~·~~ ✅ | ~~resharding 실데이터 이동(core)~~ | **완료(2026-06-28)** — `CopyShardRange`(hash-range 필터 copy)+`DeleteShardRange`(cutover). 라이브: 1..100 split→44/56 overlap=0 키유실0. |
-| **1** | **ShardSplitJob 컨트롤러 K8s 결선** | reconcile 가 pod DSN 으로 CopyShardRange/DeleteShardRange 를 phase 별 호출 + write-block(토폴로지 flip)까지. 데이터이동 core 는 완성 — K8s 통합만 남음 |
-| **2** | **bufio 라우터 최적화** | per-query proxy 루프 미버퍼 syscall → 연결당 bufio 버퍼링(식별됨, baseline §3.0c). 회귀 테스트 후 적용 |
+| ~~·~~ ✅ | ~~bufio 라우터 최적화~~ | **완료(2026-06-28)** — writeMessage 단일 write + 연결당 읽기 버퍼(bufConn). baseline §3.0e: unprepared +50%(8955→13391), prepared 1shard +34%. |
+| **1** | **ShardSplitJob 컨트롤러 K8s 결선** | reconcile 가 pod DSN 으로 CopyShardRange/DeleteShardRange 를 phase 별 호출 + write-block(토폴로지 flip)까지. 데이터이동 core 는 완성 — 자격/DSN 이 operator secret 모델과 얽혀 풀 클러스터 e2e 필요(큰 작업) |
 | **3** | **멀티머신 수평 스케일 실측** | 진짜 "분산처리능력" 수치 — 물리 분리 노드 필요(router-bench 가 샤드별 DSN 받음, 그대로 적용) |
+| **4** | **멀티 라우터 인스턴스 수평확장** | 라우터 1-hop 왕복이 남은 오버헤드(prepared direct 86K vs router 23K) — 라우터를 여러 개 띄워 처리량 확장 |
 | **6** | 보류 #5/#7/#9 | per-shard primary Service·watch·failover lease P2-T3 — 라이브 failover 필요 |
 
 > 제약 현황(query-mode 라이브): ✅ simple+extended per-query(prepared 포함)·scatter·단일샤드 tx·scram 백엔드·reference·read-replica. ❌ extended scatter·cross-shard 2PC·Flush 파이프라이닝.
