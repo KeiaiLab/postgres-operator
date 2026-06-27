@@ -4,25 +4,22 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-// querymode.go 는 *쿼리 인지 라우팅*(E)을 결선한다 — 연결 단위(startup param) 라우팅과
-// 달리, 클라이언트의 *첫 쿼리*에서 샤딩 키를 뽑아 샤드를 정한다.
+// querymode.go 는 *쿼리 인지 라우팅*(E)의 라우팅 엔진 결선부다 — 연결 단위(startup param)
+// 라우팅과 달리, 클라이언트의 *매* 쿼리에서 샤딩 키를 뽑아 샤드를 정한다(per-query).
 //
-// 지원 경로:
-//   - simple Query('Q'): 인라인 리터럴(`WHERE id='x'`) 추출 → 라우팅.
-//   - extended Parse('P') 인라인 리터럴: 동일.
-//   - extended Parse + Bind: parameterized(`WHERE id=$1`)는 값이 Bind 에 있으므로,
-//     Parse 에서 `col=$N` 위치를 찾고 Bind 까지 버퍼링해 N번째 파라미터 값으로 라우팅.
-//     → pgx/psycopg 등 실 드라이버 동작.
+// 핸드셰이크 후 흐름은 persession.go(simple Query)·extsession.go(extended protocol)가
+// 세션 단위로 처리하고, 본 파일은 그 둘이 쓰는 queryRouter(토폴로지+extractor+resolver →
+// RouteDecision) 와 라우팅 로그를 제공한다.
+//   - simple Query('Q'): 인라인 리터럴(`WHERE id='x'`) → routeSQL.
+//   - extended: parameterized(`WHERE id=$1`)는 Bind 파라미터로 routeKey, 인라인 리터럴은
+//     routeSQL. → pgx/psycopg/lib-pq/JDBC 등 실 드라이버 + prepared statement 동작.
+//   - 키 없음 → scatter(simple) / 에러(extended).
 //
-// *제약(PoC, trust 백엔드 한정)*: 라우터가 클라이언트 비밀번호를 검증하지 않고(trust),
-// 백엔드에 클라이언트 startup 을 그대로 전달 — trust 백엔드 전제. 일반(scram) 백엔드
-// 인증 대행 + 멀티샤드 scatter 는 별 트랙(라이브 PG 검증 필요).
+// 백엔드 인증(trust/cleartext/scram)은 라우터가 대행한다(scram.go).
 package main
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log"
 	"net"
 
@@ -141,90 +138,6 @@ func handleQueryMode(client net.Conn, qr queryRouter, dialer *backendDialer, ser
 	runPerQuerySession(client, qr, dialer, backendPassword, raw)
 }
 
-// handleParse 는 Parse('P') 를 처리한다: 인라인 리터럴이면 즉시, parameterized 면 Bind
-// 까지 버퍼링해 파라미터 값으로 라우팅한다.
-func handleParse(client net.Conn, qr queryRouter, parse pgMessage, raw []byte, dialer *backendDialer, backendPassword string) {
-	sql, ok := parseSQL(parse)
-	if !ok {
-		writePgError(client, "08P01", "could not parse query")
-		return
-	}
-	// 1) 인라인 리터럴이면 SQL 만으로 라우팅.
-	if d, err := qr.routeSQL(sql); err == nil && !d.Scatter {
-		logRoute('P', d)
-		proxyToShard(client, raw, []pgMessage{parse}, d, dialer, backendPassword)
-		return
-	}
-	// 2) parameterized(`col = $N`): Bind 까지 버퍼링해 N번째 파라미터로 라우팅.
-	pidx, ok := router.ExtractParamRef(sql, qr.shardColumn())
-	if !ok {
-		writePgError(client, "08006", "could not determine shard (no routing key in query)")
-		return
-	}
-	buffered := []pgMessage{parse}
-	for {
-		next, err := readMessage(client)
-		if err != nil {
-			return
-		}
-		buffered = append(buffered, next)
-		switch next.Type {
-		case 'B': // Bind — 파라미터 값으로 라우팅.
-			params, ok := bindParams(next)
-			if !ok || pidx-1 >= len(params) || params[pidx-1] == nil {
-				writePgError(client, "08006", "could not extract routing parameter from Bind")
-				return
-			}
-			d, err := qr.routeKey(string(params[pidx-1]), router.IsReadOnlyQuery(sql))
-			if err != nil || d.Scatter {
-				writePgError(client, "08006", "routing failed for parameter")
-				return
-			}
-			logRoute('B', d)
-			proxyToShard(client, raw, buffered, d, dialer, backendPassword)
-			return
-		case 'S': // Sync 가 Bind 보다 먼저(lib/pq 등 describe-first) — describe-round 대행.
-			describeRoundDelegate(client, qr, buffered, parse, pidx, sql, raw, dialer, backendPassword)
-			return
-		}
-	}
-}
-
 func logRoute(typ byte, d router.RouteDecision) {
 	log.Printf("pg-router: routed (%c) shard=%s backend=%s read=%v", typ, d.Shard, d.Backend, d.Read)
-}
-
-// proxyToShard 는 결정된 샤드 backend 에 연결해 startup + 버퍼링된 메시지(들)를 전달하고
-// 양방향 proxy 한다. 백엔드 인증(trust/cleartext/scram)은 라우터가 대행한다.
-func proxyToShard(client net.Conn, raw []byte, msgs []pgMessage, d router.RouteDecision, dialer *backendDialer, backendPassword string) {
-	server, err := dialer.Dial(d.Backend)
-	if err != nil {
-		writePgError(client, "08006", fmt.Sprintf("cannot reach shard %s (%s): %v", d.Shard, d.Backend, err))
-		return
-	}
-	defer func() { _ = server.Close() }()
-
-	if _, err := server.Write(raw); err != nil { // backend startup
-		return
-	}
-	// 백엔드 인증 대행 + 핸드셰이크를 ReadyForQuery 까지 소비 (클라이언트는 우리 trust
-	// 핸드셰이크를 이미 받음 — 중복 방지).
-	if err := authenticateAndDrain(server, backendPassword); err != nil {
-		writePgError(client, "08006", "backend startup: "+err.Error())
-		return
-	}
-	for _, m := range msgs { // 버퍼링된 클라이언트 메시지(Parse/Bind 등) 재생.
-		if err := writeMessage(server, m.Type, m.Payload); err != nil {
-			return
-		}
-	}
-	proxyBidi(client, server)
-}
-
-// proxyBidi 는 두 연결을 양방향으로 복사하고 한쪽이 끝나면 반환한다.
-func proxyBidi(a, b net.Conn) {
-	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(a, b); done <- struct{}{} }()
-	<-done
 }

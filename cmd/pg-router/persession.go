@@ -9,9 +9,9 @@ Licensed under the MIT License. See the LICENSE file for details.
 // 연결을 세션 내에서 lazy 풀링·재사용한다.
 //
 // 지원: autocommit 키 라우팅, 키 없는 쿼리 scatter, *단일샤드* 명시적 트랜잭션(BEGIN 응답을
-// 합성하고 첫 키 쿼리로 한 샤드에 pin — cross-shard 2PC 는 범위 밖). extended protocol(Parse)
-// 은 현행 pin-on-first(describe-round)로 처리한다(per-query extended 는 후속 — 샤드별
-// prepared statement 관리 필요).
+// 합성하고 첫 키 쿼리로 한 샤드에 pin — cross-shard 2PC 는 범위 밖). extended protocol
+// (Parse/Bind/Describe/Execute/Sync)도 per-query 로 라우팅한다 — Sync 까지 버퍼링해 배치
+// 단위로 키의 샤드에 보내고 샤드별 prepared statement 를 lazy 관리한다(extsession.go).
 package main
 
 import (
@@ -32,11 +32,21 @@ type session struct {
 	inTx         bool                // 명시적 트랜잭션 중.
 	pendingBegin pgMessage           // 아직 백엔드로 안 보낸 BEGIN (pin 시 전송).
 	txBackend    net.Conn            // 트랜잭션이 pin 된 백엔드.
+
+	// extended protocol(per-query) 상태.
+	extBuf       []pgMessage                  // Sync 까지 버퍼링한 extended 메시지.
+	stmts        map[string]*pstmt            // statement 이름 → prepared 메타.
+	backendStmts map[net.Conn]map[string]bool // 백엔드별 Parse 된 stmt 이름 집합.
 }
 
 // runPerQuerySession 은 핸드셰이크 후 세션 루프를 돈다.
 func runPerQuerySession(client net.Conn, qr queryRouter, dialer *backendDialer, password string, raw []byte) {
-	s := &session{client: client, qr: qr, dialer: dialer, password: password, raw: raw, backends: map[string]net.Conn{}}
+	s := &session{
+		client: client, qr: qr, dialer: dialer, password: password, raw: raw,
+		backends:     map[string]net.Conn{},
+		stmts:        map[string]*pstmt{},
+		backendStmts: map[net.Conn]map[string]bool{},
+	}
 	defer s.closeBackends()
 	for {
 		m, err := readMessage(client)
@@ -50,9 +60,13 @@ func runPerQuerySession(client net.Conn, qr queryRouter, dialer *backendDialer, 
 			if !s.handleSimpleQuery(m) {
 				return
 			}
-		case 'P': // extended → pin-on-first(describe-round). 이후 연결 종료.
-			handleParse(client, qr, m, raw, dialer, password)
-			return
+		case 'P', 'B', 'D', 'E', 'C', 'H': // extended → Sync 까지 버퍼링.
+			s.extBuf = append(s.extBuf, m)
+		case 'S': // Sync → 버퍼링된 extended 배치를 per-query 라우팅.
+			s.extBuf = append(s.extBuf, m)
+			if !s.handleExtendedBatch() {
+				return
+			}
 		default:
 			writePgError(client, "0A000", fmt.Sprintf("message type %q not supported in per-query mode", m.Type))
 			return
