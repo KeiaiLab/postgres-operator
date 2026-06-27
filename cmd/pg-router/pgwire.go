@@ -15,6 +15,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -67,6 +68,29 @@ func querySQL(m pgMessage) (string, bool) {
 		p = p[:n-1]
 	}
 	return string(p), true
+}
+
+// parseSQL 은 'P'(Parse, extended protocol) 메시지에서 쿼리 텍스트를 뽑는다. payload =
+// statement-name(cstring) + query(cstring) + Int16 param 수 + .... 첫 cstring(이름)을
+// 건너뛰고 둘째 cstring(쿼리)을 반환한다.
+//
+// 주의: parameterized 쿼리(`WHERE id = $1`)는 실제 값이 후속 Bind 메시지에 있으므로
+// Parse 만으로는 라우팅 키를 못 얻는다(extractor 가 리터럴 없음 → scatter). Bind 까지
+// 상관(correlate)하는 완전 extended 라우팅은 후속.
+func parseSQL(m pgMessage) (string, bool) {
+	if m.Type != 'P' {
+		return "", false
+	}
+	i := bytes.IndexByte(m.Payload, 0)
+	if i < 0 {
+		return "", false
+	}
+	rest := m.Payload[i+1:]
+	j := bytes.IndexByte(rest, 0)
+	if j < 0 {
+		return "", false
+	}
+	return string(rest[:j]), true
 }
 
 // cstring 은 null 종단 문자열 payload 를 만든다.

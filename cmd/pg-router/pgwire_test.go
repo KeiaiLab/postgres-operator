@@ -38,6 +38,21 @@ func TestQuerySQL_NonQuery(t *testing.T) {
 	}
 }
 
+// TestParseSQL 은 'P'(Parse, extended) 메시지에서 쿼리 텍스트를 뽑음을 검증.
+func TestParseSQL(t *testing.T) {
+	var payload []byte
+	payload = append(payload, cstring("")...)                             // 무명 statement
+	payload = append(payload, cstring("SELECT v FROM t WHERE id='x'")...) // 쿼리
+	payload = append(payload, 0, 0)                                       // Int16 param 수 = 0
+	sql, ok := parseSQL(pgMessage{Type: 'P', Payload: payload})
+	if !ok || sql != "SELECT v FROM t WHERE id='x'" {
+		t.Fatalf("parseSQL = (%q,%v), want the query", sql, ok)
+	}
+	if _, ok := parseSQL(pgMessage{Type: 'Q', Payload: cstring("x")}); ok {
+		t.Fatal("non-Parse should be rejected")
+	}
+}
+
 // TestReadMessage_BadLength 는 비정상 길이를 에러로 처리함을 검증.
 func TestReadMessage_BadLength(t *testing.T) {
 	bad := []byte{'Q', 0, 0, 0, 0} // length=0 < 4

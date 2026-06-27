@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 
 	"github.com/keiailab/postgres-operator/internal/router"
@@ -64,8 +65,15 @@ func handleQueryMode(client net.Conn, route routeDecisionFunc, dialer *backendDi
 		switch m.Type {
 		case 'X': // Terminate
 			return
-		case 'Q': // simple Query → 라우팅
-			sql, _ := querySQL(m)
+		case 'Q', 'P': // simple Query / Parse(extended) → 첫 SQL 로 라우팅
+			sql, ok := querySQL(m)
+			if !ok {
+				sql, ok = parseSQL(m)
+			}
+			if !ok {
+				writePgError(client, "08P01", "could not parse query for routing")
+				return
+			}
 			d, err := route(sql)
 			if err != nil {
 				writePgError(client, "08006", "routing failed: "+err.Error())
@@ -75,6 +83,7 @@ func handleQueryMode(client net.Conn, route routeDecisionFunc, dialer *backendDi
 				writePgError(client, "0A000", "multi-shard query not supported yet (single-shard fast-path only)")
 				return
 			}
+			log.Printf("pg-router: routed (%c) shard=%s backend=%s read=%v", m.Type, d.Shard, d.Backend, d.Read)
 			proxyToShard(client, raw, m, d, dialer)
 			return
 		default:
@@ -105,7 +114,7 @@ func proxyToShard(client net.Conn, raw []byte, firstQuery pgMessage, d router.Ro
 		writePgError(client, "08006", "backend startup: "+err.Error())
 		return
 	}
-	if err := writeMessage(server, 'Q', firstQuery.Payload); err != nil { // 첫 Query 재생
+	if err := writeMessage(server, firstQuery.Type, firstQuery.Payload); err != nil { // 첫 메시지 재생(Q/P)
 		return
 	}
 	proxyBidi(client, server)
