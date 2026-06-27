@@ -217,8 +217,8 @@ SSOT는 [ROUTER-GAP-ANALYSIS §4 능력 사다리 + §6 백로그](sharding/ROUT
 | ~~·~~ ✅ | ~~scram 인증 대행~~ | **완료** — 프로덕션 PG(scram) 동작 |
 | ~~·~~ ✅ | ~~describe-round 대행~~ | **완료** — lib/pq 파라미터 쿼리 → **실 DB 드라이버와 동작** |
 | ~~·~~ ✅ | ~~멀티샤드 scatter forwarding~~ | **완료(2026-06-28)** — 병렬 fan-out + UNION ALL 병합, 라이브 검증 |
-| **1** | **per-query 라우팅 (연결 종단 + 백엔드 풀)** | 현재 *연결 고정*(첫 쿼리로 샤드 결정) — 테넌트-당-연결엔 OK, 연결 풀 워크로드엔 per-query 라우팅 필요(vtgate급). 분산 수치도 이 모델 기준 |
-| **2** | **분산 성능 수치** | scatter/연결분산 기준 N-shard throughput (워커 수 × TPS, "분산처리능력") |
+| ~~·~~ ✅ | ~~per-query 라우팅 (연결 종단 + 백엔드 풀)~~ | **완료(2026-06-28)** — `persession.go` 세션 루프가 *매* simple Query를 키의 샤드로 독립 라우팅(vtgate 모델) + 샤드별 백엔드 lazy 풀. 라이브 검증: 한 연결에서 alice→shard-0/bob→shard-1/carol→shard-0. scatter·단일샤드 tx pin 포함. (남음: cross-shard 2PC, per-query extended) |
+| **1** | **분산 성능 수치** | per-query/scatter 기준 N-shard throughput (워커 수 × TPS, "분산처리능력") |
 | **4** | **B: resharding 실데이터 이동** | ShardSplitJob의 CopyTable DSN 결선 + CDC + write-block cutover (현재 골격) |
 | **5** | reference table·read-replica **프록시 결선** | 부품은 완성, query-mode에 연결만 |
 | **6** | 보류 #5/#7/#9 | per-shard primary Service·watch·failover lease P2-T3 — 라이브 failover 필요 |
