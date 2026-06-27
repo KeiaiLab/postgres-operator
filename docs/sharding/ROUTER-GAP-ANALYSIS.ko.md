@@ -127,7 +127,7 @@ parameterized/`t.col`/주석·문자열 내부 오인 방지까지 검증. **기
 > 종단이 되어야 완성. 아래 항목은 그 종단/운영-코어/라이브검증 필요분.
 
 **라우팅 핵심 (능력 사다리)**
-- [~] **(E) 프로토콜 종단 — 쿼리 단위 라우팅**: **query-mode PoC 결선·검증됨**(PG wire 프레이머 + trust 핸드셰이크 + 첫 Query→QueryRouter→샤드 backend, `PGROUTER_MODE=query`). 프록시가 드디어 *쿼리 내용으로* 라우팅. **남은 종단 작업**: ① 일반(비밀번호/scram) 백엔드 인증 대행(현재 trust 백엔드 한정) ② extended protocol(Parse/Bind) ③ 멀티샤드 scatter forwarding + 결과 재조립 ④ 백엔드 연결 풀 ⑤ **라이브 PG end-to-end 검증**(현재 프레이밍/결정만 단위검증). 이게 vtgate급 완성의 남은 길.
+- [~] **(E) 프로토콜 종단 — 쿼리 단위 라우팅**: **query-mode 라이브 PG end-to-end 검증 완료 (2026-06-27)** 🎉. 2 trust postgres(shard-0/1) + pg-router `PGROUTER_MODE=query` → psql `SELECT located_on FROM probe WHERE id='alice'` 이 키 추출→murmur3 vindex→샤드 라우팅→실 쿼리 실행→결과 반환까지 동작. **alice→shard-0 / bob→shard-1 / carol→shard-0** 결정적·올바른 분산 확인(bob이 다른 샤드 = 해시 라우팅 실증). 라이브 검증에서 프로토콜 버그(백엔드 핸드셰이크 미소비) 발견·수정. **남은 종단 작업**: ① 일반(비번/scram) 백엔드 인증 대행(현재 trust 한정) ② extended protocol(Parse/Bind) ③ 멀티샤드 scatter forwarding + 결과 재조립 ④ 백엔드 연결 풀 ⑤ per-query 라우팅 로그(관측성). vtgate급 완성의 남은 길.
 - [ ] **읽기 → replica 라우팅**: `status.shards[].replicas[]`(Ready)로 읽기 쿼리를 분산 → primary 부하 경감 + 읽기 확장. 사다리 2단계. (status backend 계층 재사용.)
 - [ ] **scatter-gather 실연결**: `scatter.go` 골격 → 실 wire-protocol fan-out + merge + 집계/정렬 pushdown. 사다리 2~3단계.
 - [ ] **Reference table**: 전 샤드 복제로 분산 조인 우회. 사다리 4단계. 고가치·저난도.
