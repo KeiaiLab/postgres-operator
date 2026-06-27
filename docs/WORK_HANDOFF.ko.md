@@ -214,9 +214,9 @@ SSOT는 [ROUTER-GAP-ANALYSIS §4 능력 사다리 + §6 백로그](sharding/ROUT
 
 | 우선 | 항목 | 왜 / 블로커 |
 |---|---|---|
-| ~~1~~ ✅ | ~~scram 인증 대행~~ | **완료(2026-06-27)** — scram-sha-256/cleartext 대행, 라이브 검증. query-mode가 프로덕션 PG와 동작 |
-| **1** | **describe-round 대행** | lib/pq·JDBC의 `Parse→Describe→Sync→Bind` 파라미터화 쿼리 라우팅 (vtgate급 닭-달걀) |
-| **3** | **멀티샤드 scatter forwarding** | 키 없는 쿼리 N-shard fan-out + 결과 재조립 → "분산처리능력" 수치의 전제 |
+| ~~·~~ ✅ | ~~scram 인증 대행~~ | **완료** — 프로덕션 PG(scram) 동작 |
+| ~~·~~ ✅ | ~~describe-round 대행~~ | **완료(2026-06-27)** — lib/pq 파라미터 쿼리 라이브 검증 → **실 DB 드라이버와 동작** |
+| **1** | **멀티샤드 scatter forwarding** | 키 없는 쿼리 N-shard fan-out + 결과 재조립 → "분산처리능력" 수치의 전제 |
 | **4** | **B: resharding 실데이터 이동** | ShardSplitJob의 CopyTable DSN 결선 + CDC + write-block cutover (현재 골격) |
 | **5** | reference table·read-replica **프록시 결선** | 부품은 완성, query-mode에 연결만 |
 | **6** | 보류 #5/#7/#9 | per-shard primary Service·watch·failover lease P2-T3 — 라이브 failover 필요 |
