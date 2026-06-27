@@ -220,13 +220,16 @@ SSOT는 [ROUTER-GAP-ANALYSIS §4 능력 사다리 + §6 백로그](sharding/ROUT
 | ~~·~~ ✅ | ~~per-query 라우팅 (연결 종단 + 백엔드 풀)~~ | **완료(2026-06-28)** — `persession.go` 세션 루프가 *매* simple Query를 키의 샤드로 독립 라우팅(vtgate 모델) + 샤드별 백엔드 lazy 풀. 라이브 검증: 한 연결에서 alice→shard-0/bob→shard-1/carol→shard-0. scatter·단일샤드 tx pin 포함. |
 | ~~·~~ ✅ | ~~per-query extended protocol~~ | **완료(2026-06-28)** — `extsession.go`. extended(Parse/Bind/…)도 Sync까지 버퍼링→배치 per-query 라우팅, ParseComplete 합성+**샤드별 prepare-on-first-use**+주입분 필터. 라이브: lib/pq 한 연결+prepared `WHERE id=$1` 5회 다른키→키별 정확 라우팅. 구 pin-on-first 제거. |
 | ~~·~~ ✅ | ~~분산 성능 수치 1차~~ | **완료(2026-06-28)** — `cmd/router-bench` + baseline.md §3.0b. 라우터 점읽기 워커수×TPS 1761(w1)→9437(w32), 오버헤드 ~2.2~4×. **2샤드≈1샤드(point read)=라우터가 병목, 수평스케일은 멀티호스트 필요**. |
-| **1** | **멀티호스트 수평 스케일 실증** | 단일 호스트에선 라우터·샤드 코어공유라 분산 이득 미관측. 멀티노드 kind(또는 분리 호스트)로 샤드를 별 코어에 두고 N-shard 처리량 스케일 측정 — "분산처리능력" 진짜 수치 |
-| **2** | **라우터 오버헤드 개선 정량화** | prepared-stmt 재사용 벤치(키당 Parse 제거)로 라우터 처리량 상향 측정 + 코드 최적화 여지 |
-| **4** | **B: resharding 실데이터 이동** | ShardSplitJob의 CopyTable DSN 결선 + CDC + write-block cutover (현재 골격) |
-| **5** | reference table·read-replica **프록시 결선** | 부품은 완성, query-mode에 연결만 |
+| ~~·~~ ✅ | ~~라우터 오버헤드 정량화~~ | **완료(2026-06-28)** — baseline §3.0c. prepared-stmt 재사용이 라우터 처리량 ~1.9×(9K→17K TPS) — 키당 Parse가 오버헤드 ~절반. |
+| ~~·~~ ✅ | ~~수평 스케일 실증(단일 호스트)~~ | **완료(2026-06-28)** — baseline §3.0d. read/write 모든 워크로드 2샤드 ≤ 1샤드 확정. 단일 호스트 CPU·스토리지 공유라 물리적 불가 — 진짜 수치는 멀티머신 필요(방법 기록). |
+| ~~·~~ ✅ | ~~reference table·read-replica 프록시 결선~~ | **완료(2026-06-28)** — main.go read resolver(env replica/status ResolveRead)+PGROUTER_REFERENCE_TABLES. 라이브: read→replica, ref→AnyShard, write→primary. |
+| ~~·~~ ✅ | ~~resharding 실데이터 이동(core)~~ | **완료(2026-06-28)** — `CopyShardRange`(hash-range 필터 copy)+`DeleteShardRange`(cutover). 라이브: 1..100 split→44/56 overlap=0 키유실0. |
+| **1** | **ShardSplitJob 컨트롤러 K8s 결선** | reconcile 가 pod DSN 으로 CopyShardRange/DeleteShardRange 를 phase 별 호출 + write-block(토폴로지 flip)까지. 데이터이동 core 는 완성 — K8s 통합만 남음 |
+| **2** | **bufio 라우터 최적화** | per-query proxy 루프 미버퍼 syscall → 연결당 bufio 버퍼링(식별됨, baseline §3.0c). 회귀 테스트 후 적용 |
+| **3** | **멀티머신 수평 스케일 실측** | 진짜 "분산처리능력" 수치 — 물리 분리 노드 필요(router-bench 가 샤드별 DSN 받음, 그대로 적용) |
 | **6** | 보류 #5/#7/#9 | per-shard primary Service·watch·failover lease P2-T3 — 라이브 failover 필요 |
 
-> 제약 현황(query-mode 라이브): ✅ simple+extended per-query(prepared 포함)·scatter·단일샤드 tx·scram 백엔드. ❌ extended scatter·cross-shard 2PC·Flush 파이프라이닝.
+> 제약 현황(query-mode 라이브): ✅ simple+extended per-query(prepared 포함)·scatter·단일샤드 tx·scram 백엔드·reference·read-replica. ❌ extended scatter·cross-shard 2PC·Flush 파이프라이닝.
 
 ---
 
