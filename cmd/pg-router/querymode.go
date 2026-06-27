@@ -82,6 +82,21 @@ func (qr queryRouter) shardColumn() string {
 	return topo.Spec.Vindex.Column
 }
 
+// anyShard 는 describe-round 대행용 임의(결정적) 샤드 이름 + 그 backend 를 반환한다.
+// 스키마(파라미터/컬럼 타입)는 모든 샤드 공통이므로 어느 샤드로 describe 해도 무방하다.
+func (qr queryRouter) anyShard() (shard, backend string, err error) {
+	topo, err := qr.provider.Current(context.Background())
+	if err != nil {
+		return "", "", err
+	}
+	shard, err = topo.AnyShard()
+	if err != nil {
+		return "", "", err
+	}
+	backend, err = qr.write(shard)
+	return shard, backend, err
+}
+
 // handleQueryMode 는 쿼리 인지 라우팅으로 한 연결을 처리한다. backendPassword 는
 // 백엔드 인증 대행(scram/cleartext)용 — "" 면 trust 백엔드만 동작.
 func handleQueryMode(client net.Conn, qr queryRouter, dialer *backendDialer, serverVersion, backendPassword string) {
@@ -158,8 +173,8 @@ func handleParse(client net.Conn, qr queryRouter, parse pgMessage, raw []byte, d
 			logRoute('B', d)
 			proxyToShard(client, raw, buffered, d, dialer, backendPassword)
 			return
-		case 'S': // Sync 가 Bind 보다 먼저 — 라우팅 불가.
-			writePgError(client, "08006", "no Bind before Sync; cannot route parameterized query")
+		case 'S': // Sync 가 Bind 보다 먼저(lib/pq 등 describe-first) — describe-round 대행.
+			describeRoundDelegate(client, qr, buffered, parse, pidx, sql, raw, dialer, backendPassword)
 			return
 		}
 	}
