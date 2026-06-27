@@ -135,7 +135,8 @@ func handleQueryMode(client net.Conn, qr queryRouter, dialer *backendDialer, ser
 		return
 	}
 	// per-query 라우팅 세션: 매 simple Query 를 키의 샤드로 라우팅(연결 고정 해소).
-	runPerQuerySession(client, qr, dialer, backendPassword, raw)
+	// 클라이언트 연결을 읽기 버퍼로 감싼다(핸드셰이크 후 — 그 다음 메시지부터 버퍼링).
+	runPerQuerySession(newBufConn(client), qr, dialer, backendPassword, raw)
 }
 
 func logRoute(typ byte, d router.RouteDecision) {

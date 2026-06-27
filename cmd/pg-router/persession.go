@@ -156,8 +156,10 @@ func (s *session) backendFor(backend string) (net.Conn, error) {
 		_ = c.Close()
 		return nil, err
 	}
-	s.backends[backend] = c
-	return c, nil
+	// 핸드셰이크 후 읽기 버퍼로 감싼다(이후 응답 메시지 read syscall 절감).
+	bc := newBufConn(c)
+	s.backends[backend] = bc
+	return bc, nil
 }
 
 // execAndRelay 는 query 를 backend 로 보내고 응답을 ReadyForQuery 까지 클라이언트로 relay

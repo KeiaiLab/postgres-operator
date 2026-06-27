@@ -217,6 +217,30 @@ BENCH_KEYS=10000 BENCH_DURATION=5s BENCH_WORKERS=1,2,4,8,16,32 BENCH_MODE=select
 샤드를 띄우고 라우터를 별 머신에 두면, 같은 벤치를 그대로 가리켜 N-shard 스케일을 측정할 수
 있다. (예: 샤드당 1 VM × 2 + 라우터 1 VM → 1-shard 대비 2-shard 처리량 비교.)
 
+### 3.0e 실측 4차 — bufio 라우터 최적화 효과 (2026-06-28)
+
+§3.0c 에서 식별한 라우터 코드 최적화를 적용: ① `writeMessage` 를 헤더+payload 단일 Write
+(메시지당 syscall 2→1) ② 연결당 읽기 버퍼링(`bufConn`, 쓰기는 즉시 전송이라 flush/deadlock
+무관). §3.0b/c 와 동일 환경(2 scram 샤드, 단일 호스트).
+
+**before → after (router, TPS)**:
+
+| 워크로드 | w | before | after | 개선 |
+|---|---|---|---|---|
+| unprepared, router-2shard | 1 | 1,570 | 2,325 | +48% |
+| unprepared, router-2shard | 32 | 8,955 | 13,391 | +50% |
+| prepared, router-1shard | 32 | 17,306 | 23,207 | +34% |
+| prepared, router-2shard | 32 | 17,090 | ~16,155 | ≈ (노이즈) |
+
+**해석**:
+- **읽기 syscall 이 많은 경로(unprepared: 쿼리마다 Parse+Describe+Bind+Execute 메시지 다수)
+  에서 ~1.5× 향상** — 메시지당 read syscall 2→1(버퍼) + write syscall 2→1(단일 Write).
+- prepared(메시지 적음)는 1-shard +34%, 2-shard 는 측정 노이즈 범위. 효과는 메시지량에 비례.
+- 버퍼링은 *읽기 전용* — 쓰기는 즉시 전송하므로 request/response 교착 위험 0(회귀: per-query·
+  scatter·tx·reference·replica 전부 정상). connection-mode(blind io.Copy)는 미적용.
+- 남은 라우터 오버헤드(prepared direct 86K vs router 16~23K)는 프록시 1-hop 의 본질적 왕복
+  지연 — 멀티 라우터 인스턴스로 수평 확장하는 영역.
+
 ### 3.1 Single-shard baseline (T-1S)
 
 | date | workload | iso | clients | TPS | P50 ms | P95 ms | P99 ms | comment |

@@ -97,10 +97,11 @@ func scatterOne(sb shardBackend, query pgMessage, raw []byte, dialer *backendDia
 	if err := authenticateAndDrain(conn, password); err != nil {
 		return shardResult{err: err}
 	}
-	if err := writeMessage(conn, 'Q', query.Payload); err != nil {
+	bc := newBufConn(conn) // 핸드셰이크 후 읽기 버퍼로 감싼다.
+	if err := writeMessage(bc, 'Q', query.Payload); err != nil {
 		return shardResult{err: err}
 	}
-	rd, rows, errMsg, err := readQueryResult(conn)
+	rd, rows, errMsg, err := readQueryResult(bc)
 	return shardResult{rowDesc: rd, rows: rows, errMsg: errMsg, err: err}
 }
 

@@ -44,17 +44,15 @@ func readMessage(r io.Reader) (pgMessage, error) {
 	return pgMessage{Type: hdr[0], Payload: payload}, nil
 }
 
-// writeMessage 는 typed v3 메시지 1개를 쓴다 (길이는 자기 자신 포함 Int32).
+// writeMessage 는 typed v3 메시지 1개를 쓴다 (길이는 자기 자신 포함 Int32). 헤더+payload 를
+// 한 버퍼로 합쳐 *단일* Write 로 보낸다 — 메시지당 syscall 2→1 (라우터 per-query 오버헤드
+// 감소). 버퍼링/flush 없이 즉시 전송하므로 deadlock 위험 없음.
 func writeMessage(w io.Writer, typ byte, payload []byte) error {
-	hdr := []byte{typ, 0, 0, 0, 0}
-	binary.BigEndian.PutUint32(hdr[1:5], uint32(4+len(payload)))
-	if _, err := w.Write(hdr); err != nil {
-		return err
-	}
-	if len(payload) == 0 {
-		return nil
-	}
-	_, err := w.Write(payload)
+	buf := make([]byte, 5+len(payload))
+	buf[0] = typ
+	binary.BigEndian.PutUint32(buf[1:5], uint32(4+len(payload)))
+	copy(buf[5:], payload)
+	_, err := w.Write(buf)
 	return err
 }
 
