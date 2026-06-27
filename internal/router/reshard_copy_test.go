@@ -10,7 +10,19 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/keiailab/postgres-operator/api/v1alpha1"
 )
+
+func specWithCol(col string) v1alpha1.ShardRangeSpec {
+	return v1alpha1.ShardRangeSpec{
+		Vindex: v1alpha1.VindexSpec{Type: v1alpha1.VindexTypeHash, Column: col, Function: "murmur3"},
+		Ranges: []v1alpha1.ShardRangeEntry{
+			{Lo: "0x00000000", Hi: "0x7fffffff", Shard: "shard-0"},
+			{Lo: "0x80000000", Hi: "0xffffffff", Shard: "shard-1"},
+		},
+	}
+}
 
 func TestBuildInsert(t *testing.T) {
 	got := buildInsert("t", []string{"id", "v"})
@@ -27,5 +39,53 @@ func TestCopyTable_RejectsInjection(t *testing.T) {
 		if _, err := CopyTable(context.Background(), "", "", bad); !errors.Is(err, ErrInvalidTable) {
 			t.Errorf("CopyTable(%q) err = %v, want ErrInvalidTable", bad, err)
 		}
+	}
+}
+
+// TestCopyShardRange_RejectsInjection 은 테이블/vindex 컬럼 이름 둘 다 화이트리스트로
+// 차단됨을 검증한다.
+func TestCopyShardRange_RejectsInjection(t *testing.T) {
+	ctx := context.Background()
+	for _, bad := range []string{"t; DROP TABLE u", "t v", ""} {
+		if _, _, err := CopyShardRange(ctx, "", "", bad, specWithCol("id"), "shard-1"); !errors.Is(err, ErrInvalidTable) {
+			t.Errorf("CopyShardRange table=%q err = %v, want ErrInvalidTable", bad, err)
+		}
+		if _, _, err := CopyShardRange(ctx, "", "", "tbl", specWithCol(bad), "shard-1"); !errors.Is(err, ErrInvalidTable) {
+			t.Errorf("CopyShardRange col=%q err = %v, want ErrInvalidTable", bad, err)
+		}
+		if _, err := DeleteShardRange(ctx, "", bad, specWithCol("id"), "shard-1"); !errors.Is(err, ErrInvalidTable) {
+			t.Errorf("DeleteShardRange table=%q err = %v, want ErrInvalidTable", bad, err)
+		}
+	}
+}
+
+func TestKeyString(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{nil, ""},
+		{[]byte("alice"), "alice"},
+		{"bob", "bob"},
+		{int64(5), "5"},
+		{42, "42"},
+	}
+	for _, c := range cases {
+		if got := keyString(c.in); got != c.want {
+			t.Errorf("keyString(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestIndexOfFold(t *testing.T) {
+	cols := []string{"ID", "Val"}
+	if i := indexOfFold(cols, "id"); i != 0 {
+		t.Errorf("indexOfFold id = %d, want 0", i)
+	}
+	if i := indexOfFold(cols, "VAL"); i != 1 {
+		t.Errorf("indexOfFold VAL = %d, want 1", i)
+	}
+	if i := indexOfFold(cols, "nope"); i != -1 {
+		t.Errorf("indexOfFold nope = %d, want -1", i)
 	}
 }
