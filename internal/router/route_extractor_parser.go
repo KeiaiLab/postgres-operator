@@ -15,7 +15,32 @@ Licensed under the MIT License. See the LICENSE file for details.
 // 얻으면서 의존성 0 을 지킨다 (murmur3 자체 구현과 동일 철학).
 package router
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
+
+// ExtractParamRef 는 query 에서 `<col> = $N`(extended protocol 파라미터 참조)을 찾아
+// 1-based 파라미터 인덱스 N 을 반환한다. 라우팅 키 값이 Parse 가 아닌 후속 Bind 메시지에
+// 있는 parameterized 쿼리를 라우팅하기 위함. 인라인 리터럴은 ExtractRoutingKey 가 잡으므로
+// 본 함수는 $N 만 다룬다.
+func ExtractParamRef(query, col string) (int, bool) {
+	if col == "" {
+		return 0, false
+	}
+	toks := tokenize(query)
+	for i := 0; i+3 < len(toks); i++ {
+		if toks[i].kind == tokIdent && strings.EqualFold(toks[i].text, col) &&
+			toks[i+1].kind == tokSym && toks[i+1].text == "=" &&
+			toks[i+2].kind == tokSym && toks[i+2].text == "$" &&
+			toks[i+3].kind == tokNum {
+			if n, err := strconv.Atoi(toks[i+3].text); err == nil && n >= 1 {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
 
 // parserExtractor 는 RouteKeyExtractor 의 토크나이저 기반 구현이다.
 type parserExtractor struct{}

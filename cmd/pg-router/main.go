@@ -67,7 +67,7 @@ func main() {
 	)
 	// 라우팅 모드: connection(기본, startup param) | query(첫 쿼리 인지 라우팅, PoC).
 	mode := strings.ToLower(env("PGROUTER_MODE", "connection"))
-	route := buildQueryRouterFunc(provider, resolve, nil)
+	qr := newQueryRouter(provider, resolve, nil)
 	serverVersion := env("PGROUTER_SERVER_VERSION", "18.0")
 
 	ln, err := net.Listen("tcp", addr)
@@ -83,7 +83,7 @@ func main() {
 			continue
 		}
 		if mode == "query" {
-			go handleQueryMode(conn, route, dialer, serverVersion)
+			go handleQueryMode(conn, qr, dialer, serverVersion)
 		} else {
 			go handleConn(conn, provider, resolve, dialer)
 		}

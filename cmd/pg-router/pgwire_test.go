@@ -53,6 +53,25 @@ func TestParseSQL(t *testing.T) {
 	}
 }
 
+// TestBindParams 는 'B'(Bind) 메시지에서 파라미터 값 추출(NULL 포함)을 검증.
+func TestBindParams(t *testing.T) {
+	var p []byte
+	p = append(p, cstring("")...) // portal
+	p = append(p, cstring("")...) // statement
+	p = append(p, 0, 0)           // numFormatCodes = 0
+	p = append(p, 0, 2)           // numParams = 2
+	p = append(p, 0, 0, 0, 5)     // param0 len = 5
+	p = append(p, []byte("alice")...)
+	p = append(p, 0xff, 0xff, 0xff, 0xff) // param1 = NULL
+	params, ok := bindParams(pgMessage{Type: 'B', Payload: p})
+	if !ok || len(params) != 2 || string(params[0]) != "alice" || params[1] != nil {
+		t.Fatalf("bindParams = %v ok=%v, want [alice, nil]", params, ok)
+	}
+	if _, ok := bindParams(pgMessage{Type: 'Q'}); ok {
+		t.Fatal("non-Bind should be rejected")
+	}
+}
+
 // TestReadMessage_BadLength 는 비정상 길이를 에러로 처리함을 검증.
 func TestReadMessage_BadLength(t *testing.T) {
 	bad := []byte{'Q', 0, 0, 0, 0} // length=0 < 4

@@ -102,6 +102,28 @@ func TestParser_DollarQuoted(t *testing.T) {
 	}
 }
 
+// TestExtractParamRef 는 `col = $N`(extended 파라미터 참조) 추출을 검증한다.
+func TestExtractParamRef(t *testing.T) {
+	cases := []struct {
+		q  string
+		n  int
+		ok bool
+	}{
+		{"SELECT v FROM t WHERE id = $1", 1, true},
+		{"UPDATE t SET v = 2 WHERE id = $3", 3, true},
+		{"SELECT v FROM t WHERE a = 1 AND id = $2", 2, true},
+		{"SELECT v FROM t WHERE id = 'x'", 0, false},   // 리터럴 → ExtractRoutingKey 담당
+		{"SELECT v FROM t WHERE other = $1", 0, false}, // 다른 컬럼
+		{"SELECT v FROM t", 0, false},
+	}
+	for _, c := range cases {
+		n, ok := ExtractParamRef(c.q, "id")
+		if ok != c.ok || (ok && n != c.n) {
+			t.Errorf("ExtractParamRef(%q) = (%d,%v), want (%d,%v)", c.q, n, ok, c.n, c.ok)
+		}
+	}
+}
+
 // TestIsReadOnlyQuery 는 읽기/쓰기 분류가 보수적(확실한 읽기만 true)임을 검증한다.
 func TestIsReadOnlyQuery(t *testing.T) {
 	cases := []struct {

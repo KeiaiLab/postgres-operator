@@ -93,6 +93,66 @@ func parseSQL(m pgMessage) (string, bool) {
 	return string(rest[:j]), true
 }
 
+// bindParams 는 'B'(Bind) 메시지에서 파라미터 값들을 추출한다 (NULL 은 nil). payload =
+// portal(cstring) + statement(cstring) + Int16 format수 + [Int16]×format + Int16
+// param수 + (Int32 len + bytes)×param + .... *text 포맷 가정* — 라우팅 키(텍스트)는
+// 드라이버가 text 로 보내는 게 보통. binary 포맷 값은 raw 바이트라 라우팅이 어긋날 수
+// 있음(드문 케이스).
+func bindParams(m pgMessage) ([][]byte, bool) {
+	if m.Type != 'B' {
+		return nil, false
+	}
+	p := m.Payload
+	pos, ok := skipCString(p, 0) // portal
+	if !ok {
+		return nil, false
+	}
+	pos, ok = skipCString(p, pos) // statement
+	if !ok {
+		return nil, false
+	}
+	if pos+2 > len(p) {
+		return nil, false
+	}
+	numFmt := int(binary.BigEndian.Uint16(p[pos:]))
+	pos += 2 + numFmt*2 // format codes skip
+	if pos+2 > len(p) {
+		return nil, false
+	}
+	numParams := int(binary.BigEndian.Uint16(p[pos:]))
+	pos += 2
+	out := make([][]byte, 0, numParams)
+	for k := 0; k < numParams; k++ {
+		if pos+4 > len(p) {
+			return nil, false
+		}
+		plen := int32(binary.BigEndian.Uint32(p[pos:]))
+		pos += 4
+		if plen < 0 { // NULL
+			out = append(out, nil)
+			continue
+		}
+		if pos+int(plen) > len(p) {
+			return nil, false
+		}
+		out = append(out, p[pos:pos+int(plen)])
+		pos += int(plen)
+	}
+	return out, true
+}
+
+// skipCString 은 pos 부터 null 종단 문자열을 건너뛴 다음 위치를 반환한다.
+func skipCString(p []byte, pos int) (int, bool) {
+	if pos > len(p) {
+		return 0, false
+	}
+	rel := bytes.IndexByte(p[pos:], 0)
+	if rel < 0 {
+		return 0, false
+	}
+	return pos + rel + 1, true
+}
+
 // cstring 은 null 종단 문자열 payload 를 만든다.
 func cstring(s string) []byte {
 	return append([]byte(s), 0)

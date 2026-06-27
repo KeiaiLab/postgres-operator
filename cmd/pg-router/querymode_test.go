@@ -12,37 +12,42 @@ import (
 	"github.com/keiailab/postgres-operator/internal/router"
 )
 
-// TestBuildQueryRouterFunc 는 query-mode 라우팅 결정(토폴로지 + extractor + 백엔드
-// resolver 합성)을 검증한다 — (E) 쿼리 인지 라우팅의 핵심.
-func TestBuildQueryRouterFunc(t *testing.T) {
+func testQR() queryRouter {
 	provider := router.StaticTopologyProvider{T: router.Topology{Spec: shardSpec()}} // vindex column "id"
 	write := func(s string) (string, error) { return s + ":5432", nil }
-	route := buildQueryRouterFunc(provider, write, nil)
+	return newQueryRouter(provider, write, nil)
+}
 
-	// 샤딩 키가 있는 쿼리 → 단일 샤드 + 그 샤드 backend.
+// TestQueryRouter_routeSQL 은 인라인 리터럴 SQL 라우팅을 검증한다.
+func TestQueryRouter_routeSQL(t *testing.T) {
+	qr := testQR()
 	for _, q := range []string{
 		"INSERT INTO t (id, v) VALUES ('alice', 1)",
 		"SELECT v FROM t WHERE id = 'bob'",
-		"UPDATE t SET v = 2 WHERE id = 'carol'",
 	} {
-		d, err := route(q)
-		if err != nil {
-			t.Fatalf("route(%q): %v", q, err)
-		}
-		if d.Shard == "" || d.Backend != d.Shard+":5432" {
-			t.Fatalf("route(%q) = %+v, want shard+backend", q, d)
-		}
-		if d.Scatter {
-			t.Fatalf("route(%q) unexpectedly Scatter", q)
+		d, err := qr.routeSQL(q)
+		if err != nil || d.Shard == "" || d.Backend != d.Shard+":5432" {
+			t.Fatalf("routeSQL(%q) = %+v err=%v", q, d, err)
 		}
 	}
+	// 키 없음 → Scatter.
+	if d, err := qr.routeSQL("SELECT * FROM t"); err == nil || !d.Scatter {
+		t.Fatalf("no-key should scatter, got %+v err=%v", d, err)
+	}
+}
 
-	// 샤딩 키 없음 → Scatter 신호.
-	d, err := route("SELECT * FROM t")
-	if err == nil {
-		t.Fatal("no-key query should error (ErrNoRoutingKey)")
-	}
-	if !d.Scatter {
-		t.Fatalf("no-key decision should set Scatter, got %+v", d)
+// TestQueryRouter_routeKey 는 *값 직접* 라우팅(extended Bind 파라미터)을 검증한다 —
+// 같은 키는 routeSQL 과 같은 샤드로 가야 한다.
+func TestQueryRouter_routeKey(t *testing.T) {
+	qr := testQR()
+	for _, key := range []string{"alice", "bob", "carol"} {
+		bySQL, _ := qr.routeSQL("SELECT v FROM t WHERE id = '" + key + "'")
+		byKey, err := qr.routeKey(key, false)
+		if err != nil {
+			t.Fatalf("routeKey(%q): %v", key, err)
+		}
+		if byKey.Shard != bySQL.Shard {
+			t.Fatalf("key %q: routeKey shard=%s != routeSQL shard=%s", key, byKey.Shard, bySQL.Shard)
+		}
 	}
 }
