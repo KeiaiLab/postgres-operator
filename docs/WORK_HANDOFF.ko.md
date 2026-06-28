@@ -231,7 +231,8 @@ SSOT는 [ROUTER-GAP-ANALYSIS §4 능력 사다리 + §6 백로그](sharding/ROUT
 | ~~·~~ ✅ | ~~CDC 증분 catch-up 빌딩블록~~ | **완료(2026-06-28)** — `reshard_cdc.go`(논리복제 pub/sub/lag/teardown + DeleteForeignRange) + wal_level=logical. 라이브검증: 구독 이후 라이브 INSERT/UPDATE 까지 target 복제(유실0). |
 | ~~·~~ ✅ | ~~CDCCatchup phase 컨트롤러 결선(online)~~ | **완료(2026-06-28)** — `spec.Online` 게이트. reconcileCDC: cdc-setup Job(pub/sub+lag≤CDCMaxLag) → write-block ON → cdc-finalize Job(drain+drop+filter-delete) → done. write-block 이 finalize 감싸 무중단. Job mode 일반화(copy/delete/cdc-setup/cdc-finalize). envtest(순서·env) + 라이브 메커니즘(TestCDCLive) 검증. |
 | **1** | **online 모드 멀티샤드 full e2e** | spec.Online=true ShardSplitJob 을 실 클러스터에서 *동시 쓰기 부하 하* 실행해 무중단 cutover 실증(offline e2e 는 2026-06-28 성공). |
-| **2** | **resharding 운영화 마감** | target 인덱스/PK 복제(현재 데이터만), RESHARD_COPY_IMAGE 를 operator manager env 기본 결선, target shard 영구 승격(ordinal 편입) |
+| ~~·~~ ✅ | ~~resharding 운영화(인덱스 복제·이미지 env)~~ | **완료(2026-06-28)** — `ReplicateIndexes`(source pg_indexes → target IF NOT EXISTS, PK 백킹 unique index 포함, 데이터 복사 후) offline/online 양 경로 결선. config/manager RESHARD_COPY_IMAGE env. 라이브검증(TestCDCLive: kv_pkey 복제). |
+| **2** | **target shard 영구 승격(ordinal 편입)** | resharding 완료 후 transient target(rsd-<id>)을 cluster 의 영구 ordinal shard 로 승격 — status/failover/메트릭이 인식하도록. 외래키/체크 제약 복제도 후속 |
 | **3** | **멀티머신 수평 스케일 실측** | 진짜 "분산처리능력" 수치 — 물리 분리 노드 필요(router-bench 가 샤드별 DSN 받음, 그대로 적용) |
 | **4** | **멀티 라우터 인스턴스 수평확장** | 라우터 1-hop 왕복이 남은 오버헤드(prepared direct 86K vs router 23K) — 라우터를 여러 개 띄워 처리량 확장 |
 | **6** | 보류 #5/#7/#9 | per-shard primary Service·watch·failover lease P2-T3 — 라이브 failover 필요 |
