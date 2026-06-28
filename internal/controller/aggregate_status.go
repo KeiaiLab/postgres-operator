@@ -242,33 +242,21 @@ func activeNamedShardStatuses(
 	c client.Client,
 	cluster *postgresv1alpha1.PostgresCluster,
 ) ([]postgresv1alpha1.ShardStatus, bool, error) {
-	if cluster == nil {
+	active, hasTopology, err := activeShardTopology(ctx, c, cluster)
+	if err != nil {
+		return nil, false, err
+	}
+	if !hasTopology {
 		return nil, true, nil
 	}
-	var ranges postgresv1alpha1.ShardRangeList
-	if err := c.List(ctx, &ranges, client.InNamespace(cluster.Namespace)); err != nil {
-		return nil, false, fmt.Errorf("list ShardRange for named shard status: %w", err)
-	}
-	seen := map[string]struct{}{}
-	for i := range ranges.Items {
-		sr := &ranges.Items[i]
-		if sr.Spec.Cluster != cluster.Name {
-			continue
-		}
-		for j := range sr.Spec.Ranges {
-			shardID := sr.Spec.Ranges[j].Shard
-			if shardID == "" || isOrdinalShardID(cluster, shardID) {
-				continue
-			}
-			seen[shardID] = struct{}{}
+	ids := make([]string, 0, len(active))
+	for id := range active {
+		if !isOrdinalShardID(cluster, id) {
+			ids = append(ids, id)
 		}
 	}
-	if len(seen) == 0 {
+	if len(ids) == 0 {
 		return nil, true, nil
-	}
-	ids := make([]string, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 
@@ -282,6 +270,38 @@ func activeNamedShardStatuses(
 		statuses = append(statuses, status)
 	}
 	return statuses, allReady, nil
+}
+
+func activeShardTopology(
+	ctx context.Context,
+	c client.Client,
+	cluster *postgresv1alpha1.PostgresCluster,
+) (map[string]struct{}, bool, error) {
+	if cluster == nil || cluster.Spec.ShardingMode != postgresv1alpha1.ShardingModeNative {
+		return nil, false, nil
+	}
+	var ranges postgresv1alpha1.ShardRangeList
+	if err := c.List(ctx, &ranges, client.InNamespace(cluster.Namespace)); err != nil {
+		return nil, false, fmt.Errorf("list ShardRange for active shard topology: %w", err)
+	}
+	seen := map[string]struct{}{}
+	for i := range ranges.Items {
+		sr := &ranges.Items[i]
+		if sr.Spec.Cluster != cluster.Name {
+			continue
+		}
+		for j := range sr.Spec.Ranges {
+			shardID := sr.Spec.Ranges[j].Shard
+			if shardID == "" {
+				continue
+			}
+			seen[shardID] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, false, nil
+	}
+	return seen, true, nil
 }
 
 func isOrdinalShardID(cluster *postgresv1alpha1.PostgresCluster, shardID string) bool {

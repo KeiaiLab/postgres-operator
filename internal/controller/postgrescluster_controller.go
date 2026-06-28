@@ -222,13 +222,27 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if databasePodsStopped {
 		desiredMembers = 0
 	}
+	activeShardIDs, hasActiveShardTopology, err := activeShardTopology(ctx, r.Client, &cluster)
+	if err != nil {
+		logger.Error(err, "Failed to resolve active shard topology")
+		return ctrl.Result{}, err
+	}
 	shardStatuses := make([]postgresv1alpha1.ShardStatus, 0, shardCount)
 	allShardPrimaryReady := true
 
 	for ord := range shardCount {
+		shardID := ShardIDForOrdinal(ord)
+		ordinalActive := true
+		if !databasePodsStopped && hasActiveShardTopology {
+			_, ordinalActive = activeShardIDs[shardID]
+		}
 		cmName := ShardConfigMapName(cluster.Name, ord)
 		svcName := ShardServiceName(cluster.Name, ord)
 		stsName := ShardStatefulSetName(cluster.Name, ord)
+		desiredMembersForShard := desiredMembers
+		if !ordinalActive {
+			desiredMembersForShard = 0
+		}
 
 		cm := buildConfigMap(&cluster, cmName, "shard", ord, r.Plugins)
 		configHash := postgresConfigHash(cm.Data)
@@ -246,7 +260,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			&cluster, stsName, svcName,
 			ord,
 			resolvedImage.Image, cmName, resolvedImage.PostgresMajor,
-			desiredMembers,
+			desiredMembersForShard,
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
 			primaryEndpoint,
 			configHash,
@@ -257,8 +271,8 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// shard PDB (PR #31): members>=2 시 자동 생성.
-		if !databasePodsStopped && shouldAutoCreatePDB(members) {
-			pdb := BuildShardPDB(&cluster, ord, members)
+		if !databasePodsStopped && shouldAutoCreatePDB(desiredMembersForShard) {
+			pdb := BuildShardPDB(&cluster, ord, desiredMembersForShard)
 			if err := r.upsert(ctx, &cluster, pdb); err != nil {
 				return r.handleUpsertErr(ctx, &cluster, err, "shard PDB", logger)
 			}
@@ -277,6 +291,9 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 		} else {
 			primaryReady = observed.Status.ReadyReplicas >= 1
+		}
+		if !ordinalActive {
+			continue
 		}
 		if !primaryReady {
 			allShardPrimaryReady = false
@@ -401,6 +418,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// 3. status 종합.
 	prevPhase := cluster.Status.Phase
 	cluster.Status.Shards = shardStatuses
+	activeShardCount := int32(len(shardStatuses))
 	cluster.Status.Router = routerStatus
 	managedRolesStatus, err := r.managedRolesStatus(ctx, &cluster)
 	if err != nil {
@@ -457,7 +475,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Error(err, "rogue primary re-seed failed (best-effort)")
 		}
 	}
-	applyClusterConditions(&cluster, shardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
+	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)
 
 	// Config hot-reload: if cluster is Ready and primary Pods are running with
@@ -476,7 +494,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// 매 reconcile noise 회피). prevPhase 비교로 transition 감지.
 	if cluster.Status.Phase == postgresv1alpha1.ClusterPhaseReady && prevPhase != postgresv1alpha1.ClusterPhaseReady {
 		commonsevents.Emitf(r.Recorder, &cluster, "ClusterReady",
-			"PostgresCluster %d/%d shards primary ready, router=%v", shardCount, shardCount, routerActive)
+			"PostgresCluster %d/%d shards primary ready, router=%v", activeShardCount, activeShardCount, routerActive)
 	}
 
 	if err := r.Status().Update(ctx, &cluster); err != nil {

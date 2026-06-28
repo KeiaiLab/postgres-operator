@@ -177,6 +177,35 @@ go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-
 
 Status as of 2026-06-28: all checkpoint commands pass on Windows Go 1.26.4. This is a P-B status/backend-resolution slice only. Source decommission, target replica scale-up/HA, and named shard spec-model migration remain open.
 
+## Batch 2.7: Active Topology Source Decommission
+
+**Files:**
+- Modify: `internal/controller/aggregate_status.go`
+- Modify: `internal/controller/postgrescluster_controller.go`
+- Modify: `internal/controller/postgrescluster_controller_test.go`
+
+- [x] Treat `ShardRange.spec.ranges[].shard` as the active topology source for native clusters once at least one ShardRange exists.
+  - Ordinal shards still run normally when no ShardRange exists.
+  - Hibernation/restore keeps the existing stopped-status behavior.
+
+- [x] Scale inactive ordinal source StatefulSets to zero.
+  - This is a conservative source decommission step: retain StatefulSet/PVC ownership, stop Pods.
+  - Do not delete source data automatically.
+
+- [x] Exclude inactive ordinal shards from `PostgresCluster.status.shards`.
+  - Active named targets can make the cluster Ready without a stale `shard-0` fallback row forcing Provisioning/Degraded.
+  - Status conditions and Ready event use the active shard count, not `spec.shards.initialCount`.
+
+**Checkpoint Verification:**
+
+```powershell
+go test -count=1 ./internal/controller --ginkgo.focus="adds active named reshard targets"
+go test -count=1 ./internal/controller
+go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller
+```
+
+Status as of 2026-06-29: all checkpoint commands pass on Windows Go 1.26.4. This closes the source-observation part of P-C, but target replica scale-up/HA, explicit ShardSplitJob Promote phase, and named shard spec-model migration remain open.
+
 ## Batch 3: Native Router Concurrent-Write E2E Design
 
 **Files:**

@@ -30,6 +30,19 @@ status row 는 `name=t1`, `ordinal=-1` 로 기록된다. target Pod 선택은
 단, 이것은 lifecycle 승격 전체가 아니다. source ordinal resource decommission, target replica scale-up/HA,
 spec shard model 의 named-list 전환, Promote phase idempotency 는 아직 P-B/P-C 잔여 범위다.
 
+### P-C.1 active topology source decommission (2026-06-29)
+
+native cluster 에 하나 이상의 `ShardRange` 가 존재하면 `ShardRange.spec.ranges[].shard` 의 union 을
+active topology 로 본다. active topology 에서 빠진 ordinal shard 는 StatefulSet replicas 를 0 으로
+낮추고 `PostgresCluster.status.shards[]` 에서 제외한다. StatefulSet/PVC 는 삭제하지 않는다.
+
+이 변경으로 routing flip 후 target shard 가 Ready 인데도 기존 source `shard-0` fallback row 가
+Ready=false 로 남아 cluster 를 Provisioning/Degraded 에 묶어두는 문제를 제거한다. 조건 메시지와
+Ready event 의 shard count 도 active status row 수를 사용한다.
+
+아직 남은 범위는 target replica scale-up/HA, 명시적 ShardSplitJob Promote phase, source resource/PDB
+정리 정책, CRD spec 의 named shard model 전환이다.
+
 이번 hardening batch 에서 selector 사용처를 다음처럼 분리했다.
 
 - **그대로 둔 것**: `ShardStatefulSetName`, `ShardServiceName`, PDB/TLS/PVC resize, source shard DNS,

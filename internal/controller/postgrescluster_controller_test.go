@@ -268,18 +268,30 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				var got postgresv1alpha1.PostgresCluster
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: clusterName}, &got)).To(Succeed())
 				var named *postgresv1alpha1.ShardStatus
+				var source *postgresv1alpha1.ShardStatus
 				for i := range got.Status.Shards {
 					if got.Status.Shards[i].Name == targetShard {
 						named = &got.Status.Shards[i]
-						break
+					}
+					if got.Status.Shards[i].Name == "shard-0" {
+						source = &got.Status.Shards[i]
 					}
 				}
+				g.Expect(source).To(BeNil(), "inactive source shard must be excluded from active status topology")
 				g.Expect(named).NotTo(BeNil(), "active ShardRange target must appear in status.shards")
 				g.Expect(named.Ordinal).To(Equal(int32(-1)))
 				g.Expect(named.Primary).NotTo(BeNil())
 				g.Expect(named.Primary.Pod).To(Equal(targetPod))
 				g.Expect(named.Primary.Endpoint).To(Equal(targetEndpoint))
 				g.Expect(named.Primary.Ready).To(BeTrue())
+				g.Expect(got.Status.Phase).To(Equal(postgresv1alpha1.ClusterPhaseReady))
+
+				var sourceSTS appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: ShardStatefulSetName(clusterName, 0),
+				}, &sourceSTS)).To(Succeed())
+				g.Expect(sourceSTS.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*sourceSTS.Spec.Replicas).To(Equal(int32(0)), "inactive source ordinal STS must scale to zero")
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 	})
