@@ -32,6 +32,30 @@ import (
 // placeholder 바인딩 불가).
 var pubSubNamePattern = tableNamePattern
 
+// EnsureSchema 는 각 table 을 source 의 정의로 target 에 만든다(subscription copy_data=true 는
+// target 에 테이블이 이미 있어야 하므로 — DDL 우선).
+func EnsureSchema(ctx context.Context, sourceDSN, targetDSN string, tables []string) error {
+	src, err := sql.Open("postgres", sourceDSN)
+	if err != nil {
+		return fmt.Errorf("router: open source: %w", err)
+	}
+	defer func() { _ = src.Close() }()
+	tgt, err := sql.Open("postgres", targetDSN)
+	if err != nil {
+		return fmt.Errorf("router: open target: %w", err)
+	}
+	defer func() { _ = tgt.Close() }()
+	for _, t := range tables {
+		if !tableNamePattern.MatchString(t) {
+			return fmt.Errorf("%w: %q", ErrInvalidTable, t)
+		}
+		if err := ensureTargetTable(ctx, src, tgt, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CreatePublication 은 source 에 지정 테이블(빈 목록이면 전 테이블)의 publication 을 멱등
 // 생성한다(DROP IF EXISTS 후 CREATE).
 func CreatePublication(ctx context.Context, sourceDSN, pubName string, tables []string) error {
@@ -74,6 +98,15 @@ func CreateSubscription(ctx context.Context, targetDSN, sourceConnInfo, subName,
 		return fmt.Errorf("router: open target: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+
+	// 멱등: 이미 있으면 skip(Job 재시도 시 스트림 진행 보존 — CREATE SUBSCRIPTION 은
+	// IF NOT EXISTS 미지원이라 명시 확인).
+	var exists int
+	if err := db.QueryRowContext(ctx, "SELECT 1 FROM pg_subscription WHERE subname = $1", subName).Scan(&exists); err == nil {
+		return nil
+	} else if err != sql.ErrNoRows {
+		return fmt.Errorf("router: check subscription: %w", err)
+	}
 
 	// conninfo 는 SQL 문자열 리터럴로 들어가므로 작은따옴표를 이스케이프.
 	conn := strings.ReplaceAll(sourceConnInfo, "'", "''")

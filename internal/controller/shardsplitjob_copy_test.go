@@ -85,7 +85,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		// 2) 각 target Job 이 올바른 env 로 생성됐는지.
 		for _, shardID := range []string{"t0", "t1"} {
 			var job batchv1.Job
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, false)}, &job)).
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, "copy")}, &job)).
 				To(Succeed(), "target %s 복사 Job 이 생성돼야 함", shardID)
 			c := job.Spec.Template.Spec.Containers[0]
 			Expect(envOf(c, "PGROUTER_RESHARD_TARGET_SHARD")).To(Equal(shardID))
@@ -109,7 +109,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		// 4) 두 Job 을 성공으로 표기 → done=true.
 		for _, shardID := range []string{"t0", "t1"} {
 			var job batchv1.Job
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, false)}, &job)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, "copy")}, &job)).To(Succeed())
 			job.Status.Succeeded = 1
 			Expect(k8sClient.Status().Update(ctx, &job)).To(Succeed())
 		}
@@ -149,7 +149,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		var job batchv1.Job
-		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t0", false)}, &job)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t0", "copy")}, &job)).To(Succeed())
 		now := metav1.Now()
 		job.Status.StartTime = &now // apiserver: finished job 은 startTime 필수.
 		job.Status.Conditions = []batchv1.JobCondition{
@@ -195,7 +195,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		Expect(done).To(BeFalse())
 
 		var job batchv1.Job
-		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", true)}, &job)).
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "delete")}, &job)).
 			To(Succeed(), "delete Job 이 생성돼야 함")
 		c := job.Spec.Template.Spec.Containers[0]
 		Expect(envOf(c, "PGROUTER_RESHARD_DELETE_ONLY")).To(Equal("1"))

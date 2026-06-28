@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,8 +91,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: full copy requires PGROUTER_COPY_TABLE")
 		os.Exit(2)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	mode := os.Getenv("PGROUTER_RESHARD_MODE")
+	timeout := 60 * time.Second
+	if mode == "cdc-setup" || mode == "cdc-finalize" {
+		timeout = 15 * time.Minute // CDC bulk 복사/drain 은 길 수 있다.
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// CDC(online) 모드: 논리복제 setup(스키마+pub+sub+lag대기) 또는 finalize(drain+drop+범위정리).
+	if mode == "cdc-setup" || mode == "cdc-finalize" {
+		runCDC(ctx, mode, src, tgt, targetShard)
+		return
+	}
 
 	// Full copy (no target shard) vs range-filtered copy (the real split).
 	if targetShard == "" {
@@ -165,6 +177,105 @@ func main() {
 		fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q from source\n", deleted, tbl)
 	}
 	fmt.Printf("reshard-copy-poc: split complete — %s now owns its range across %d table(s)\n", targetShard, len(tables))
+}
+
+// runCDC 는 online resharding 의 논리복제 단계를 수행한다.
+//   - cdc-setup: target 스키마 보장 + source publication + target subscription(copy_data=true)
+//     생성 후 lag ≤ CDC_MAX_LAG 까지 대기(라이브 쓰기 따라잡기, write-block 없음).
+//   - cdc-finalize: 최종 drain(lag→0, write-block 하에 호출 전제) + subscription drop +
+//     DeleteForeignRange(범위 밖 정리) + publication drop.
+func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
+	if targetShard == "" {
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_RESHARD_TARGET_SHARD")
+		os.Exit(2)
+	}
+	col := os.Getenv("PGROUTER_VINDEX_COLUMN")
+	if col == "" {
+		col = "id"
+	}
+	spec := reshardSpec(col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
+	tables := cdcTables(ctx, src)
+	pub := "rsd_pub_" + sanitize(targetShard)
+	sub := "rsd_sub_" + sanitize(targetShard)
+	connInfo := src
+	if v := os.Getenv("PGROUTER_SOURCE_CONNINFO"); v != "" {
+		connInfo = v
+	}
+	maxLag := int64(16 << 20)
+	if v := os.Getenv("PGROUTER_CDC_MAX_LAG"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			maxLag = n
+		}
+	}
+
+	switch mode {
+	case "cdc-setup":
+		fmt.Printf("reshard-copy-poc: cdc-setup target=%s tables=%v\n", targetShard, tables)
+		must(router.EnsureSchema(ctx, src, tgt, tables), "ensure schema")
+		must(router.CreatePublication(ctx, src, pub, tables), "create publication")
+		must(router.CreateSubscription(ctx, tgt, connInfo, sub, pub, true), "create subscription")
+		waitLag(ctx, src, sub, maxLag)
+		fmt.Printf("reshard-copy-poc: cdc-setup 완료 — subscription %s 활성, lag ≤ %d\n", sub, maxLag)
+	case "cdc-finalize":
+		fmt.Printf("reshard-copy-poc: cdc-finalize target=%s (write-block 하 최종 drain)\n", targetShard)
+		waitLag(ctx, src, sub, 0) // write-block 하 → 새 쓰기 없음 → lag→0 수렴.
+		must(router.DropSubscription(ctx, tgt, sub), "drop subscription")
+		total := 0
+		for _, t := range tables {
+			n, err := router.DeleteForeignRange(ctx, tgt, t, spec, targetShard)
+			must(err, "delete foreign range "+t)
+			total += n
+		}
+		must(router.DropPublication(ctx, src, pub), "drop publication")
+		fmt.Printf("reshard-copy-poc: cdc-finalize 완료 — 범위 밖 %d row 삭제, %s 자기 범위만 보유\n", total, targetShard)
+	}
+}
+
+// cdcTables 는 COPY_TABLE 지정 시 그 하나, 아니면 source user 테이블에서 reference 제외 전부.
+func cdcTables(ctx context.Context, src string) []string {
+	if t := os.Getenv("PGROUTER_COPY_TABLE"); t != "" {
+		return []string{t}
+	}
+	all, err := router.ListUserTables(ctx, src)
+	must(err, "list tables")
+	return router.FilterTables(all, csv(os.Getenv("PGROUTER_REFERENCE_TABLES")))
+}
+
+// waitLag 는 subscription 슬롯 lag 가 maxLag 이하가 될 때까지 폴링한다(ctx 만료 시 실패).
+func waitLag(ctx context.Context, src, sub string, maxLag int64) {
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintf(os.Stderr, "reshard-copy-poc: lag wait timeout (sub=%s)\n", sub)
+			os.Exit(1)
+		default:
+		}
+		lag, err := router.SubscriptionLagBytes(ctx, src, sub)
+		must(err, "lag")
+		if lag >= 0 && lag <= maxLag {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func sanitize(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+func must(err error, what string) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reshard-copy-poc: %s: %v\n", what, err)
+		os.Exit(1)
+	}
 }
 
 // csv 는 콤마 구분 문자열을 trim 해 분리한다(빈 값 제거).

@@ -20,8 +20,9 @@ import (
 // row 만 제거하는지.
 //
 // 실행:
-//   RESHARD_LIVE_SOURCE="host=pg-src ..." RESHARD_LIVE_TARGET="host=pg-tgt ..."
-//   RESHARD_LIVE_CONNINFO="host=pg-src ..."(target→source 접속) go test -run TestCDCLive
+//
+//	RESHARD_LIVE_SOURCE="host=pg-src ..." RESHARD_LIVE_TARGET="host=pg-tgt ..."
+//	RESHARD_LIVE_CONNINFO="host=pg-src ..."(target→source 접속) go test -run TestCDCLive
 func TestCDCLive(t *testing.T) {
 	sourceDSN := os.Getenv("RESHARD_LIVE_SOURCE")
 	targetDSN := os.Getenv("RESHARD_LIVE_TARGET")

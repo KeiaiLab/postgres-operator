@@ -44,14 +44,17 @@ func reshardCopyImage() string {
 	return "ghcr.io/keiailab/reshard-copy:dev"
 }
 
-// reshardJobName 은 target shard 별 데이터이동 Job 이름(결정적 — 멱등 생성). deleteOnly 면
-// Cleanup(삭제) Job, 아니면 InitialCopy(복사) Job — 이름이 분리돼 두 phase 의 Job 이 공존한다.
-func reshardJobName(cluster, shardID string, deleteOnly bool) string {
-	verb := "copy"
-	if deleteOnly {
-		verb = "del"
-	}
-	return fmt.Sprintf("%s-rsd-%s-%s", cluster, verb, shardID)
+// reshardModeVerb 는 데이터이동 mode 의 Job 이름 segment 다(phase 별 Job 공존을 위해 분리).
+var reshardModeVerb = map[string]string{
+	"copy":         "copy",
+	"delete":       "del",
+	"cdc-setup":    "cdcset",
+	"cdc-finalize": "cdcfin",
+}
+
+// reshardJobName 은 target shard·mode 별 데이터이동 Job 이름(결정적 — 멱등 생성).
+func reshardJobName(cluster, shardID, mode string) string {
+	return fmt.Sprintf("%s-rsd-%s-%s", cluster, reshardModeVerb[mode], shardID)
 }
 
 // internalShardDSN 은 클러스터 내부 trust DSN 을 만든다(postgres superuser, 무비밀번호 —
@@ -107,34 +110,50 @@ func (r *ShardSplitJobReconciler) keyspaceVindex(ctx context.Context, ns, cluste
 	return "", "", nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", cluster, keyspace)
 }
 
-// buildReshardJob 은 한 target shard 의 데이터이동 Job 을 만든다. deleteOnly=false 면
-// InitialCopy(source→target 복사), true 면 Cleanup(cutover 후 source 에서 이동분 삭제 —
-// target 접속 불요). 두 경우 모두 모든 user 테이블 자동 발견(COPY_TABLE 미설정).
-func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSplitJob, sourceDSN, targetDSN, targetShard, col, fn, ranges string, refTables []string, deleteOnly bool) *batchv1.Job {
+// reshardParams 는 한 데이터이동 Job 의 입력이다.
+type reshardParams struct {
+	sourceDSN, targetDSN, targetShard string
+	col, fn, ranges                   string
+	refTables                         []string
+	maxLag                            int64
+	mode                              string // copy | delete | cdc-setup | cdc-finalize
+}
+
+// buildReshardJob 은 mode 에 맞는 데이터이동 Job 을 만든다:
+//   - copy: source→target 범위복사(offline) · delete: source 에서 이동분 삭제(target 불요)
+//   - cdc-setup: 스키마+pub+sub(copy_data=true)+lag대기 · cdc-finalize: 최종 drain+drop+범위정리
+func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSplitJob, p reshardParams) *batchv1.Job {
 	backoff := int32(2)
 	env := []corev1.EnvVar{
-		{Name: "PGROUTER_SOURCE_DSN", Value: sourceDSN},
-		{Name: "PGROUTER_RESHARD_TARGET_SHARD", Value: targetShard},
-		{Name: "PGROUTER_VINDEX_COLUMN", Value: col},
-		{Name: "PGROUTER_VINDEX_FUNCTION", Value: fn},
-		{Name: "PGROUTER_RANGES", Value: ranges},
-		{Name: "PGROUTER_REFERENCE_TABLES", Value: strings.Join(refTables, ",")},
+		{Name: "PGROUTER_SOURCE_DSN", Value: p.sourceDSN},
+		{Name: "PGROUTER_RESHARD_TARGET_SHARD", Value: p.targetShard},
+		{Name: "PGROUTER_VINDEX_COLUMN", Value: p.col},
+		{Name: "PGROUTER_VINDEX_FUNCTION", Value: p.fn},
+		{Name: "PGROUTER_RANGES", Value: p.ranges},
+		{Name: "PGROUTER_REFERENCE_TABLES", Value: strings.Join(p.refTables, ",")},
 	}
-	if deleteOnly {
+	switch p.mode {
+	case "delete":
 		env = append(env, corev1.EnvVar{Name: "PGROUTER_RESHARD_DELETE_ONLY", Value: "1"})
-	} else {
-		env = append(env, corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: targetDSN})
+	case "cdc-setup", "cdc-finalize":
+		env = append(env,
+			corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: p.targetDSN},
+			corev1.EnvVar{Name: "PGROUTER_RESHARD_MODE", Value: p.mode},
+			corev1.EnvVar{Name: "PGROUTER_CDC_MAX_LAG", Value: strconv.FormatInt(p.maxLag, 10)},
+		)
+	default: // copy
+		env = append(env, corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: p.targetDSN})
 	}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      reshardJobName(ssj.Spec.Cluster, targetShard, deleteOnly),
+			Name:      reshardJobName(ssj.Spec.Cluster, p.targetShard, p.mode),
 			Namespace: ssj.Namespace,
-			Labels:    ReshardTargetSelectorLabels(ssj.Spec.Cluster, targetShard),
+			Labels:    ReshardTargetSelectorLabels(ssj.Spec.Cluster, p.targetShard),
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: &backoff,
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: ReshardTargetSelectorLabels(ssj.Spec.Cluster, targetShard)},
+				ObjectMeta: metav1.ObjectMeta{Labels: ReshardTargetSelectorLabels(ssj.Spec.Cluster, p.targetShard)},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{{
@@ -148,28 +167,41 @@ func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSpl
 	}
 }
 
-// reconcileInitialCopy 는 각 target 의 source→target 복사 Job 을 띄우고 완료를 집계한다.
+// reconcileInitialCopy 는 (offline) 각 target 의 source→target 범위복사 Job 을 띄운다. Online
+// 모드는 데이터 이동을 CDCCatchup(subscription)이 하므로 skip(즉시 done).
 func (r *ShardSplitJobReconciler) reconcileInitialCopy(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
-	return r.reconcileReshardJobs(ctx, ssj, false)
-}
-
-// reconcileCleanup 은 cutover 후 각 target 키를 source 에서 삭제하는 Job 을 띄우고 완료를
-// 집계한다(source 정리 — 이동분 회수). InitialCopy 가 끝나고 라우팅이 전환된 *뒤* 이므로
-// 안전하다.
-func (r *ShardSplitJobReconciler) reconcileCleanup(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
-	return r.reconcileReshardJobs(ctx, ssj, true)
-}
-
-// reconcileReshardJobs 는 각 target 의 데이터이동 Job(deleteOnly=복사/삭제)을 멱등 생성하고
-// 완료를 집계한다. 반환: done(전부 성공), failure(한 Job 이라도 실패 시 사유), err(전이 가능
-// — requeue).
-func (r *ShardSplitJobReconciler) reconcileReshardJobs(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, deleteOnly bool) (done bool, failure string, err error) {
-	phase := "InitialCopy"
-	if deleteOnly {
-		phase = "Cleanup"
+	if ssj.Spec.Online {
+		return true, "", nil
 	}
+	return r.reconcileModeJobs(ctx, ssj, "copy")
+}
+
+// reconcileCleanup 은 cutover 후 각 target 키를 source 에서 삭제하는 Job 을 띄운다(source 회수).
+func (r *ShardSplitJobReconciler) reconcileCleanup(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
+	return r.reconcileModeJobs(ctx, ssj, "delete")
+}
+
+// reconcileCDC 는 (online) CDC 증분 catch-up 을 단계적으로 진행한다: ① cdc-setup Job(스키마+
+// pub+sub+lag≤임계 대기) 전부 완료 → ② write-block 설정(이후 라이브 쓰기 차단) → ③ cdc-finalize
+// Job(최종 drain+sub drop+범위 정리) 전부 완료 → done. write-block 이 finalize 를 감싸 라이브
+// 쓰기 유실 없이 짧은 창으로 cutover 한다.
+func (r *ShardSplitJobReconciler) reconcileCDC(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
+	setupDone, failure, err := r.reconcileModeJobs(ctx, ssj, "cdc-setup")
+	if err != nil || failure != "" || !setupDone {
+		return false, failure, err
+	}
+	// bulk + 거의 catch-up 완료 → write-block 켜고 최종 drain.
+	if err := r.setWriteBlock(ctx, ssj, true); err != nil {
+		return false, "", err
+	}
+	return r.reconcileModeJobs(ctx, ssj, "cdc-finalize")
+}
+
+// reconcileModeJobs 는 각 target 의 mode Job 을 멱등 생성하고 완료를 집계한다. 반환: done(전부
+// 성공), failure(한 Job 이라도 실패 시 사유), err(전이 가능 — requeue).
+func (r *ShardSplitJobReconciler) reconcileModeJobs(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, mode string) (done bool, failure string, err error) {
 	if len(ssj.Spec.Sources) == 0 {
-		return false, phase + ": no source shard", nil
+		return false, mode + ": no source shard", nil
 	}
 	col, fn, refTables, err := r.keyspaceVindex(ctx, ssj.Namespace, ssj.Spec.Cluster, ssj.Spec.Keyspace)
 	if err != nil {
@@ -177,23 +209,27 @@ func (r *ShardSplitJobReconciler) reconcileReshardJobs(ctx context.Context, ssj 
 	}
 	srcDNS, err := sourceShardPodDNS(ssj.Spec.Cluster, ssj.Namespace, ssj.Spec.Sources[0])
 	if err != nil {
-		return false, phase + ": " + err.Error(), nil // 설정 오류 — Failed.
+		return false, mode + ": " + err.Error(), nil // 설정 오류 — Failed.
 	}
 	ranges := rangesEnvValue(ssj.Spec.Targets)
+	maxLag := ssj.Spec.CDCMaxLag
 
 	allDone := true
 	for i := range ssj.Spec.Targets {
 		t := &ssj.Spec.Targets[i]
-		name := reshardJobName(ssj.Spec.Cluster, t.ShardID, deleteOnly)
+		name := reshardJobName(ssj.Spec.Cluster, t.ShardID, mode)
 		var job batchv1.Job
 		getErr := r.Get(ctx, client.ObjectKey{Namespace: ssj.Namespace, Name: name}, &job)
 		switch {
 		case apierrors.IsNotFound(getErr):
 			targetDSN := ""
-			if !deleteOnly {
+			if mode != "delete" {
 				targetDSN = internalShardDSN(targetShardPodDNS(ssj.Spec.Cluster, ssj.Namespace, t.ShardID))
 			}
-			j := r.buildReshardJob(ssj, internalShardDSN(srcDNS), targetDSN, t.ShardID, col, fn, ranges, refTables, deleteOnly)
+			j := r.buildReshardJob(ssj, reshardParams{
+				sourceDSN: internalShardDSN(srcDNS), targetDSN: targetDSN, targetShard: t.ShardID,
+				col: col, fn: fn, ranges: ranges, refTables: refTables, maxLag: maxLag, mode: mode,
+			})
 			if err := controllerutil.SetControllerReference(ssj, j, r.Scheme); err != nil {
 				return false, "", err
 			}
@@ -206,7 +242,7 @@ func (r *ShardSplitJobReconciler) reconcileReshardJobs(ctx context.Context, ssj 
 		case job.Status.Succeeded > 0:
 			// 이 target 완료.
 		case jobFailed(&job):
-			return false, fmt.Sprintf("%s: job %s failed", phase, name), nil
+			return false, fmt.Sprintf("%s: job %s failed", mode, name), nil
 		default:
 			allDone = false // 진행 중.
 		}

@@ -13,6 +13,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,6 +30,15 @@ import (
 var _ = Describe("ShardSplitJob Cutover write-block", func() {
 	ctx := context.Background()
 	const ns = "default"
+
+	envOf := func(c corev1.Container, key string) string {
+		for _, e := range c.Env {
+			if e.Name == key {
+				return e.Value
+			}
+		}
+		return ""
+	}
 
 	It("Cutover 가 write-block 을 켜고 RoutingUpdate 가 ranges flip 과 함께 끈다", func() {
 		clusterName := fmt.Sprintf("rsdwb-%d", GinkgoRandomSeed())
@@ -83,6 +94,65 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 		Expect(shards).To(ConsistOf("t0", "t1"))
 		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
 		Expect(ssj.Status.Phase).To(Equal(postgresv1alpha1.ShardSplitPhaseCleanup))
+	})
+
+	It("online 모드 CDCCatchup: cdc-setup Job → write-block → cdc-finalize Job 순서", func() {
+		clusterName := fmt.Sprintf("rsdcdc-%d", GinkgoRandomSeed())
+		keyspace := "default"
+		sr := &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster: clusterName, Keyspace: keyspace,
+				Vindex: postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj := &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"}, Online: true,
+				CDCMaxLag: 16 << 20,
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		r := &ShardSplitJobReconciler{Client: k8sClient, Scheme: scheme.Scheme}
+
+		// 1) reconcileCDC: cdc-setup Job 생성, 미완료(write-block 아직 안 켜짐).
+		done, failure, err := r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		var setup batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-setup")}, &setup)).To(Succeed())
+		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_RESHARD_MODE")).To(Equal("cdc-setup"))
+		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_CDC_MAX_LAG")).To(Equal("16777216"))
+		var got postgresv1alpha1.ShardRange
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
+		Expect(got.Spec.WriteBlocked).To(BeFalse(), "cdc-setup 완료 전엔 write-block 미설정")
+
+		// 2) cdc-setup 성공 → reconcileCDC 가 write-block 켜고 cdc-finalize Job 생성.
+		setup.Status.Succeeded = 1
+		Expect(k8sClient.Status().Update(ctx, &setup)).To(Succeed())
+		done, _, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeFalse())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
+		Expect(got.Spec.WriteBlocked).To(BeTrue(), "cdc-setup 후 write-block 켜짐")
+		var fin batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-finalize")}, &fin)).To(Succeed())
+		Expect(envOf(fin.Spec.Template.Spec.Containers[0], "PGROUTER_RESHARD_MODE")).To(Equal("cdc-finalize"))
+
+		// 3) cdc-finalize 성공 → done.
+		fin.Status.Succeeded = 1
+		Expect(k8sClient.Status().Update(ctx, &fin)).To(Succeed())
+		done, _, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeTrue())
 	})
 
 	It("forward-only cutover 는 write-block 을 켜지 않는다(비가역 거부)", func() {

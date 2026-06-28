@@ -109,6 +109,29 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// 복사 완료 → 아래 nextPhase 가 CDCCatchup 으로 전이.
 	}
 
+	// CDCCatchup phase (online): 논리복제로 라이브 쓰기를 따라잡고, 거의 catch-up 되면
+	// write-block 을 켠 뒤 최종 drain·정리한다(reconcileCDC). 완료 전엔 전이하지 않는다.
+	// offline 모드는 no-op(아래 nextPhase 가 즉시 Cutover 로).
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCDCCatchup && ssj.Spec.Online {
+		done, failure, err := r.reconcileCDC(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if failure != "" {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = failure
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+		if !done {
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // CDC catch-up 대기.
+		}
+		// CDC 완료(write-block 켜짐) → nextPhase 가 Cutover 로.
+	}
+
 	// Cutover phase: 라우팅 전환 직전 write-block 을 켠다(라우터가 쓰기 거부, 읽기는 통과) —
 	// RoutingUpdate 가 ranges 를 flip 하고 동시에 write-block 을 해제한다. forward-only(비가역)는
 	// nextPhase 가 Failed 로 막으므로 write-block 을 켜지 않는다.
