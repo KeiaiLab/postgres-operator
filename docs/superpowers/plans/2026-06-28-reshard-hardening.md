@@ -269,6 +269,34 @@ go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-
 
 Status as of 2026-06-29: all checkpoint commands pass on Windows Go 1.26.4. This closes the first Promote/adopt slice only. Remaining promotion work is precondition/fence hardening, source PDB/resource cleanup policy, named shard spec-model migration, and live chaos/e2e validation.
 
+## Batch 2.10: Promote Source-Active Precondition Gate
+
+**Files:**
+- Modify: `internal/controller/shardsplitjob_controller.go`
+- Modify: `internal/controller/shardsplitjob_writeblock_test.go`
+
+- [x] Gate `Promote` on ShardRange topology.
+  - Promote now requires all `spec.sources[]` to be absent from the matching ShardRange active set.
+  - Promote also requires all target shard IDs to be present in that ShardRange active set.
+
+- [x] Requeue instead of failing while source is still active.
+  - This keeps `status.phase=Promote` and avoids attaching `shard-id` to target resources before routing/fence preconditions are satisfied.
+  - Target StatefulSet/template/live Pod labels remain unchanged while the gate is closed.
+
+- [x] Cover both directions with envtest.
+  - Active target ShardRange: Reconcile adopts target identity and completes.
+  - Active source ShardRange: Reconcile requeues, keeps phase at `Promote`, and does not patch target labels.
+
+**Checkpoint Verification:**
+
+```powershell
+go test -count=1 ./internal/controller --ginkgo.focus="Promote phase"
+go test -count=1 ./internal/controller
+go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./api/v1alpha1 ./internal/controller
+```
+
+Status as of 2026-06-29: all checkpoint commands pass on Windows Go 1.26.4. Remaining promotion work is target readiness/fence hardening beyond ShardRange topology, source PDB/resource cleanup policy, named shard spec-model migration, and live chaos/e2e validation.
+
 ## Batch 3: Native Router Concurrent-Write E2E Design
 
 **Files:**

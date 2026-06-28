@@ -74,6 +74,16 @@ Kubernetes selector 불변성 문제를 피하고, `POSTGRES_RESHARD_TARGET` 기
 source StatefulSet/Service/PVC/PDB 삭제, source data retention 정책, promote 중 target/source pod kill 을 포함한
 live chaos 검증은 아직 별도 잔여 범위다. 즉 P-B 전체 완료가 아니라 P-B 의 adopt/idempotency slice 완료다.
 
+### P-B.3 Promote source-active gate (2026-06-29)
+
+`Promote` phase 가 target adopt 를 수행하기 전에 matching `ShardRange` 의 active shard set 을 확인한다.
+모든 `spec.sources[]` 가 active set 에서 빠져 있고 모든 target shard ID 가 active set 에 있어야 한다.
+source 가 아직 active 하거나 target 이 아직 active topology 로 들어오지 않았으면 `Promote` phase 를 유지한 채
+requeue 하며 target StatefulSet/template/live Pod 에 `shard-id` 를 붙이지 않는다.
+
+이 게이트는 source/target 이 같은 운영 identity 로 동시에 관측되는 #220-class 중간 상태를 줄이는 1차 fence 다.
+아직 target Pod readiness gate, source PDB/PVC/Service 삭제 정책, live chaos 검증은 별도 잔여 범위다.
+
 이번 hardening batch 에서 selector 사용처를 다음처럼 분리했다.
 
 - **그대로 둔 것**: `ShardStatefulSetName`, `ShardServiceName`, PDB/TLS/PVC resize, source shard DNS,

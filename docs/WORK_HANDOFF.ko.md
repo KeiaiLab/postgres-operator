@@ -356,14 +356,17 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   Pod template label, live target Pod label 에 `postgres.keiailab.io/shard-id=<target>` 을 붙인다.
   Service/StatefulSet selector 는 계속 `postgres.keiailab.io/reshard-target=<target>` 에 고정해
   selector 불변성 및 target lease 격리를 유지한다. source StatefulSet/Service/PVC/PDB 삭제는 하지 않는다.
+- Batch 2.10 개발 완료: Promote 는 matching `ShardRange` active set 을 먼저 확인한다. 모든 source 가
+  active set 에서 빠지고 모든 target 이 active set 에 들어온 뒤에만 target adopt 를 수행한다. source 가
+  아직 active 이면 phase 를 `Promote` 로 유지하고 requeue 하며 target StatefulSet/template/live Pod 에
+  `shard-id` 를 붙이지 않는다.
 - Batch 3 설계 문서 완료: native router concurrent-write e2e 시나리오를
   `docs/sharding/ROUTER-GAP-ANALYSIS.ko.md` 에 기록했다. write stream 중 online CDC, write-block
   `ReadyForQuery`, routing update, checksum/key ownership, PK 없는 target UPDATE/DELETE, abort cleanup 을
   한 live gate 로 검증한다.
-- 아직 남은 범위: Promote phase 의 precondition/fence 강화, source PDB/resource 삭제 정책,
-  spec shard model 의 named-list 전환은 P-B/P-C 범위다. source fence/관측 제외 전에 target 에 동일
-  `shard-id` 를 붙이면 split-brain 신호가 될 수 있으므로, 이후 destructive cleanup 은 별도 정책과
-  live chaos 검증 뒤에 진행한다.
+- 아직 남은 범위: Promote phase 의 target readiness/fence 추가 강화, source PDB/resource 삭제 정책,
+  spec shard model 의 named-list 전환은 P-B/P-C 범위다. destructive cleanup 은 별도 정책과 live chaos
+  검증 뒤에 진행한다.
 - 라이브 검증 전 주의: `cdc-abort` 는 `DROP SUBSCRIPTION IF EXISTS` 로 원격 replication slot 정리까지
   시도한다. source 접속 불가 상황에서는 cleanup Job 이 실패하고 `AbortCleanup=False` 로 남는 것이 현재
   의도한 안전 동작이다. source-down 상태에서도 target subscription 만 강제 제거하는 fallback 은 live drill
@@ -375,8 +378,9 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   `go test -count=1 ./internal/controller --ginkgo.focus="adds active named reshard targets"`,
   `go test -count=1 ./api/v1alpha1 ./internal/controller -run "TestShardSplitJob|TestShardSplitJob_nextPhase"`,
   `go test -count=1 ./internal/controller --ginkgo.focus="Promote phase"`,
+  `go test -count=1 ./internal/controller --ginkgo.focus="source active"`,
   `go test -count=1 ./internal/controller`,
-  `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller`.
+  `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./api/v1alpha1 ./internal/controller`.
 
 ---
 

@@ -183,6 +183,14 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhasePromote {
+		ready, reason, err := r.promotePreconditionsMet(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !ready {
+			logger.Info("ShardSplitJob Promote precondition not met", "reason", reason)
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+		}
 		if err := r.reconcilePromote(ctx, &ssj); err != nil {
 			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
 			ssj.Status.FailureReason = err.Error()
@@ -276,6 +284,52 @@ func (r *ShardSplitJobReconciler) reconcilePromote(ctx context.Context, ssj *pos
 		}
 	}
 	return nil
+}
+
+func (r *ShardSplitJobReconciler) promotePreconditionsMet(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (bool, string, error) {
+	active, err := r.activeShardRangeIDs(ctx, ssj)
+	if err != nil {
+		return false, "", err
+	}
+	for _, source := range ssj.Spec.Sources {
+		if _, ok := active[source]; ok {
+			return false, fmt.Sprintf("source shard %q is still active in ShardRange", source), nil
+		}
+	}
+	for i := range ssj.Spec.Targets {
+		shardID := ssj.Spec.Targets[i].ShardID
+		if _, ok := active[shardID]; !ok {
+			return false, fmt.Sprintf("target shard %q is not active in ShardRange", shardID), nil
+		}
+	}
+	return true, "", nil
+}
+
+func (r *ShardSplitJobReconciler) activeShardRangeIDs(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (map[string]struct{}, error) {
+	var list postgresv1alpha1.ShardRangeList
+	if err := r.List(ctx, &list, client.InNamespace(ssj.Namespace)); err != nil {
+		return nil, fmt.Errorf("list ShardRange for promote precondition: %w", err)
+	}
+	active := map[string]struct{}{}
+	matched := false
+	for i := range list.Items {
+		sr := &list.Items[i]
+		if sr.Spec.Cluster != ssj.Spec.Cluster || sr.Spec.Keyspace != ssj.Spec.Keyspace {
+			continue
+		}
+		matched = true
+		for j := range sr.Spec.Ranges {
+			shardID := sr.Spec.Ranges[j].Shard
+			if shardID == "" {
+				continue
+			}
+			active[shardID] = struct{}{}
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
+	}
+	return active, nil
 }
 
 func (r *ShardSplitJobReconciler) adoptTargetShardIdentity(ctx context.Context, namespace, cluster, shardID string) error {
