@@ -85,7 +85,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		// 2) 각 target Job 이 올바른 env 로 생성됐는지.
 		for _, shardID := range []string{"t0", "t1"} {
 			var job batchv1.Job
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardCopyJobName(clusterName, shardID)}, &job)).
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, false)}, &job)).
 				To(Succeed(), "target %s 복사 Job 이 생성돼야 함", shardID)
 			c := job.Spec.Template.Spec.Containers[0]
 			Expect(envOf(c, "PGROUTER_RESHARD_TARGET_SHARD")).To(Equal(shardID))
@@ -109,7 +109,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		// 4) 두 Job 을 성공으로 표기 → done=true.
 		for _, shardID := range []string{"t0", "t1"} {
 			var job batchv1.Job
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardCopyJobName(clusterName, shardID)}, &job)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, shardID, false)}, &job)).To(Succeed())
 			job.Status.Succeeded = 1
 			Expect(k8sClient.Status().Update(ctx, &job)).To(Succeed())
 		}
@@ -149,7 +149,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		var job batchv1.Job
-		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardCopyJobName(clusterName, "t0")}, &job)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t0", false)}, &job)).To(Succeed())
 		now := metav1.Now()
 		job.Status.StartTime = &now // apiserver: finished job 은 startTime 필수.
 		job.Status.Conditions = []batchv1.JobCondition{
@@ -161,5 +161,52 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 		_, failure, err := r.reconcileInitialCopy(ctx, ssj)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(failure).To(ContainSubstring("failed"))
+	})
+
+	It("Cleanup 이 각 target 의 삭제(delete-only) Job 을 source 대상으로 생성한다", func() {
+		clusterName := fmt.Sprintf("rsdclean-%d", GinkgoRandomSeed())
+		keyspace := "default"
+		sr := &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster:  clusterName,
+				Keyspace: keyspace,
+				Vindex:   postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				Ranges:   []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj := &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"},
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x80000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+
+		r := &ShardSplitJobReconciler{Client: k8sClient, Scheme: scheme.Scheme}
+		done, failure, err := r.reconcileCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+
+		var job batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", true)}, &job)).
+			To(Succeed(), "delete Job 이 생성돼야 함")
+		c := job.Spec.Template.Spec.Containers[0]
+		Expect(envOf(c, "PGROUTER_RESHARD_DELETE_ONLY")).To(Equal("1"))
+		Expect(envOf(c, "PGROUTER_RESHARD_TARGET_SHARD")).To(Equal("t1"))
+		Expect(envOf(c, "PGROUTER_SOURCE_DSN")).To(ContainSubstring(ShardServiceName(clusterName, 0)))
+		Expect(envOf(c, "PGROUTER_TARGET_DSN")).To(BeEmpty()) // 삭제는 source 만.
+
+		job.Status.Succeeded = 1
+		Expect(k8sClient.Status().Update(ctx, &job)).To(Succeed())
+		done, _, err = r.reconcileCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeTrue())
 	})
 })

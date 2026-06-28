@@ -74,8 +74,20 @@ func main() {
 	tgt := os.Getenv("PGROUTER_TARGET_DSN")
 	table := os.Getenv("PGROUTER_COPY_TABLE")
 	targetShard := os.Getenv("PGROUTER_RESHARD_TARGET_SHARD")
-	if src == "" || tgt == "" || table == "" {
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_SOURCE_DSN/TARGET_DSN/COPY_TABLE required")
+	// delete-only: cutover 후 source 에서 이동분 삭제만(복사 없음, Cleanup phase). target 불요.
+	deleteOnly := os.Getenv("PGROUTER_RESHARD_DELETE_ONLY") != ""
+	switch {
+	case src == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_SOURCE_DSN required")
+		os.Exit(2)
+	case deleteOnly && targetShard == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: DELETE_ONLY requires PGROUTER_RESHARD_TARGET_SHARD")
+		os.Exit(2)
+	case !deleteOnly && tgt == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_TARGET_DSN required (unless DELETE_ONLY)")
+		os.Exit(2)
+	case targetShard == "" && table == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: full copy requires PGROUTER_COPY_TABLE")
 		os.Exit(2)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -112,6 +124,20 @@ func main() {
 		}
 		tables = router.FilterTables(all, csv(os.Getenv("PGROUTER_REFERENCE_TABLES")))
 		fmt.Printf("reshard-copy-poc: discovered %d table(s) to reshard: %v\n", len(tables), tables)
+	}
+
+	// Cleanup(delete-only): cutover 후 source 에서 targetShard 로 이동한 row 삭제만.
+	if deleteOnly {
+		for _, tbl := range tables {
+			deleted, err := router.DeleteShardRange(ctx, src, tbl, spec, targetShard)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "reshard-copy-poc: delete: %v (deleted %d before error)\n", err, deleted)
+				os.Exit(1)
+			}
+			fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q (%s keys) from source\n", deleted, tbl, targetShard)
+		}
+		fmt.Printf("reshard-copy-poc: cleanup complete — %s rows reclaimed from source across %d table(s)\n", targetShard, len(tables))
+		return
 	}
 
 	for _, tbl := range tables {

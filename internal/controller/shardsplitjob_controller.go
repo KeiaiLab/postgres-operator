@@ -121,6 +121,29 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// Cleanup phase: cutover·라우팅 전환 후 source 에서 이동분(각 target 키)을 삭제하는 Job 을
+	// 띄우고 완료를 기다린다. 라우팅이 이미 target 으로 갔으므로 안전(이동분은 더는 source 가
+	// 서빙하지 않음). 완료 전엔 전이하지 않는다.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCleanup {
+		done, failure, err := r.reconcileCleanup(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if failure != "" {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = failure
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+		if !done {
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // 삭제 Job 대기.
+		}
+		// 정리 완료 → 아래 nextPhase 가 Completed 로 전이.
+	}
+
 	next, failure := r.nextPhase(&ssj)
 	if next == ssj.Status.Phase {
 		return ctrl.Result{}, nil

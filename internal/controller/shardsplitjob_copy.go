@@ -44,9 +44,14 @@ func reshardCopyImage() string {
 	return "ghcr.io/keiailab/reshard-copy:dev"
 }
 
-// reshardCopyJobName 은 target shard 별 InitialCopy Job 이름(결정적 — 멱등 생성).
-func reshardCopyJobName(cluster, shardID string) string {
-	return fmt.Sprintf("%s-rsd-copy-%s", cluster, shardID)
+// reshardJobName 은 target shard 별 데이터이동 Job 이름(결정적 — 멱등 생성). deleteOnly 면
+// Cleanup(삭제) Job, 아니면 InitialCopy(복사) Job — 이름이 분리돼 두 phase 의 Job 이 공존한다.
+func reshardJobName(cluster, shardID string, deleteOnly bool) string {
+	verb := "copy"
+	if deleteOnly {
+		verb = "del"
+	}
+	return fmt.Sprintf("%s-rsd-%s-%s", cluster, verb, shardID)
 }
 
 // internalShardDSN 은 클러스터 내부 trust DSN 을 만든다(postgres superuser, 무비밀번호 —
@@ -102,12 +107,27 @@ func (r *ShardSplitJobReconciler) keyspaceVindex(ctx context.Context, ns, cluste
 	return "", "", nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", cluster, keyspace)
 }
 
-// buildReshardCopyJob 은 한 target shard 의 InitialCopy Job 을 만든다.
-func (r *ShardSplitJobReconciler) buildReshardCopyJob(ssj *postgresv1alpha1.ShardSplitJob, sourceDSN, targetDSN, targetShard, col, fn, ranges string, refTables []string) *batchv1.Job {
+// buildReshardJob 은 한 target shard 의 데이터이동 Job 을 만든다. deleteOnly=false 면
+// InitialCopy(source→target 복사), true 면 Cleanup(cutover 후 source 에서 이동분 삭제 —
+// target 접속 불요). 두 경우 모두 모든 user 테이블 자동 발견(COPY_TABLE 미설정).
+func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSplitJob, sourceDSN, targetDSN, targetShard, col, fn, ranges string, refTables []string, deleteOnly bool) *batchv1.Job {
 	backoff := int32(2)
+	env := []corev1.EnvVar{
+		{Name: "PGROUTER_SOURCE_DSN", Value: sourceDSN},
+		{Name: "PGROUTER_RESHARD_TARGET_SHARD", Value: targetShard},
+		{Name: "PGROUTER_VINDEX_COLUMN", Value: col},
+		{Name: "PGROUTER_VINDEX_FUNCTION", Value: fn},
+		{Name: "PGROUTER_RANGES", Value: ranges},
+		{Name: "PGROUTER_REFERENCE_TABLES", Value: strings.Join(refTables, ",")},
+	}
+	if deleteOnly {
+		env = append(env, corev1.EnvVar{Name: "PGROUTER_RESHARD_DELETE_ONLY", Value: "1"})
+	} else {
+		env = append(env, corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: targetDSN})
+	}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      reshardCopyJobName(ssj.Spec.Cluster, targetShard),
+			Name:      reshardJobName(ssj.Spec.Cluster, targetShard, deleteOnly),
 			Namespace: ssj.Namespace,
 			Labels:    ReshardTargetSelectorLabels(ssj.Spec.Cluster, targetShard),
 		},
@@ -120,17 +140,7 @@ func (r *ShardSplitJobReconciler) buildReshardCopyJob(ssj *postgresv1alpha1.Shar
 					Containers: []corev1.Container{{
 						Name:  "reshard-copy",
 						Image: reshardCopyImage(),
-						Env: []corev1.EnvVar{
-							{Name: "PGROUTER_SOURCE_DSN", Value: sourceDSN},
-							{Name: "PGROUTER_TARGET_DSN", Value: targetDSN},
-							{Name: "PGROUTER_RESHARD_TARGET_SHARD", Value: targetShard},
-							{Name: "PGROUTER_VINDEX_COLUMN", Value: col},
-							{Name: "PGROUTER_VINDEX_FUNCTION", Value: fn},
-							{Name: "PGROUTER_RANGES", Value: ranges},
-							{Name: "PGROUTER_REFERENCE_TABLES", Value: strings.Join(refTables, ",")},
-							// COPY_TABLE 미설정 → 모든 user 테이블 발견·복사. DELETE_AFTER 미설정
-							// → 가역(삭제는 Cleanup 트랙).
-						},
+						Env:   env,
 					}},
 				},
 			},
@@ -138,11 +148,28 @@ func (r *ShardSplitJobReconciler) buildReshardCopyJob(ssj *postgresv1alpha1.Shar
 	}
 }
 
-// reconcileInitialCopy 는 각 target 의 복사 Job 을 멱등 생성하고 완료를 집계한다.
-// 반환: done(전부 성공), failure(한 Job 이라도 실패 시 사유), err(전이 가능 — requeue).
+// reconcileInitialCopy 는 각 target 의 source→target 복사 Job 을 띄우고 완료를 집계한다.
 func (r *ShardSplitJobReconciler) reconcileInitialCopy(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
+	return r.reconcileReshardJobs(ctx, ssj, false)
+}
+
+// reconcileCleanup 은 cutover 후 각 target 키를 source 에서 삭제하는 Job 을 띄우고 완료를
+// 집계한다(source 정리 — 이동분 회수). InitialCopy 가 끝나고 라우팅이 전환된 *뒤* 이므로
+// 안전하다.
+func (r *ShardSplitJobReconciler) reconcileCleanup(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (done bool, failure string, err error) {
+	return r.reconcileReshardJobs(ctx, ssj, true)
+}
+
+// reconcileReshardJobs 는 각 target 의 데이터이동 Job(deleteOnly=복사/삭제)을 멱등 생성하고
+// 완료를 집계한다. 반환: done(전부 성공), failure(한 Job 이라도 실패 시 사유), err(전이 가능
+// — requeue).
+func (r *ShardSplitJobReconciler) reconcileReshardJobs(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, deleteOnly bool) (done bool, failure string, err error) {
+	phase := "InitialCopy"
+	if deleteOnly {
+		phase = "Cleanup"
+	}
 	if len(ssj.Spec.Sources) == 0 {
-		return false, "InitialCopy: no source shard", nil
+		return false, phase + ": no source shard", nil
 	}
 	col, fn, refTables, err := r.keyspaceVindex(ctx, ssj.Namespace, ssj.Spec.Cluster, ssj.Spec.Keyspace)
 	if err != nil {
@@ -150,22 +177,23 @@ func (r *ShardSplitJobReconciler) reconcileInitialCopy(ctx context.Context, ssj 
 	}
 	srcDNS, err := sourceShardPodDNS(ssj.Spec.Cluster, ssj.Namespace, ssj.Spec.Sources[0])
 	if err != nil {
-		return false, "InitialCopy: " + err.Error(), nil // 설정 오류 — Failed.
+		return false, phase + ": " + err.Error(), nil // 설정 오류 — Failed.
 	}
 	ranges := rangesEnvValue(ssj.Spec.Targets)
 
 	allDone := true
 	for i := range ssj.Spec.Targets {
 		t := &ssj.Spec.Targets[i]
-		name := reshardCopyJobName(ssj.Spec.Cluster, t.ShardID)
+		name := reshardJobName(ssj.Spec.Cluster, t.ShardID, deleteOnly)
 		var job batchv1.Job
 		getErr := r.Get(ctx, client.ObjectKey{Namespace: ssj.Namespace, Name: name}, &job)
 		switch {
 		case apierrors.IsNotFound(getErr):
-			j := r.buildReshardCopyJob(ssj,
-				internalShardDSN(srcDNS),
-				internalShardDSN(targetShardPodDNS(ssj.Spec.Cluster, ssj.Namespace, t.ShardID)),
-				t.ShardID, col, fn, ranges, refTables)
+			targetDSN := ""
+			if !deleteOnly {
+				targetDSN = internalShardDSN(targetShardPodDNS(ssj.Spec.Cluster, ssj.Namespace, t.ShardID))
+			}
+			j := r.buildReshardJob(ssj, internalShardDSN(srcDNS), targetDSN, t.ShardID, col, fn, ranges, refTables, deleteOnly)
 			if err := controllerutil.SetControllerReference(ssj, j, r.Scheme); err != nil {
 				return false, "", err
 			}
@@ -178,7 +206,7 @@ func (r *ShardSplitJobReconciler) reconcileInitialCopy(ctx context.Context, ssj 
 		case job.Status.Succeeded > 0:
 			// 이 target 완료.
 		case jobFailed(&job):
-			return false, fmt.Sprintf("InitialCopy: copy job %s failed", name), nil
+			return false, fmt.Sprintf("%s: job %s failed", phase, name), nil
 		default:
 			allDone = false // 진행 중.
 		}
