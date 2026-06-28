@@ -226,10 +226,12 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 			must(err, "delete foreign range "+t)
 			total += n
 		}
-		// 범위 정리 후 인덱스/PK 복제(데이터 확정 후 — bulk 효율).
+		// 범위 정리 후 인덱스/PK + 제약(CHECK·FK) 복제(데이터 확정 후 — bulk 효율).
 		for _, t := range tables {
 			_, err := router.ReplicateIndexes(ctx, src, tgt, t)
 			must(err, "replicate indexes "+t)
+			_, err = router.ReplicateConstraints(ctx, src, tgt, t)
+			must(err, "replicate constraints "+t)
 		}
 		must(router.DropPublication(ctx, src, pub), "drop publication")
 		fmt.Printf("reshard-copy-poc: cdc-finalize 완료 — 범위 밖 %d row 삭제, %s 자기 범위만 보유\n", total, targetShard)

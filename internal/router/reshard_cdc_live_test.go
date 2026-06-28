@@ -40,7 +40,7 @@ func TestCDCLive(t *testing.T) {
 
 	// source: kv 초기 1..50.
 	exec(t, src, `DROP TABLE IF EXISTS kv`)
-	exec(t, src, `CREATE TABLE kv(id int PRIMARY KEY, val int)`)
+	exec(t, src, `CREATE TABLE kv(id int PRIMARY KEY, val int, CONSTRAINT kv_val_pos CHECK (val >= 0))`)
 	exec(t, src, `INSERT INTO kv SELECT g, g*10 FROM generate_series(1,50) g`)
 	exec(t, tgt, `DROP TABLE IF EXISTS kv`)
 	exec(t, tgt, `CREATE TABLE kv(id int PRIMARY KEY, val int)`)
@@ -112,6 +112,16 @@ func TestCDCLive(t *testing.T) {
 	t.Logf("ReplicateIndexes: %d 인덱스 복제", n)
 	if countT(t, tgt, "SELECT count(*) FROM pg_indexes WHERE tablename='kv' AND indexname='kv_pkey'") != 1 {
 		t.Fatal("target 에 PK 인덱스(kv_pkey) 미복제")
+	}
+
+	// 제약(CHECK) 복제 검증.
+	cn, err := ReplicateConstraints(ctx, sourceDSN, targetDSN, "kv")
+	if err != nil {
+		t.Fatalf("ReplicateConstraints: %v", err)
+	}
+	t.Logf("ReplicateConstraints: %d 제약 복제", cn)
+	if countT(t, tgt, "SELECT count(*) FROM pg_constraint WHERE conname='kv_val_pos'") != 1 {
+		t.Fatal("target 에 CHECK 제약(kv_val_pos) 미복제")
 	}
 }
 

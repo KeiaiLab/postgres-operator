@@ -154,8 +154,12 @@ func CopyShardRange(ctx context.Context, sourceDSN, targetDSN, table string, spe
 	if err := rows.Err(); err != nil {
 		return copied, scanned, fmt.Errorf("router: rows %s: %w", table, err)
 	}
-	// 데이터 복사 후 인덱스/PK 복제(bulk load 효율 + uniqueness·조회 성능).
+	// 데이터 복사 후 인덱스/PK + 제약(CHECK·FK best-effort) 복제(bulk load 효율 +
+	// uniqueness·조회 성능·무결성).
 	if _, err := replicateIndexes(ctx, src, tgt, table); err != nil {
+		return copied, scanned, err
+	}
+	if _, err := replicateConstraints(ctx, src, tgt, table); err != nil {
 		return copied, scanned, err
 	}
 	return copied, scanned, nil
@@ -306,6 +310,76 @@ func replicateIndexes(ctx context.Context, src, tgt *sql.DB, table string) (int,
 		n++
 	}
 	return n, nil
+}
+
+// ReplicateConstraints 는 source table 의 CHECK·FOREIGN KEY 제약을 target 에 멱등 복제한다
+// (PK·UNIQUE 는 ReplicateIndexes 가 인덱스로 처리). 반환: 추가 수. FK 는 참조 테이블이 같은
+// shard 에 없으면(cross-shard) 추가 실패할 수 있어 *best-effort* — 실패해도 데이터는 이미
+// 이동됐으므로 막지 않고 건너뛴다(CHECK 는 항상 안전하므로 실패 시 에러).
+func ReplicateConstraints(ctx context.Context, sourceDSN, targetDSN, table string) (int, error) {
+	if !tableNamePattern.MatchString(table) {
+		return 0, fmt.Errorf("%w: %q", ErrInvalidTable, table)
+	}
+	src, err := sql.Open("postgres", sourceDSN)
+	if err != nil {
+		return 0, fmt.Errorf("router: open source: %w", err)
+	}
+	defer func() { _ = src.Close() }()
+	tgt, err := sql.Open("postgres", targetDSN)
+	if err != nil {
+		return 0, fmt.Errorf("router: open target: %w", err)
+	}
+	defer func() { _ = tgt.Close() }()
+	return replicateConstraints(ctx, src, tgt, table)
+}
+
+// replicateConstraints 는 열린 DB 핸들로 CHECK·FK 제약을 복제한다.
+func replicateConstraints(ctx context.Context, src, tgt *sql.DB, table string) (int, error) {
+	rows, err := src.QueryContext(ctx, `
+		SELECT conname, contype, pg_get_constraintdef(oid)
+		FROM pg_constraint
+		WHERE conrelid = $1::regclass AND contype IN ('c','f')`, table)
+	if err != nil {
+		return 0, fmt.Errorf("router: read constraints %s: %w", table, err)
+	}
+	type con struct{ name, typ, def string }
+	var cons []con
+	for rows.Next() {
+		var c con
+		if err := rows.Scan(&c.name, &c.typ, &c.def); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("router: scan constraint %s: %w", table, err)
+		}
+		cons = append(cons, c)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("router: constraints %s: %w", table, err)
+	}
+
+	added := 0
+	for _, c := range cons {
+		if !tableNamePattern.MatchString(c.name) {
+			continue // 비표준 이름 — 건너뜀(injection 안전).
+		}
+		// 멱등: 이미 있으면 skip.
+		var exists int
+		if err := tgt.QueryRowContext(ctx,
+			"SELECT 1 FROM pg_constraint WHERE conrelid=$1::regclass AND conname=$2", table, c.name).Scan(&exists); err == nil {
+			continue
+		} else if err != sql.ErrNoRows {
+			return added, fmt.Errorf("router: check constraint %s: %w", c.name, err)
+		}
+		stmt := "ALTER TABLE " + table + " ADD CONSTRAINT " + c.name + " " + c.def //nolint:gosec // 식별자 화이트리스트
+		if _, err := tgt.ExecContext(ctx, stmt); err != nil {
+			if c.typ == "f" {
+				continue // FK best-effort: 참조 테이블 부재(cross-shard) 등 — 건너뜀.
+			}
+			return added, fmt.Errorf("router: add constraint %s: %w", c.name, err)
+		}
+		added++
+	}
+	return added, nil
 }
 
 // idxIfNotExists 는 pg_indexes.indexdef 에 IF NOT EXISTS 를 주입해 멱등화한다.
