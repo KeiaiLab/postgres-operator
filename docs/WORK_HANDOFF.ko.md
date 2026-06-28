@@ -339,13 +339,18 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   instance manager 가 그 값을 endpoint 조립에 사용한다. env var 가 없는 기존 Pod 는 기존 ordinal
   service naming 으로 fallback 한다. 이 작업은 Promote P-B 전제 조건이며, target status/backend
   resolution 의 DNS 오염을 막는다.
+- Batch 2.6 개발 완료: active `ShardRange.spec.ranges[].shard` 중 non-ordinal 이름을
+  `PostgresCluster.status.shards[]` 에 추가한다. reshard target 은 `reshard-target=<id>` 또는
+  adopt 이후 `shard-id=<id>` label 로 집계되며, 예: `name=t1`, `ordinal=-1`. 이로써 routing flip 이후
+  router status backend 가 target primary endpoint 를 해석할 수 있다.
 - Batch 3 설계 문서 완료: native router concurrent-write e2e 시나리오를
   `docs/sharding/ROUTER-GAP-ANALYSIS.ko.md` 에 기록했다. write stream 중 online CDC, write-block
   `ReadyForQuery`, routing update, checksum/key ownership, PK 없는 target UPDATE/DELETE, abort cleanup 을
   한 live gate 로 검증한다.
-- 아직 남은 범위: `shard-id=t1` 같은 named target shard 를 status.shards 새 row 로 생성하는 작업은
-  Promote P-B/P-C 범위다. source fence/관측 제외 전에 target 에 동일 `shard-id` 를 붙이면 split-brain
-  신호가 될 수 있으므로 순서가 중요하다.
+- 아직 남은 범위: source ordinal resource decommission, target replica scale-up/HA, Promote phase 의
+  fence/adopt/source cleanup idempotency, 그리고 spec shard model 의 named-list 전환은 P-B/P-C 범위다.
+  source fence/관측 제외 전에 target 에 동일 `shard-id` 를 붙이면 split-brain 신호가 될 수 있으므로
+  순서가 중요하다.
 - 라이브 검증 전 주의: `cdc-abort` 는 `DROP SUBSCRIPTION IF EXISTS` 로 원격 replication slot 정리까지
   시도한다. source 접속 불가 상황에서는 cleanup Job 이 실패하고 `AbortCleanup=False` 로 남는 것이 현재
   의도한 안전 동작이다. source-down 상태에서도 target subscription 만 강제 제거하는 fallback 은 live drill
@@ -353,6 +358,9 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
 - 검증 상태: Docker Desktop / WSL / VM 은 종료 유지. Windows Go 1.26.4 로 다음 focused gate 를 통과했다:
   `go test -count=1 ./cmd/instance`,
   `go test -count=1 ./internal/controller -run TestBuildTargetShardStatefulSet_Isolation`,
+  `go test -count=1 ./internal/controller -run TestAggregateNamedShardStatus_UsesReshardTargetLabel`,
+  `go test -count=1 ./internal/controller --ginkgo.focus="adds active named reshard targets"`,
+  `go test -count=1 ./internal/controller`,
   `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller`.
 
 ---

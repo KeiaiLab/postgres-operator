@@ -18,6 +18,18 @@ Pod status endpoint 를 보고한다. ordinal shard 는 기존과 동일하게 `
 endpoint 를 status 로 내보내면, router/status/failover 가 승격 대상 shard 를 잘못된 DNS 로 해석할 수
 있기 때문이다. named target shard row 생성, source decommission, target HA 확대는 여전히 P-B/P-C 범위다.
 
+### P-B.1 active named target status (2026-06-28)
+
+`PostgresClusterReconciler` 는 이제 active `ShardRange.spec.ranges[].shard` 중 ordinal shard 가 아닌
+이름을 `PostgresCluster.status.shards[]` 에 추가한다. 예를 들어 ShardRange 가 `t1` 을 가리키면
+status row 는 `name=t1`, `ordinal=-1` 로 기록된다. target Pod 선택은
+`postgres.keiailab.io/reshard-target=<id>` 와, 향후 adopt 후의
+`postgres.keiailab.io/shard-id=<id>` 를 모두 허용한다.
+
+이로써 routing flip 이후 `StatusBackendResolver` 가 target shard primary endpoint 를 해석할 수 있다.
+단, 이것은 lifecycle 승격 전체가 아니다. source ordinal resource decommission, target replica scale-up/HA,
+spec shard model 의 named-list 전환, Promote phase idempotency 는 아직 P-B/P-C 잔여 범위다.
+
 이번 hardening batch 에서 selector 사용처를 다음처럼 분리했다.
 
 - **그대로 둔 것**: `ShardStatefulSetName`, `ShardServiceName`, PDB/TLS/PVC resize, source shard DNS,

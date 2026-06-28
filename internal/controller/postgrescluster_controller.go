@@ -328,6 +328,18 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		shardStatuses = append(shardStatuses, shardStat)
 	}
 
+	if !databasePodsStopped {
+		namedShardStatuses, namedReady, err := activeNamedShardStatuses(ctx, r.Client, &cluster)
+		if err != nil {
+			logger.Error(err, "Failed to aggregate active named shard status")
+			return ctrl.Result{}, err
+		}
+		if !namedReady {
+			allShardPrimaryReady = false
+		}
+		shardStatuses = append(shardStatuses, namedShardStatuses...)
+	}
+
 	// 2. router 자원 3종 — shardingMode=native && Router.Enabled 일 때만.
 	routerActive := cluster.Spec.ShardingMode == postgresv1alpha1.ShardingModeNative &&
 		cluster.Spec.Router != nil && cluster.Spec.Router.Enabled

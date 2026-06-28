@@ -120,6 +120,35 @@ func TestAggregateShardStatus_UsesShardIDLabelWhenOrdinalLabelMissing(t *testing
 	}
 }
 
+func TestAggregateNamedShardStatus_UsesReshardTargetLabel(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	labels := ReshardTargetSelectorLabels("demo", "t1")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "demo-rsd-t1-0",
+			Namespace: "default",
+			Labels:    labels,
+		},
+	}
+	raw, _ := json.Marshal(statusapi.Status{
+		Role:       statusapi.RolePrimary,
+		Ready:      true,
+		Endpoint:   "demo-rsd-t1-0.demo-rsd-t1-headless.default.svc.cluster.local:5432",
+		LastUpdate: now,
+	})
+	pod.Annotations = map[string]string{statusapi.AnnotationKey: string(raw)}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
+
+	out := aggregateNamedShardStatus(context.Background(), c, newCluster(), "t1", "demo-rsd-t1-headless")
+	if out.Name != "t1" || out.Ordinal != -1 {
+		t.Fatalf("shard identity = name %q ordinal %d, want t1/-1", out.Name, out.Ordinal)
+	}
+	if out.Primary == nil || out.Primary.Pod != "demo-rsd-t1-0" || !out.Primary.Ready {
+		t.Fatalf("target primary not aggregated: %+v", out.Primary)
+	}
+}
+
 func TestAggregateShardStatus_PropagatesInstanceReasonAndMessage(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -66,10 +67,36 @@ func aggregateShardStatus(
 	svcName string,
 ) postgresv1alpha1.ShardStatus {
 	shardID := ShardIDForOrdinal(ord)
+	return aggregateShardStatusMatching(ctx, c, cluster, shardID, ord, svcName, func(pod *corev1.Pod) bool {
+		return podMatchesShardIdentity(pod, ord)
+	})
+}
+
+func aggregateNamedShardStatus(
+	ctx context.Context,
+	c client.Client,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardID string,
+	svcName string,
+) postgresv1alpha1.ShardStatus {
+	return aggregateShardStatusMatching(ctx, c, cluster, shardID, -1, svcName, func(pod *corev1.Pod) bool {
+		return podMatchesNamedShardIdentity(pod, shardID)
+	})
+}
+
+func aggregateShardStatusMatching(
+	ctx context.Context,
+	c client.Client,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardID string,
+	ordinal int32,
+	svcName string,
+	matches func(*corev1.Pod) bool,
+) postgresv1alpha1.ShardStatus {
 	logger := log.FromContext(ctx).WithValues("shard", shardID)
 	out := postgresv1alpha1.ShardStatus{
 		Name:    shardID,
-		Ordinal: ord,
+		Ordinal: ordinal,
 	}
 
 	sel := labels.SelectorFromSet(statusAggregationSelectorLabels(cluster.Name))
@@ -108,7 +135,7 @@ func aggregateShardStatus(
 	// reseed. This protects the real (data-holding) primary from ever being reseeded.
 	hasPromotedPrimary := false
 	for i := range pods.Items {
-		if !podMatchesShardIdentity(&pods.Items[i], ord) {
+		if !matches(&pods.Items[i]) {
 			continue
 		}
 		if st, ok := parsePodStatus(&pods.Items[i]); ok &&
@@ -125,7 +152,7 @@ func aggregateShardStatus(
 
 	for i := range pods.Items {
 		pod := &pods.Items[i]
-		if !podMatchesShardIdentity(pod, ord) {
+		if !matches(pod) {
 			continue
 		}
 		st, ok := parsePodStatus(pod)
@@ -210,6 +237,65 @@ func aggregateShardStatus(
 	return out
 }
 
+func activeNamedShardStatuses(
+	ctx context.Context,
+	c client.Client,
+	cluster *postgresv1alpha1.PostgresCluster,
+) ([]postgresv1alpha1.ShardStatus, bool, error) {
+	if cluster == nil {
+		return nil, true, nil
+	}
+	var ranges postgresv1alpha1.ShardRangeList
+	if err := c.List(ctx, &ranges, client.InNamespace(cluster.Namespace)); err != nil {
+		return nil, false, fmt.Errorf("list ShardRange for named shard status: %w", err)
+	}
+	seen := map[string]struct{}{}
+	for i := range ranges.Items {
+		sr := &ranges.Items[i]
+		if sr.Spec.Cluster != cluster.Name {
+			continue
+		}
+		for j := range sr.Spec.Ranges {
+			shardID := sr.Spec.Ranges[j].Shard
+			if shardID == "" || isOrdinalShardID(cluster, shardID) {
+				continue
+			}
+			seen[shardID] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, true, nil
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	statuses := make([]postgresv1alpha1.ShardStatus, 0, len(ids))
+	allReady := true
+	for _, shardID := range ids {
+		status := aggregateNamedShardStatus(ctx, c, cluster, shardID, TargetShardServiceName(cluster.Name, shardID))
+		if status.Primary == nil || !status.Primary.Ready {
+			allReady = false
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, allReady, nil
+}
+
+func isOrdinalShardID(cluster *postgresv1alpha1.PostgresCluster, shardID string) bool {
+	if cluster == nil {
+		return false
+	}
+	for ord := int32(0); ord < cluster.Spec.Shards.InitialCount; ord++ {
+		if shardID == ShardIDForOrdinal(ord) {
+			return true
+		}
+	}
+	return false
+}
+
 func statusAggregationSelectorLabels(cluster string) labels.Set {
 	out := labels.Set(SelectorLabels(cluster, "shard", -1))
 	delete(out, "app.kubernetes.io/component")
@@ -224,6 +310,13 @@ func podMatchesShardIdentity(pod *corev1.Pod, ord int32) bool {
 		return true
 	}
 	return pod.Labels[ShardIDLabelKey] == ShardIDForOrdinal(ord)
+}
+
+func podMatchesNamedShardIdentity(pod *corev1.Pod, shardID string) bool {
+	if pod == nil || shardID == "" {
+		return false
+	}
+	return pod.Labels[ShardIDLabelKey] == shardID || pod.Labels[ReshardTargetLabelKey] == shardID
 }
 
 func kubernetesPodNotReady(pod *corev1.Pod) bool {

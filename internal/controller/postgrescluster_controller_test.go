@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
 // 본 envtest 는 RFC 0001 PostgresCluster CRD v2 위에서의 reconcile 를 검증한다.
@@ -204,6 +206,80 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				}, &svc)).To(Succeed())
 				g.Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 				g.Expect(svc.Spec.ClusterIP).NotTo(Equal(corev1.ClusterIPNone))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("adds active named reshard targets to cluster shard status", func() {
+			clusterName := "named-status"
+			keyspace := "default"
+			targetShard := "t1"
+			targetPod := TargetShardStatefulSetName(clusterName, targetShard) + "-0"
+			targetService := TargetShardServiceName(clusterName, targetShard)
+			targetEndpoint := fmt.Sprintf("%s.%s.%s.svc.cluster.local:5432", targetPod, targetService, namespace)
+
+			raw, err := json.Marshal(statusapi.Status{
+				Role:       statusapi.RolePrimary,
+				Ready:      true,
+				Endpoint:   targetEndpoint,
+				LastUpdate: time.Now().UTC(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        targetPod,
+					Namespace:   namespace,
+					Labels:      ReshardTargetSelectorLabels(clusterName, targetShard),
+					Annotations: map[string]string{statusapi.AnnotationKey: string(raw)},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: pgContainerName, Image: "postgres:18"}}},
+			}
+			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+			pod.Status.Phase = corev1.PodRunning
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+			pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: pgContainerName, Ready: true, Image: "postgres:18", ImageID: "postgres:18"}}
+			Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+			Expect(k8sClient.Create(ctx, &postgresv1alpha1.ShardRange{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: namespace},
+				Spec: postgresv1alpha1.ShardRangeSpec{
+					Cluster:  clusterName,
+					Keyspace: keyspace,
+					Vindex:   postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+					Ranges:   []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: targetShard}},
+				},
+			})).To(Succeed())
+
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     0,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: clusterName}, &got)).To(Succeed())
+				var named *postgresv1alpha1.ShardStatus
+				for i := range got.Status.Shards {
+					if got.Status.Shards[i].Name == targetShard {
+						named = &got.Status.Shards[i]
+						break
+					}
+				}
+				g.Expect(named).NotTo(BeNil(), "active ShardRange target must appear in status.shards")
+				g.Expect(named.Ordinal).To(Equal(int32(-1)))
+				g.Expect(named.Primary).NotTo(BeNil())
+				g.Expect(named.Primary.Pod).To(Equal(targetPod))
+				g.Expect(named.Primary.Endpoint).To(Equal(targetEndpoint))
+				g.Expect(named.Primary.Ready).To(BeTrue())
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 	})

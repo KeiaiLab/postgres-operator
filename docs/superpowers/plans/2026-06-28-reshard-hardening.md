@@ -150,6 +150,33 @@ go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-
 
 Status as of 2026-06-28: all three checkpoint commands pass on Windows Go 1.26.4. Docker Desktop and WSL remain stopped.
 
+## Batch 2.6: Active Named Target Status
+
+**Files:**
+- Modify: `internal/controller/aggregate_status.go`
+- Modify: `internal/controller/aggregate_status_test.go`
+- Modify: `internal/controller/postgrescluster_controller.go`
+- Modify: `internal/controller/postgrescluster_controller_test.go`
+
+- [x] Add `PostgresCluster.status.shards[]` rows for active non-ordinal shard names found in `ShardRange.spec.ranges`.
+  - Ordinal names such as `shard-0` remain handled by the existing ordinal loop.
+  - Non-ordinal targets such as `t1` are appended with `name=t1` and `ordinal=-1`.
+
+- [x] Aggregate target Pods by `postgres.keiailab.io/reshard-target=<id>` or adopted `postgres.keiailab.io/shard-id=<id>`.
+  - Reuse the same annotation, stale heartbeat, fenced PVC, rogue-primary, and PodReady logic as ordinal shards.
+  - Mark overall shard readiness false when an active named target has no Ready primary.
+
+**Checkpoint Verification:**
+
+```powershell
+go test -count=1 ./internal/controller -run TestAggregateNamedShardStatus_UsesReshardTargetLabel
+go test -count=1 ./internal/controller --ginkgo.focus="adds active named reshard targets"
+go test -count=1 ./internal/controller
+go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller
+```
+
+Status as of 2026-06-28: all checkpoint commands pass on Windows Go 1.26.4. This is a P-B status/backend-resolution slice only. Source decommission, target replica scale-up/HA, and named shard spec-model migration remain open.
+
 ## Batch 3: Native Router Concurrent-Write E2E Design
 
 **Files:**
