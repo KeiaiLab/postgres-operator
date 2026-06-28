@@ -1026,6 +1026,15 @@ func buildPGStatefulSet(
 	if reshardTargetID != "" {
 		labels = ReshardTargetSelectorLabels(cluster.Name, reshardTargetID)
 	}
+	// podLabels 는 셀렉터(labels)의 *superset* — ordinal shard 에 명명 식별 label `shard-id`
+	// 를 부가한다(ADR-0029 P-A). 셀렉터(labels)에는 넣지 않아 기존 STS selector 불변 + 업그레이드
+	// race 회피. reshard target 은 격리 유지(부가 안 함 — 승격 시 부여).
+	podLabels := labels
+	if reshardTargetID == "" {
+		podLabels = make(map[string]string, len(labels)+1)
+		maps.Copy(podLabels, labels)
+		podLabels[ShardIDLabelKey] = ShardIDForOrdinal(shardOrdinal)
+	}
 	replicaConfig, _ := replicaBootstrapConfigForCluster(cluster)
 	replicaClusterEnabled := replicaConfig != nil
 	primaryUser := ""
@@ -1080,15 +1089,15 @@ func buildPGStatefulSet(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: cluster.Namespace,
-			Labels:    labels,
+			Labels:    podLabels,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
 			Replicas:    &members,
-			Selector:    &metav1.LabelSelector{MatchLabels: labels},
+			Selector:    &metav1.LabelSelector{MatchLabels: labels}, // 불변 — shard-id 미포함.
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: podLabels,
 					Annotations: map[string]string{
 						postgresConfigHashAnnotation:       configHash,
 						postgresImageCatalogHashAnnotation: sha256Hex(image),

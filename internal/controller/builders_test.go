@@ -90,6 +90,48 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
 }
 
+// TestBuildPGStatefulSet_ShardIDLabel 은 ADR-0029 P-A: ordinal shard pod 에 명명 식별 label
+// `shard-id=shard-<ord>` 가 *부가* 되되, STS selector(불변)에는 들어가지 않음을 검증한다
+// (셀렉터에 넣으면 업그레이드 중 구 pod 누락 → #220-class race).
+func TestBuildPGStatefulSet_ShardIDLabel(t *testing.T) {
+	t.Parallel()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster, "demo-shard-2", "demo-shard-2-headless", 2,
+		"example.com/postgres:18", "demo-shard-2-config", "18", 1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{}, "", "test-config-hash", "",
+	)
+	// pod template 에 shard-id 부가.
+	if got := sts.Spec.Template.Labels[ShardIDLabelKey]; got != "shard-2" {
+		t.Fatalf("pod shard-id label = %q, want %q", got, "shard-2")
+	}
+	// 셀렉터에는 shard-id 미포함(불변 보장).
+	if _, ok := sts.Spec.Selector.MatchLabels[ShardIDLabelKey]; ok {
+		t.Fatalf("STS selector 에 shard-id 가 포함됨 (불변 위반 위험): %v", sts.Spec.Selector.MatchLabels)
+	}
+	// 기존 ordinal label 은 셀렉터·pod 양쪽에 유지.
+	if sts.Spec.Selector.MatchLabels["postgres.keiailab.io/shard"] != "2" {
+		t.Fatalf("ordinal shard label 누락: %v", sts.Spec.Selector.MatchLabels)
+	}
+
+	// reshard target 은 격리 유지 — shard-id 부가 안 함.
+	tgt := buildPGStatefulSet(
+		cluster, "demo-rsd-t0", "demo-rsd-t0-headless", 0,
+		"example.com/postgres:18", "demo-rsd-t0-config", "18", 1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{}, "", "test-config-hash", "t0",
+	)
+	if _, ok := tgt.Spec.Template.Labels[ShardIDLabelKey]; ok {
+		t.Fatalf("reshard target 에 shard-id 가 부가됨(격리 위반): %v", tgt.Spec.Template.Labels)
+	}
+	if tgt.Spec.Template.Labels[ReshardTargetLabelKey] != "t0" {
+		t.Fatalf("reshard target label 누락: %v", tgt.Spec.Template.Labels)
+	}
+}
+
 func TestBuildPGStatefulSet_VolumeClaimTemplateHasClusterLabel(t *testing.T) {
 	t.Parallel()
 

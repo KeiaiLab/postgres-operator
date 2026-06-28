@@ -144,6 +144,19 @@ func SelectorLabels(cluster, role string, shardOrdinal int32) map[string]string 
 // ReshardTargetLabelKey 는 resharding target shard 를 식별하는 label key 다 (ADR-0027).
 const ReshardTargetLabelKey = "postgres.keiailab.io/reshard-target"
 
+// ShardIDLabelKey 는 *명명(named) shard* 식별 label key 다 (ADR-0029). ordinal shard 는
+// `shard-<N>`, 승격된 resharding target 은 그 shardID 를 값으로 갖는다 — ordinal·명명 shard 를
+// 통합 식별하는 토대. *셀렉터(STS .spec.selector, Service selector)에는 넣지 않는다* — 기존
+// STS selector 는 불변이고, 추가 시 업그레이드 중 구 pod 이 셀렉터에서 누락돼 #220-class race
+// 를 유발한다. pod template 의 *부가* label 로만 부여한다(셀렉터의 superset).
+const ShardIDLabelKey = "postgres.keiailab.io/shard-id"
+
+// ShardIDForOrdinal 은 ordinal shard 의 명명 식별자(`shard-<N>`)를 반환한다 — 논리 shard
+// 이름(ShardRange.spec.ranges[].shard) 및 ShardStatefulSetName 의 segment 와 정합.
+func ShardIDForOrdinal(ordinal int32) string {
+	return fmt.Sprintf("shard-%d", ordinal)
+}
+
 // ReshardTargetSelectorLabels 는 resharding target shard 의 label 집합이다 (ADR-0027).
 //
 // 라이브 shard 와 격리하기 위해:
