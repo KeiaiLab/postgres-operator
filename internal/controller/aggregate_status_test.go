@@ -99,6 +99,27 @@ func TestAggregateShardStatus_PrimaryAndReplica(t *testing.T) {
 	}
 }
 
+func TestAggregateShardStatus_UsesShardIDLabelWhenOrdinalLabelMissing(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	pod := makePod("demo-rsd-shard-0-0", statusapi.Status{
+		Role: statusapi.RolePrimary, Ready: true,
+		Endpoint: "demo-rsd-shard-0-0.svc:5432", LastUpdate: now,
+	}, true)
+	delete(pod.Labels, "postgres.keiailab.io/shard")
+	pod.Labels["app.kubernetes.io/component"] = "reshard-target"
+	pod.Labels[ShardIDLabelKey] = ShardIDForOrdinal(0)
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
+
+	out := aggregateShardStatus(context.Background(), c, newCluster(), 0, "demo-shard-0-headless")
+	if out.Primary == nil || out.Primary.Pod != "demo-rsd-shard-0-0" {
+		t.Fatalf("shard-id-only pod was not selected as primary: %+v", out.Primary)
+	}
+	if out.Name != "shard-0" || out.Ordinal != 0 {
+		t.Fatalf("shard identity = name %q ordinal %d, want shard-0/0", out.Name, out.Ordinal)
+	}
+}
+
 func TestAggregateShardStatus_PropagatesInstanceReasonAndMessage(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()

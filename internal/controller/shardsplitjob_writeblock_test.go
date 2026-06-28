@@ -15,6 +15,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +39,14 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 			}
 		}
 		return ""
+	}
+	failJob := func(job *batchv1.Job) {
+		now := metav1.Now()
+		job.Status.StartTime = &now
+		job.Status.Conditions = []batchv1.JobCondition{
+			{Type: batchv1.JobFailureTarget, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+			{Type: batchv1.JobFailed, Status: corev1.ConditionTrue, Reason: "BackoffLimitExceeded"},
+		}
 	}
 
 	It("Cutover 가 write-block 을 켜고 RoutingUpdate 가 ranges flip 과 함께 끈다", func() {
@@ -103,7 +112,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
 				Cluster: clusterName, Keyspace: keyspace,
-				Vindex: postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				Vindex: postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeRange, Column: "id"},
 				Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
 			},
 		}
@@ -131,6 +140,8 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-setup")}, &setup)).To(Succeed())
 		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_RESHARD_MODE")).To(Equal("cdc-setup"))
 		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_CDC_MAX_LAG")).To(Equal("16777216"))
+		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_VINDEX_TYPE")).To(Equal("range"))
+		Expect(envOf(setup.Spec.Template.Spec.Containers[0], "PGROUTER_VINDEX_COLUMN")).To(Equal("id"))
 		var got postgresv1alpha1.ShardRange
 		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
 		Expect(got.Spec.WriteBlocked).To(BeFalse(), "cdc-setup 완료 전엔 write-block 미설정")
@@ -153,6 +164,203 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 		done, _, err = r.reconcileCDC(ctx, ssj)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(done).To(BeTrue())
+	})
+
+	It("online 모드 CDC Job 실패를 phase별 failure 로 보고한다", func() {
+		clusterName := fmt.Sprintf("rsdcdcfail-%d", GinkgoRandomSeed())
+		keyspace := "default"
+		sr := &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster: clusterName, Keyspace: keyspace,
+				Vindex: postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj := &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"}, Online: true,
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		r := &ShardSplitJobReconciler{Client: k8sClient, Scheme: scheme.Scheme}
+
+		done, failure, err := r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		var setup batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-setup")}, &setup)).To(Succeed())
+		failJob(&setup)
+		Expect(k8sClient.Status().Update(ctx, &setup)).To(Succeed())
+		done, failure, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeFalse())
+		Expect(failure).To(ContainSubstring("cdc-setup"))
+
+		clusterName = fmt.Sprintf("rsdcdcfinfail-%d", GinkgoRandomSeed())
+		sr = &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster: clusterName, Keyspace: keyspace,
+				Vindex: postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj = &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"}, Online: true,
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+
+		done, failure, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-setup")}, &setup)).To(Succeed())
+		setup.Status.Succeeded = 1
+		Expect(k8sClient.Status().Update(ctx, &setup)).To(Succeed())
+		done, failure, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		var fin batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-finalize")}, &fin)).To(Succeed())
+		failJob(&fin)
+		Expect(k8sClient.Status().Update(ctx, &fin)).To(Succeed())
+		done, failure, err = r.reconcileCDC(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeFalse())
+		Expect(failure).To(ContainSubstring("cdc-finalize"))
+	})
+
+	It("online abort cleanup: cdc-abort Job 성공 후 write-block 을 해제하고 멱등이다", func() {
+		clusterName := fmt.Sprintf("rsdabort-%d", GinkgoRandomSeed())
+		keyspace := "default"
+		sr := &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster: clusterName, Keyspace: keyspace,
+				Vindex:       postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				WriteBlocked: true,
+				Ranges:       []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj := &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"}, Online: true,
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		r := &ShardSplitJobReconciler{Client: k8sClient, Scheme: scheme.Scheme}
+
+		done, failure, err := r.reconcileModeJobs(ctx, ssj, "cdc-setup")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+
+		done, failure, err = r.reconcileAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		var abort batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-abort")}, &abort)).To(Succeed())
+		Expect(envOf(abort.Spec.Template.Spec.Containers[0], "PGROUTER_RESHARD_MODE")).To(Equal("cdc-abort"))
+		var got postgresv1alpha1.ShardRange
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
+		Expect(got.Spec.WriteBlocked).To(BeTrue(), "abort cleanup Job 완료 전에는 write-block 을 유지한다")
+
+		abort.Status.Succeeded = 1
+		Expect(k8sClient.Status().Update(ctx, &abort)).To(Succeed())
+		done, failure, err = r.reconcileAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeTrue())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
+		Expect(got.Spec.WriteBlocked).To(BeFalse())
+
+		done, failure, err = r.reconcileAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeTrue())
+	})
+
+	It("online abort cleanup: cdc-abort Job 실패를 manual cleanup 필요 상태로 보고한다", func() {
+		clusterName := fmt.Sprintf("rsdabortfail-%d", GinkgoRandomSeed())
+		keyspace := "default"
+		sr := &postgresv1alpha1.ShardRange{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
+			Spec: postgresv1alpha1.ShardRangeSpec{
+				Cluster: clusterName, Keyspace: keyspace,
+				Vindex:       postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+				WriteBlocked: true,
+				Ranges:       []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "shard-0"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sr)).To(Succeed())
+		ssj := &postgresv1alpha1.ShardSplitJob{
+			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ssj", Namespace: ns},
+			Spec: postgresv1alpha1.ShardSplitJobSpec{
+				Cluster: clusterName, Keyspace: keyspace, Sources: []string{"shard-0"}, Online: true,
+				Targets: []postgresv1alpha1.ShardSplitTarget{
+					{ShardID: "t1", Ranges: []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: "t1"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ssj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		r := &ShardSplitJobReconciler{Client: k8sClient, Scheme: scheme.Scheme}
+
+		done, failure, err := r.reconcileModeJobs(ctx, ssj, "cdc-setup")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		done, failure, err = r.reconcileAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failure).To(BeEmpty())
+		Expect(done).To(BeFalse())
+		var abort batchv1.Job
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: reshardJobName(clusterName, "t1", "cdc-abort")}, &abort)).To(Succeed())
+		failJob(&abort)
+		Expect(k8sClient.Status().Update(ctx, &abort)).To(Succeed())
+
+		done, failure, err = r.reconcileAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeFalse())
+		Expect(failure).To(ContainSubstring("cdc-abort"))
+		var got postgresv1alpha1.ShardRange
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sr), &got)).To(Succeed())
+		Expect(got.Spec.WriteBlocked).To(BeTrue(), "cleanup 실패 시 write-block 해제 여부를 성공으로 오인하면 안 된다")
+
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+		Expect(k8sClient.Status().Update(ctx, ssj)).To(Succeed())
+		_, err = r.reconcileTerminalAbortCleanup(ctx, ssj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ssj), ssj)).To(Succeed())
+		cond := apimeta.FindStatusCondition(ssj.Status.Conditions, shardSplitConditionAbortCleanup)
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal(shardSplitReasonCleanupFailed))
 	})
 
 	It("forward-only cutover 는 write-block 을 켜지 않는다(비가역 거부)", func() {

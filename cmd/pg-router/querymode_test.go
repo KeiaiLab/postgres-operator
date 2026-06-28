@@ -7,7 +7,9 @@ Licensed under the MIT License. See the LICENSE file for details.
 package main
 
 import (
+	"net"
 	"testing"
+	"time"
 
 	"github.com/keiailab/postgres-operator/internal/router"
 )
@@ -49,5 +51,44 @@ func TestQueryRouter_routeKey(t *testing.T) {
 		if byKey.Shard != bySQL.Shard {
 			t.Fatalf("key %q: routeKey shard=%s != routeSQL shard=%s", key, byKey.Shard, bySQL.Shard)
 		}
+	}
+}
+
+func TestSession_KeylessWriteDoesNotScatter(t *testing.T) {
+	client, routerSide := net.Pipe()
+	defer client.Close()
+	defer routerSide.Close()
+
+	s := &session{client: routerSide, qr: testQR()}
+	done := make(chan bool, 1)
+	go func() {
+		done <- s.handleSimpleQuery(pgMessage{Type: 'Q', Payload: cstring("UPDATE t SET v=1")})
+	}()
+
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	errMsg, err := readMessage(client)
+	if err != nil {
+		t.Fatalf("read error response: %v", err)
+	}
+	if errMsg.Type != 'E' {
+		t.Fatalf("first response type = %q, want E", errMsg.Type)
+	}
+	ready, err := readMessage(client)
+	if err != nil {
+		t.Fatalf("read ready response: %v", err)
+	}
+	if ready.Type != 'Z' || string(ready.Payload) != "I" {
+		t.Fatalf("ready response = type %q payload %q, want Z/I", ready.Type, string(ready.Payload))
+	}
+
+	select {
+	case keep := <-done:
+		if !keep {
+			t.Fatal("handleSimpleQuery should keep the session open after query error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleSimpleQuery did not return")
 	}
 }

@@ -44,7 +44,10 @@ const podNotReadyReason = "pod-not-ready"
 // aggregateShardStatus 는 단일 shard 의 모든 Pod (StatefulSet replicas) 를 list 한 뒤
 // 각 Pod 의 statusapi annotation 을 parse 해 ShardStatus 를 합성한다 (RFC 0006 R2).
 //
-// Selection: app.kubernetes.io/instance=<cluster> + postgres.keiailab.io/shard=<ord>.
+// Selection: app.kubernetes.io/instance=<cluster> 로 넓게 list 한 뒤
+// postgres.keiailab.io/shard=<ord> 또는 postgres.keiailab.io/shard-id=shard-<ord>
+// 를 in-code OR 필터링한다. Kubernetes selector 는 OR 를 지원하지 않으므로 Promote
+// 전환 중 selector mutation 없이 shard-id additive label 을 관측하려면 이 방식이 필요하다.
 // Aggregation 규칙:
 //   - Role=primary 이고 not-stale 인 Pod 1 개 → ShardStatus.Primary.
 //     (election 합의가 *유일한 leader* 를 보장 — 2개 이상 발견되면 split-brain 신호로
@@ -62,13 +65,14 @@ func aggregateShardStatus(
 	ord int32,
 	svcName string,
 ) postgresv1alpha1.ShardStatus {
-	logger := log.FromContext(ctx).WithValues("shard", ord)
+	shardID := ShardIDForOrdinal(ord)
+	logger := log.FromContext(ctx).WithValues("shard", shardID)
 	out := postgresv1alpha1.ShardStatus{
-		Name:    fmt.Sprintf("shard-%d", ord),
+		Name:    shardID,
 		Ordinal: ord,
 	}
 
-	sel := labels.SelectorFromSet(labels.Set(SelectorLabels(cluster.Name, "shard", ord)))
+	sel := labels.SelectorFromSet(statusAggregationSelectorLabels(cluster.Name))
 	var pods corev1.PodList
 	if err := c.List(ctx, &pods, &client.ListOptions{
 		Namespace:     cluster.Namespace,
@@ -104,6 +108,9 @@ func aggregateShardStatus(
 	// reseed. This protects the real (data-holding) primary from ever being reseeded.
 	hasPromotedPrimary := false
 	for i := range pods.Items {
+		if !podMatchesShardIdentity(&pods.Items[i], ord) {
+			continue
+		}
 		if st, ok := parsePodStatus(&pods.Items[i]); ok &&
 			st.Role == statusapi.RolePrimary && st.Promoted &&
 			!fencedPVC["data-"+pods.Items[i].Name] {
@@ -118,6 +125,9 @@ func aggregateShardStatus(
 
 	for i := range pods.Items {
 		pod := &pods.Items[i]
+		if !podMatchesShardIdentity(pod, ord) {
+			continue
+		}
 		st, ok := parsePodStatus(pod)
 		if !ok {
 			// annotation 부재 — Pod 부팅 직후. fallback 표기.
@@ -198,6 +208,22 @@ func aggregateShardStatus(
 	out.Primary = primaryCandidate
 	out.Replicas = replicas
 	return out
+}
+
+func statusAggregationSelectorLabels(cluster string) labels.Set {
+	out := labels.Set(SelectorLabels(cluster, "shard", -1))
+	delete(out, "app.kubernetes.io/component")
+	return out
+}
+
+func podMatchesShardIdentity(pod *corev1.Pod, ord int32) bool {
+	if pod == nil {
+		return false
+	}
+	if pod.Labels["postgres.keiailab.io/shard"] == fmt.Sprintf("%d", ord) {
+		return true
+	}
+	return pod.Labels[ShardIDLabelKey] == ShardIDForOrdinal(ord)
 }
 
 func kubernetesPodNotReady(pod *corev1.Pod) bool {

@@ -93,6 +93,17 @@ func TestQueryRouter_ReferenceOnlyUsesAnyShard(t *testing.T) {
 	}
 }
 
+func TestQueryRouter_ReferenceWriteDoesNotUseAnyShard(t *testing.T) {
+	qr := testQueryRouter()
+	d, err := qr.Route("UPDATE countries SET name = 'Korea'")
+	if !errors.Is(err, ErrNoRoutingKey) {
+		t.Fatalf("reference write err = %v, want ErrNoRoutingKey", err)
+	}
+	if !d.Scatter || d.Read {
+		t.Fatalf("reference write decision = %+v, want write scatter signal", d)
+	}
+}
+
 func TestQueryRouter_NoKeySignalsScatter(t *testing.T) {
 	qr := testQueryRouter()
 	d, err := qr.Route("SELECT * FROM t") // 키 없음, reference 아님
@@ -101,6 +112,14 @@ func TestQueryRouter_NoKeySignalsScatter(t *testing.T) {
 	}
 	if !d.Scatter {
 		t.Fatal("no-key decision should set Scatter")
+	}
+}
+
+func TestQueryRouter_NilExtractorReturnsError(t *testing.T) {
+	qr := testQueryRouter()
+	qr.Extractor = nil
+	if _, err := qr.Route("SELECT v FROM t WHERE tenant_id = 'alice'"); err == nil {
+		t.Fatal("expected nil extractor error")
 	}
 }
 

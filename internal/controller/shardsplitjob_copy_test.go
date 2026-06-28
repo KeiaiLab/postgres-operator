@@ -89,6 +89,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 				To(Succeed(), "target %s 복사 Job 이 생성돼야 함", shardID)
 			c := job.Spec.Template.Spec.Containers[0]
 			Expect(envOf(c, "PGROUTER_RESHARD_TARGET_SHARD")).To(Equal(shardID))
+			Expect(envOf(c, "PGROUTER_VINDEX_TYPE")).To(Equal("hash"))
 			Expect(envOf(c, "PGROUTER_VINDEX_COLUMN")).To(Equal("id"))
 			Expect(envOf(c, "PGROUTER_VINDEX_FUNCTION")).To(Equal("murmur3"))
 			Expect(envOf(c, "PGROUTER_REFERENCE_TABLES")).To(Equal("country"))

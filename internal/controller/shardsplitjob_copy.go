@@ -50,6 +50,7 @@ var reshardModeVerb = map[string]string{
 	"delete":       "del",
 	"cdc-setup":    "cdcset",
 	"cdc-finalize": "cdcfin",
+	"cdc-abort":    "cdcabort",
 }
 
 // reshardJobName 은 target shard·mode 별 데이터이동 Job 이름(결정적 — 멱등 생성).
@@ -94,39 +95,41 @@ func rangesEnvValue(targets []postgresv1alpha1.ShardSplitTarget) string {
 	return strings.Join(parts, ",")
 }
 
-// keyspaceVindex 는 cluster/keyspace 의 ShardRange 에서 vindex 컬럼·함수·reference 테이블을
-// 읽는다 (copy 가 라우팅과 동일 vindex 를 쓰도록).
-func (r *ShardSplitJobReconciler) keyspaceVindex(ctx context.Context, ns, cluster, keyspace string) (col, fn string, refTables []string, err error) {
+// keyspaceVindex 는 cluster/keyspace 의 ShardRange 에서 vindex 타입·컬럼·함수·reference
+// 테이블을 읽는다 (copy 가 라우팅과 동일 vindex 를 쓰도록).
+func (r *ShardSplitJobReconciler) keyspaceVindex(ctx context.Context, ns, cluster, keyspace string) (vtype, col, fn string, refTables []string, err error) {
 	var list postgresv1alpha1.ShardRangeList
 	if err := r.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		return "", "", nil, fmt.Errorf("list ShardRange: %w", err)
+		return "", "", "", nil, fmt.Errorf("list ShardRange: %w", err)
 	}
 	for i := range list.Items {
 		sr := &list.Items[i]
 		if sr.Spec.Cluster == cluster && sr.Spec.Keyspace == keyspace {
-			return sr.Spec.Vindex.Column, string(sr.Spec.Vindex.Function), sr.Spec.ReferenceTables, nil
+			return string(sr.Spec.Vindex.Type), sr.Spec.Vindex.Column, string(sr.Spec.Vindex.Function), sr.Spec.ReferenceTables, nil
 		}
 	}
-	return "", "", nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", cluster, keyspace)
+	return "", "", "", nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", cluster, keyspace)
 }
 
 // reshardParams 는 한 데이터이동 Job 의 입력이다.
 type reshardParams struct {
 	sourceDSN, targetDSN, targetShard string
-	col, fn, ranges                   string
+	vtype, col, fn, ranges            string
 	refTables                         []string
 	maxLag                            int64
-	mode                              string // copy | delete | cdc-setup | cdc-finalize
+	mode                              string // copy | delete | cdc-setup | cdc-finalize | cdc-abort
 }
 
 // buildReshardJob 은 mode 에 맞는 데이터이동 Job 을 만든다:
 //   - copy: source→target 범위복사(offline) · delete: source 에서 이동분 삭제(target 불요)
 //   - cdc-setup: 스키마+pub+sub(copy_data=true)+lag대기 · cdc-finalize: 최종 drain+drop+범위정리
+//   - cdc-abort: 실패/중단 시 pub/sub/slot 누수 방지용 정리
 func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSplitJob, p reshardParams) *batchv1.Job {
 	backoff := int32(2)
 	env := []corev1.EnvVar{
 		{Name: "PGROUTER_SOURCE_DSN", Value: p.sourceDSN},
 		{Name: "PGROUTER_RESHARD_TARGET_SHARD", Value: p.targetShard},
+		{Name: "PGROUTER_VINDEX_TYPE", Value: p.vtype},
 		{Name: "PGROUTER_VINDEX_COLUMN", Value: p.col},
 		{Name: "PGROUTER_VINDEX_FUNCTION", Value: p.fn},
 		{Name: "PGROUTER_RANGES", Value: p.ranges},
@@ -140,6 +143,11 @@ func (r *ShardSplitJobReconciler) buildReshardJob(ssj *postgresv1alpha1.ShardSpl
 			corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: p.targetDSN},
 			corev1.EnvVar{Name: "PGROUTER_RESHARD_MODE", Value: p.mode},
 			corev1.EnvVar{Name: "PGROUTER_CDC_MAX_LAG", Value: strconv.FormatInt(p.maxLag, 10)},
+		)
+	case "cdc-abort":
+		env = append(env,
+			corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: p.targetDSN},
+			corev1.EnvVar{Name: "PGROUTER_RESHARD_MODE", Value: p.mode},
 		)
 	default: // copy
 		env = append(env, corev1.EnvVar{Name: "PGROUTER_TARGET_DSN", Value: p.targetDSN})
@@ -203,7 +211,7 @@ func (r *ShardSplitJobReconciler) reconcileModeJobs(ctx context.Context, ssj *po
 	if len(ssj.Spec.Sources) == 0 {
 		return false, mode + ": no source shard", nil
 	}
-	col, fn, refTables, err := r.keyspaceVindex(ctx, ssj.Namespace, ssj.Spec.Cluster, ssj.Spec.Keyspace)
+	vtype, col, fn, refTables, err := r.keyspaceVindex(ctx, ssj.Namespace, ssj.Spec.Cluster, ssj.Spec.Keyspace)
 	if err != nil {
 		return false, "", err // ShardRange 아직 부재 등 — requeue.
 	}
@@ -228,7 +236,7 @@ func (r *ShardSplitJobReconciler) reconcileModeJobs(ctx context.Context, ssj *po
 			}
 			j := r.buildReshardJob(ssj, reshardParams{
 				sourceDSN: internalShardDSN(srcDNS), targetDSN: targetDSN, targetShard: t.ShardID,
-				col: col, fn: fn, ranges: ranges, refTables: refTables, maxLag: maxLag, mode: mode,
+				vtype: vtype, col: col, fn: fn, ranges: ranges, refTables: refTables, maxLag: maxLag, mode: mode,
 			})
 			if err := controllerutil.SetControllerReference(ssj, j, r.Scheme); err != nil {
 				return false, "", err

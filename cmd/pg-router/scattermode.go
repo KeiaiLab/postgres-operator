@@ -35,7 +35,7 @@ type shardResult struct {
 func scatterQuery(client net.Conn, qr queryRouter, query pgMessage, raw []byte, dialer *backendDialer, password string) {
 	shards, err := qr.allShards()
 	if err != nil || len(shards) == 0 {
-		writePgError(client, "08006", "scatter: no shards available")
+		scatterClientError(client, "08006", "scatter: no shards available")
 		return
 	}
 
@@ -55,7 +55,7 @@ func scatterQuery(client net.Conn, qr queryRouter, query pgMessage, raw []byte, 
 	for i := range results {
 		r := results[i]
 		if r.err != nil {
-			writePgError(client, "08006", fmt.Sprintf("scatter: shard %s: %v", shards[i].shard, r.err))
+			scatterClientError(client, "08006", fmt.Sprintf("scatter: shard %s: %v", shards[i].shard, r.err))
 			return
 		}
 		if r.errMsg != nil { // 한 샤드라도 에러면 그대로 전달(fail-fast).
@@ -81,6 +81,11 @@ func scatterQuery(client net.Conn, qr queryRouter, query pgMessage, raw []byte, 
 		}
 	}
 	_ = writeMessage(client, 'C', cstring(fmt.Sprintf("SELECT %d", len(dataRows))))
+	_ = writeMessage(client, 'Z', []byte{'I'})
+}
+
+func scatterClientError(client net.Conn, code, msg string) {
+	writePgError(client, code, msg)
 	_ = writeMessage(client, 'Z', []byte{'I'})
 }
 

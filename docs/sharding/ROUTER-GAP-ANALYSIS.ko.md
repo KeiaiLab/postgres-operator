@@ -9,6 +9,44 @@
 
 ---
 
+## Native Router Concurrent-Write E2E Scenario (2026-06-28)
+
+목표는 online `ShardSplitJob` 이 정적 데이터뿐 아니라 실제 client write stream 중에도 무중단으로
+동작하는지 검증하는 것이다. 이 시나리오는 Docker/kind/live PG 가 필요한 live gate 이므로 자원 절약
+개발 단계에서는 문서화만 하고 실행은 별도 체크포인트에서 수행한다.
+
+필수 조건:
+
+- 모든 client write 는 `PGROUTER_MODE=query` pg-router endpoint 를 통해 들어간다. source shard 로
+  직접 쓰지 않는다.
+- `ShardRange` 는 live CRD topology 로 제공하고, router 는 cutover 후 `PGROUTER_REFRESH` 또는 watch
+  경로로 routing update 를 따라가야 한다.
+- online `ShardSplitJob` 은 `spec.online=true`, `CDCMaxLag` 를 명시하고, reshard-copy image 는
+  `cdc-setup` / `cdc-finalize` / `cdc-abort` mode 를 모두 포함해야 한다.
+- write-block 구간에서 write query 는 PostgreSQL ErrorResponse 뒤 `ReadyForQuery` 를 받아야 하며,
+  client connection 이 hang 되면 실패로 본다.
+
+검증 흐름:
+
+1. source shard 에 schema 를 만들되 target 은 PK 없이 시작하는 변형을 포함한다. PK/index/constraint 는
+   finalize 에서 복제되므로 이 경로가 logical replication UPDATE/DELETE 를 견디는지 확인한다.
+2. writer workload 는 INSERT/UPDATE/DELETE 를 섞어 tenant key 별 checksum 을 계속 기록한다.
+3. workload 가 실행 중인 상태에서 online `ShardSplitJob` 을 적용한다.
+4. `cdc-setup` 이 subscription 을 만들고 lag threshold 에 도달할 때까지 writes 를 계속 유지한다.
+5. `Cutover` write-block 중 router write 가 거부되고 `ReadyForQuery` 를 돌려주는지 확인한다.
+6. `RoutingUpdate` 후 같은 client workload 가 target shard ownership 으로 정상 라우팅되는지 확인한다.
+7. 완료 후 row count, tenant-key checksum, key ownership, source cleanup, target index/PK/CHECK/FK, pub/sub/slot
+   cleanup 을 모두 검증한다.
+
+성공 기준:
+
+- write loss 0, duplicate 0, key ownership mismatch 0.
+- source 에 split-out key 가 남지 않는다.
+- target 은 schema/index/PK/CHECK 와 best-effort FK 복제 상태를 갖는다.
+- write-block error path 는 항상 `ReadyForQuery` 를 동반한다.
+- abort/failure drill 에서는 `cdc-abort` Job 이 subscription/publication 을 정리하고, 실패 시
+  `AbortCleanup=False` condition 이 남는다.
+
 ## 0. 좌표: 이건 Citus가 아니라 "Vitess-for-Postgres"
 
 - **Citus** = PG **내부 확장(extension)**. ADR-0003에서 명시적으로 버린 길.

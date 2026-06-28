@@ -16,11 +16,13 @@ Licensed under the MIT License. See the LICENSE file for details.
 //     source. Run ONLY after routing is switched (else data loss).
 //
 // The built-in vindex (murmur3 hash, 2-shard split at 0x80000000, column from
-// PGROUTER_VINDEX_COLUMN, default "id") matches cmd/pg-router shardSpec so the
-// copy and the router agree on which keys belong where.
+// PGROUTER_VINDEX_TYPE / PGROUTER_VINDEX_COLUMN, default "hash" / "id") matches
+// the ShardRange topology so the copy and the router agree on which keys belong
+// where.
 //
 // Config: PGROUTER_SOURCE_DSN, PGROUTER_TARGET_DSN, PGROUTER_COPY_TABLE,
-// PGROUTER_RESHARD_TARGET_SHARD, PGROUTER_VINDEX_COLUMN, PGROUTER_RESHARD_DELETE_AFTER.
+// PGROUTER_RESHARD_TARGET_SHARD, PGROUTER_VINDEX_TYPE, PGROUTER_VINDEX_COLUMN,
+// PGROUTER_RESHARD_DELETE_AFTER.
 package main
 
 import (
@@ -38,9 +40,13 @@ import (
 // reshardSpec builds the post-split vindex spec. The ranges come from
 // PGROUTER_RANGES ("shard:lo:hi,shard:lo:hi") when set (controller passes the
 // target topology), else the default 2-shard murmur3 split (standalone use).
-// fn is the vindex function from PGROUTER_VINDEX_FUNCTION (default murmur3).
-func reshardSpec(col, fn, rangesEnv string) v1alpha1.ShardRangeSpec {
-	if fn == "" {
+// vtype/fn are from PGROUTER_VINDEX_TYPE / PGROUTER_VINDEX_FUNCTION. Standalone
+// use defaults to hash + murmur3.
+func reshardSpec(vtype, col, fn, rangesEnv string) v1alpha1.ShardRangeSpec {
+	if vtype == "" {
+		vtype = string(v1alpha1.VindexTypeHash)
+	}
+	if fn == "" && (vtype == string(v1alpha1.VindexTypeHash) || vtype == string(v1alpha1.VindexTypeConsistentHash)) {
 		fn = "murmur3"
 	}
 	ranges := parseRanges(rangesEnv)
@@ -51,7 +57,7 @@ func reshardSpec(col, fn, rangesEnv string) v1alpha1.ShardRangeSpec {
 		}
 	}
 	return v1alpha1.ShardRangeSpec{
-		Vindex: v1alpha1.VindexSpec{Type: v1alpha1.VindexTypeHash, Column: col, Function: v1alpha1.VindexHashFunction(fn)},
+		Vindex: v1alpha1.VindexSpec{Type: v1alpha1.VindexType(vtype), Column: col, Function: v1alpha1.VindexHashFunction(fn)},
 		Ranges: ranges,
 	}
 }
@@ -75,11 +81,19 @@ func main() {
 	tgt := os.Getenv("PGROUTER_TARGET_DSN")
 	table := os.Getenv("PGROUTER_COPY_TABLE")
 	targetShard := os.Getenv("PGROUTER_RESHARD_TARGET_SHARD")
+	mode := os.Getenv("PGROUTER_RESHARD_MODE")
+	cdcMode := mode == "cdc-setup" || mode == "cdc-finalize" || mode == "cdc-abort"
 	// delete-only: cutover 후 source 에서 이동분 삭제만(복사 없음, Cleanup phase). target 불요.
 	deleteOnly := os.Getenv("PGROUTER_RESHARD_DELETE_ONLY") != ""
 	switch {
 	case src == "":
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_SOURCE_DSN required")
+		os.Exit(2)
+	case cdcMode && targetShard == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_RESHARD_TARGET_SHARD")
+		os.Exit(2)
+	case cdcMode && tgt == "":
+		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_TARGET_DSN")
 		os.Exit(2)
 	case deleteOnly && targetShard == "":
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: DELETE_ONLY requires PGROUTER_RESHARD_TARGET_SHARD")
@@ -87,20 +101,19 @@ func main() {
 	case !deleteOnly && tgt == "":
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_TARGET_DSN required (unless DELETE_ONLY)")
 		os.Exit(2)
-	case targetShard == "" && table == "":
+	case !cdcMode && targetShard == "" && table == "":
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: full copy requires PGROUTER_COPY_TABLE")
 		os.Exit(2)
 	}
-	mode := os.Getenv("PGROUTER_RESHARD_MODE")
 	timeout := 60 * time.Second
-	if mode == "cdc-setup" || mode == "cdc-finalize" {
+	if cdcMode {
 		timeout = 15 * time.Minute // CDC bulk 복사/drain 은 길 수 있다.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// CDC(online) 모드: 논리복제 setup(스키마+pub+sub+lag대기) 또는 finalize(drain+drop+범위정리).
-	if mode == "cdc-setup" || mode == "cdc-finalize" {
+	if cdcMode {
 		runCDC(ctx, mode, src, tgt, targetShard)
 		return
 	}
@@ -121,7 +134,7 @@ func main() {
 	if col == "" {
 		col = "id"
 	}
-	spec := reshardSpec(col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
+	spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
 
 	// 옮길 테이블 결정: COPY_TABLE 지정 시 그 하나, 아니면 source 의 모든 user 테이블에서
 	// reference 테이블(PGROUTER_REFERENCE_TABLES, 전 샤드 복제라 이동 대상 아님)을 뺀 전부.
@@ -184,17 +197,12 @@ func main() {
 //     생성 후 lag ≤ CDC_MAX_LAG 까지 대기(라이브 쓰기 따라잡기, write-block 없음).
 //   - cdc-finalize: 최종 drain(lag→0, write-block 하에 호출 전제) + subscription drop +
 //     DeleteForeignRange(범위 밖 정리) + publication drop.
+//   - cdc-abort: 실패/중단 경로에서 subscription + publication 만 멱등 정리.
 func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 	if targetShard == "" {
 		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_RESHARD_TARGET_SHARD")
 		os.Exit(2)
 	}
-	col := os.Getenv("PGROUTER_VINDEX_COLUMN")
-	if col == "" {
-		col = "id"
-	}
-	spec := reshardSpec(col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
-	tables := cdcTables(ctx, src)
 	pub := "rsd_pub_" + sanitize(targetShard)
 	sub := "rsd_sub_" + sanitize(targetShard)
 	connInfo := src
@@ -210,6 +218,7 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 
 	switch mode {
 	case "cdc-setup":
+		tables := cdcTables(ctx, src)
 		fmt.Printf("reshard-copy-poc: cdc-setup target=%s tables=%v\n", targetShard, tables)
 		must(router.EnsureSchema(ctx, src, tgt, tables), "ensure schema")
 		must(router.CreatePublication(ctx, src, pub, tables), "create publication")
@@ -217,6 +226,12 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 		waitLag(ctx, src, sub, maxLag)
 		fmt.Printf("reshard-copy-poc: cdc-setup 완료 — subscription %s 활성, lag ≤ %d\n", sub, maxLag)
 	case "cdc-finalize":
+		col := os.Getenv("PGROUTER_VINDEX_COLUMN")
+		if col == "" {
+			col = "id"
+		}
+		spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
+		tables := cdcTables(ctx, src)
 		fmt.Printf("reshard-copy-poc: cdc-finalize target=%s (write-block 하 최종 drain)\n", targetShard)
 		waitLag(ctx, src, sub, 0) // write-block 하 → 새 쓰기 없음 → lag→0 수렴.
 		must(router.DropSubscription(ctx, tgt, sub), "drop subscription")
@@ -235,6 +250,11 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 		}
 		must(router.DropPublication(ctx, src, pub), "drop publication")
 		fmt.Printf("reshard-copy-poc: cdc-finalize 완료 — 범위 밖 %d row 삭제, %s 자기 범위만 보유\n", total, targetShard)
+	case "cdc-abort":
+		fmt.Printf("reshard-copy-poc: cdc-abort target=%s\n", targetShard)
+		must(router.DropSubscription(ctx, tgt, sub), "drop subscription")
+		must(router.DropPublication(ctx, src, pub), "drop publication")
+		fmt.Printf("reshard-copy-poc: cdc-abort 완료 — subscription %s / publication %s 정리\n", sub, pub)
 	}
 }
 

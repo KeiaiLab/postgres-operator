@@ -5,6 +5,25 @@
 - **Authors**: @claude (세션 작업), review pending
 - **Refs**: ADR-0027 (비-ordinal target 식별·격리), ADR-0001 (self-built distributed SQL), #220 (failover identity saga)
 
+## P-A.2 selector audit / implementation note (2026-06-28)
+
+이번 hardening batch 에서 selector 사용처를 다음처럼 분리했다.
+
+- **그대로 둔 것**: `ShardStatefulSetName`, `ShardServiceName`, PDB/TLS/PVC resize, source shard DNS,
+  bootstrap loop 는 여전히 ordinal resource naming 이다. 기존 StatefulSet/Service selector 불변성과
+  업그레이드 호환성 때문에 Promote P-B 전에는 바꾸지 않는다.
+- **변경한 것**: `aggregateShardStatus` 는 더 이상 `postgres.keiailab.io/shard=<ord>` selector 만으로
+  pod 를 고르지 않는다. cluster 공통 label 로 넓게 list 한 뒤 코드에서
+  `postgres.keiailab.io/shard=<ord>` 또는 `postgres.keiailab.io/shard-id=shard-<ord>` 를 OR 필터링한다.
+- **metrics/failover**: 직접 pod selector 를 갖지 않고 `PostgresCluster.status.shards` 를 소비한다.
+  따라서 aggregation 이 `shard-id` 를 이해하면 metrics/failover 는 status 경유로 따라온다.
+- **아직 하지 않은 것**: `shard-id=t1` 같은 named target 을 status.shards 의 새 row 로 생성하지는 않았다.
+  현재 `PostgresClusterReconciler` 는 `spec.shards.initialCount` ordinal loop 를 유지한다. named shard
+  row 생성은 P-B/P-C 의 ShardRange/spec 모델 전환 범위다.
+- **P-B 주의점**: target 에 `shard-id` 를 붙이기 전에 source ordinal shard 를 fence/관측 제외해야 한다.
+  source 와 target 이 같은 `shard-id` 로 동시에 보이면 aggregation 은 split-brain 으로 보고 primary 2개
+  상황을 노출한다. 이는 의도적인 안전 신호이며, Promote phase 는 이 중간 상태를 만들지 않아야 한다.
+
 ## Context
 
 2026-06-28 기준 online resharding 의 데이터 경로가 *전부* 결선·라이브 검증되었다 (offline + online

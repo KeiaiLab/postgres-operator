@@ -308,6 +308,46 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
 # 통합(envtest): make test-integration (또는 setup-envtest + KUBEBUILDER_ASSETS 절대경로)
 ```
 
+### 6.8 다음 세션 실행 정책 (2026-06-28)
+
+이번 후속 작업은 **자원 절약 모드**로 진행한다. Docker Desktop / WSL / 로컬 VM 은 개발 중에는
+꺼 둔다. kind, Docker 이미지 빌드, 라이브 PG e2e 는 명시적인 검증 체크포인트에서만 다시 켠다.
+
+작업 순서는 `docs/superpowers/plans/2026-06-28-reshard-hardening.md` 를 따른다. 핵심 원칙:
+
+1. **개발 먼저, 테스트는 묶어서**: 작은 편집마다 테스트를 돌리지 않는다. Batch 0/1/2 단위로 코드를
+   완성한 뒤 한 번에 검증한다.
+2. **먼저 닫을 위험**: reference table 쓰기 단일 shard 라우팅 방지, keyless write scatter 금지,
+   scatter error 경로 ReadyForQuery 보장, reshard-copy Job 의 vindex type 보존.
+3. **그 다음 운영 안전장치**: online resharding 실패/abort 시 pub/sub/replication-slot 누수 정리.
+4. **그 다음 ADR-0029**: target 승격은 `shard-id` selector audit 후 Promote phase 로 들어간다.
+   #220-class 정체성 위험 때문에 live chaos drill 전에는 GA 완료로 보지 않는다.
+5. **검증 체크포인트**: 기본은 native Go test 로 시작한다. Docker/kind 는 native router 동시쓰기 e2e
+   또는 full live gate 에서만 사용한다.
+
+2026-06-28 현재 진행 상태:
+
+- Batch 0 개발 완료: reference table write 단일 shard 라우팅 방지, keyless write scatter 거부,
+  scatter error `ReadyForQuery` 보장, `PGROUTER_VINDEX_TYPE` 전달/보존, 관련 focused tests 추가.
+- Batch 1 개발 완료: online resharding terminal `Failed`/`Aborted` 경로에서 `cdc-abort` Job 으로
+  subscription/publication 정리, 성공 후 write-block 해제, 실패 시 `AbortCleanup=False` condition 기록.
+- Batch 2 P-A.2 개발 완료: `aggregateShardStatus` 가 legacy `postgres.keiailab.io/shard=<ord>` 와
+  additive `postgres.keiailab.io/shard-id=shard-<ord>` 를 OR 필터링한다. StatefulSet/Service selector 는
+  변경하지 않았다. metrics/failover 는 status 소비자라 aggregation 변경을 따라간다.
+- Batch 3 설계 문서 완료: native router concurrent-write e2e 시나리오를
+  `docs/sharding/ROUTER-GAP-ANALYSIS.ko.md` 에 기록했다. write stream 중 online CDC, write-block
+  `ReadyForQuery`, routing update, checksum/key ownership, PK 없는 target UPDATE/DELETE, abort cleanup 을
+  한 live gate 로 검증한다.
+- 아직 남은 범위: `shard-id=t1` 같은 named target shard 를 status.shards 새 row 로 생성하는 작업은
+  Promote P-B/P-C 범위다. source fence/관측 제외 전에 target 에 동일 `shard-id` 를 붙이면 split-brain
+  신호가 될 수 있으므로 순서가 중요하다.
+- 라이브 검증 전 주의: `cdc-abort` 는 `DROP SUBSCRIPTION IF EXISTS` 로 원격 replication slot 정리까지
+  시도한다. source 접속 불가 상황에서는 cleanup Job 이 실패하고 `AbortCleanup=False` 로 남는 것이 현재
+  의도한 안전 동작이다. source-down 상태에서도 target subscription 만 강제 제거하는 fallback 은 live drill
+  결과를 보고 별도 보강한다.
+- 검증 상태: Docker Desktop / WSL / VM 은 종료 유지. Windows host 에 `go`/`gofmt` 가 없어
+  `go test`/`gofmt` 는 아직 미실행. 현재 확인된 것은 `git diff --check` 통과뿐이다.
+
 ---
 
 ## 7. 용어집

@@ -51,7 +51,7 @@ type QueryRouter struct {
 
 // Route 는 한 쿼리의 라우팅 결정을 낸다:
 //
-//  1. reference-only 쿼리(복제 테이블만 참조) → 키 없이 AnyShard.
+//  1. reference-only 읽기 쿼리(복제 테이블만 참조) → 키 없이 AnyShard.
 //  2. 그 외 → 샤딩 키 추출 → 단일 shard. 키가 없으면 Scatter=true + ErrNoRoutingKey
 //     (호출자가 scatter-gather 또는 거부 선택).
 //
@@ -70,12 +70,16 @@ func (qr QueryRouter) Route(query string) (RouteDecision, error) {
 		return RouteDecision{}, fmt.Errorf("router: QueryRouter has no backend resolver")
 	}
 
-	// 1) reference-only → 임의 shard.
-	if qr.Topology.ReferenceOnly(query) {
+	// 1) reference-only 읽기 → 임의 shard. reference table 쓰기는 복제 불변식을 깨지
+	// 않도록 여기서 단일 shard 로 보내지 않는다.
+	if read && qr.Topology.ReferenceOnly(query) {
 		return qr.decide(qr.Topology.AnyShard())(pick, read)
 	}
 
 	// 2) 샤딩 키 → 단일 shard.
+	if qr.Extractor == nil {
+		return RouteDecision{}, fmt.Errorf("router: QueryRouter has no route key extractor")
+	}
 	col := qr.Topology.Spec.Vindex.Column
 	key, ok := qr.Extractor.ExtractRoutingKey(query, col)
 	if !ok {

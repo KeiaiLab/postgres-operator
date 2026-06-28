@@ -111,6 +111,10 @@ func (s *session) handleSimpleQuery(m pgMessage) bool {
 	// 라우팅.
 	d, err := s.qr.routeSQL(sql)
 	if d.Scatter { // 키 없음 → scatter (자체 연결).
+		if !router.IsReadOnlyQuery(sql) {
+			s.queryError("0A000", "cannot scatter a keyless write query")
+			return true
+		}
 		if s.inTx {
 			s.queryError("0A000", "cannot scatter a keyless query inside a transaction")
 			return true

@@ -60,9 +60,13 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	switch ssj.Status.Phase {
-	case postgresv1alpha1.ShardSplitPhaseCompleted,
-		postgresv1alpha1.ShardSplitPhaseFailed,
+	case postgresv1alpha1.ShardSplitPhaseCompleted:
+		return ctrl.Result{}, nil
+	case postgresv1alpha1.ShardSplitPhaseFailed,
 		postgresv1alpha1.ShardSplitPhaseAborted:
+		if ssj.Spec.Online {
+			return r.reconcileTerminalAbortCleanup(ctx, &ssj)
+		}
 		return ctrl.Result{}, nil
 	}
 
