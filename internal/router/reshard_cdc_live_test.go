@@ -103,6 +103,16 @@ func TestCDCLive(t *testing.T) {
 			t.Fatalf("target 에 범위 밖 키 잔존: id=%s → %s", id, s)
 		}
 	}
+
+	// 인덱스/PK 복제 검증: source kv 의 PK(kv_pkey) 가 target 에도 존재.
+	n, err := ReplicateIndexes(ctx, sourceDSN, targetDSN, "kv")
+	if err != nil {
+		t.Fatalf("ReplicateIndexes: %v", err)
+	}
+	t.Logf("ReplicateIndexes: %d 인덱스 복제", n)
+	if countT(t, tgt, "SELECT count(*) FROM pg_indexes WHERE tablename='kv' AND indexname='kv_pkey'") != 1 {
+		t.Fatal("target 에 PK 인덱스(kv_pkey) 미복제")
+	}
 }
 
 func mustOpenT(t *testing.T, dsn string) *sql.DB {

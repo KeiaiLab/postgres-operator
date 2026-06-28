@@ -65,6 +65,12 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+          # online-resharding 의 InitialCopy/CDC Job 이 쓰는 reshard-copy 이미지.
+          # 릴리스/kustomize 는 operator 버전과 일치하는 태그로 오버라이드해야 한다
+          # (kind 등 로컬은 RESHARD_COPY_IMAGE=reshard-copy:dev 로 load 후 사용).
+          - name: RESHARD_COPY_IMAGE
+            value: ghcr.io/keiailab/reshard-copy:latest
         ports:
         - name: health
           containerPort: 8081

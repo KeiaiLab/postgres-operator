@@ -154,6 +154,10 @@ func CopyShardRange(ctx context.Context, sourceDSN, targetDSN, table string, spe
 	if err := rows.Err(); err != nil {
 		return copied, scanned, fmt.Errorf("router: rows %s: %w", table, err)
 	}
+	// 데이터 복사 후 인덱스/PK 복제(bulk load 효율 + uniqueness·조회 성능).
+	if _, err := replicateIndexes(ctx, src, tgt, table); err != nil {
+		return copied, scanned, err
+	}
 	return copied, scanned, nil
 }
 
@@ -252,6 +256,65 @@ func FilterTables(all, exclude []string) []string {
 		}
 	}
 	return out
+}
+
+// ReplicateIndexes 는 source table 의 인덱스(PK 백킹 unique index 포함)를 target 에 멱등
+// 생성한다(IF NOT EXISTS). 데이터 복사·sync *후* 호출하는 게 효율적(bulk load 중 인덱스
+// 유지비 회피). 생성한 인덱스 수 반환. 외래키/체크 제약은 후속.
+func ReplicateIndexes(ctx context.Context, sourceDSN, targetDSN, table string) (int, error) {
+	if !tableNamePattern.MatchString(table) {
+		return 0, fmt.Errorf("%w: %q", ErrInvalidTable, table)
+	}
+	src, err := sql.Open("postgres", sourceDSN)
+	if err != nil {
+		return 0, fmt.Errorf("router: open source: %w", err)
+	}
+	defer func() { _ = src.Close() }()
+	tgt, err := sql.Open("postgres", targetDSN)
+	if err != nil {
+		return 0, fmt.Errorf("router: open target: %w", err)
+	}
+	defer func() { _ = tgt.Close() }()
+	return replicateIndexes(ctx, src, tgt, table)
+}
+
+// replicateIndexes 는 열린 DB 핸들로 인덱스를 복제한다(CopyShardRange 내부 재사용).
+func replicateIndexes(ctx context.Context, src, tgt *sql.DB, table string) (int, error) {
+	rows, err := src.QueryContext(ctx,
+		`SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND tablename=$1`, table)
+	if err != nil {
+		return 0, fmt.Errorf("router: read indexes %s: %w", table, err)
+	}
+	var defs []string
+	for rows.Next() {
+		var def string
+		if err := rows.Scan(&def); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("router: scan indexdef %s: %w", table, err)
+		}
+		defs = append(defs, def)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("router: indexes %s: %w", table, err)
+	}
+	n := 0
+	for _, def := range defs {
+		if _, err := tgt.ExecContext(ctx, idxIfNotExists(def)); err != nil {
+			return n, fmt.Errorf("router: create index on %s: %w", table, err)
+		}
+		n++
+	}
+	return n, nil
+}
+
+// idxIfNotExists 는 pg_indexes.indexdef 에 IF NOT EXISTS 를 주입해 멱등화한다.
+func idxIfNotExists(def string) string {
+	def = strings.Replace(def, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
+	if !strings.Contains(def, "IF NOT EXISTS") {
+		def = strings.Replace(def, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+	}
+	return def
 }
 
 // ensureTargetTable 은 target 에 table 이 없으면 source 의 컬럼 정의(format_type 로 충실한
