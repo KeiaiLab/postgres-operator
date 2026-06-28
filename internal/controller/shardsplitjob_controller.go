@@ -109,6 +109,15 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// 복사 완료 → 아래 nextPhase 가 CDCCatchup 으로 전이.
 	}
 
+	// Cutover phase: 라우팅 전환 직전 write-block 을 켠다(라우터가 쓰기 거부, 읽기는 통과) —
+	// RoutingUpdate 가 ranges 를 flip 하고 동시에 write-block 을 해제한다. forward-only(비가역)는
+	// nextPhase 가 Failed 로 막으므로 write-block 을 켜지 않는다.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCutover && !ssj.Spec.AllowForwardOnly {
+		if err := r.setWriteBlock(ctx, &ssj, true); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseRoutingUpdate {
 		if err := r.applyRouting(ctx, &ssj); err != nil {
 			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
@@ -237,8 +246,32 @@ func (r *ShardSplitJobReconciler) applyRouting(ctx context.Context, ssj *postgre
 		sr := &list.Items[i]
 		if sr.Spec.Cluster == ssj.Spec.Cluster && sr.Spec.Keyspace == ssj.Spec.Keyspace {
 			sr.Spec.Ranges = flattenTargetRanges(ssj.Spec.Targets)
+			sr.Spec.WriteBlocked = false // 라우팅 전환 완료 → write-block 해제(쓰기 재개, 이제 새 shard 로).
 			if err := r.Update(ctx, sr); err != nil {
 				return fmt.Errorf("update ShardRange %s: %w", sr.Name, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
+}
+
+// setWriteBlock 은 cluster/keyspace 의 ShardRange 에 write-block 을 설정/해제한다 — Cutover
+// 동안 라우터가 쓰기를 거부하게 해(읽기는 통과) 라우팅 전환 중 쓰기 유실을 막는다.
+func (r *ShardSplitJobReconciler) setWriteBlock(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, blocked bool) error {
+	var list postgresv1alpha1.ShardRangeList
+	if err := r.List(ctx, &list, client.InNamespace(ssj.Namespace)); err != nil {
+		return fmt.Errorf("list ShardRange: %w", err)
+	}
+	for i := range list.Items {
+		sr := &list.Items[i]
+		if sr.Spec.Cluster == ssj.Spec.Cluster && sr.Spec.Keyspace == ssj.Spec.Keyspace {
+			if sr.Spec.WriteBlocked == blocked {
+				return nil // 멱등.
+			}
+			sr.Spec.WriteBlocked = blocked
+			if err := r.Update(ctx, sr); err != nil {
+				return fmt.Errorf("update ShardRange %s write-block: %w", sr.Name, err)
 			}
 			return nil
 		}

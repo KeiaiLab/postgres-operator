@@ -22,6 +22,9 @@ import (
 // ErrNoRoutingKey 는 단일 shard 키를 못 뽑은 경우(scatter-gather 필요)이다.
 var ErrNoRoutingKey = errors.New("router: no single-shard routing key (scatter-gather required)")
 
+// ErrWriteBlocked 는 resharding cutover 중 쓰기가 일시 차단된 경우이다(읽기는 허용).
+var ErrWriteBlocked = errors.New("router: writes blocked (resharding cutover in progress)")
+
 // RouteDecision 은 한 쿼리의 라우팅 결정이다.
 type RouteDecision struct {
 	// Shard 는 대상 shard 이름. Scatter=true 면 비어 있다.
@@ -55,6 +58,10 @@ type QueryRouter struct {
 // 읽기 전용 쿼리(IsReadOnlyQuery)는 Read resolver(있으면)로 replica 에 분산한다.
 func (qr QueryRouter) Route(query string) (RouteDecision, error) {
 	read := IsReadOnlyQuery(query)
+	// resharding cutover: 쓰기 일시 차단(읽기는 통과). 라우팅 전환 중 쓰기 유실 방지.
+	if !read && qr.Topology.Spec.WriteBlocked {
+		return RouteDecision{}, ErrWriteBlocked
+	}
 	pick := qr.Write
 	if read && qr.Read != nil {
 		pick = qr.Read

@@ -55,6 +55,9 @@ func (qr queryRouter) routeKey(key string, read bool) (router.RouteDecision, err
 	if err != nil {
 		return router.RouteDecision{}, err
 	}
+	if !read && topo.Spec.WriteBlocked { // cutover write-block (Route 와 동일 정책).
+		return router.RouteDecision{}, router.ErrWriteBlocked
+	}
 	shard, err := router.ResolveShard(topo.Spec, key)
 	if err != nil {
 		return router.RouteDecision{}, err

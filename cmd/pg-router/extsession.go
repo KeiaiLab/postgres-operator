@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"net"
 
 	"github.com/keiailab/postgres-operator/internal/router"
@@ -120,6 +121,10 @@ func (s *session) runExtendedExec(batch []pgMessage, bind pgMessage) bool {
 		d, err = s.qr.routeKey(string(params[st.paramIdx-1]), router.IsReadOnlyQuery(st.sql))
 	} else {
 		d, err = s.qr.routeSQL(st.sql)
+	}
+	if errors.Is(err, router.ErrWriteBlocked) {
+		writePgError(s.client, "25006", err.Error()) // cutover write-block.
+		return s.sendReadyIdle()
 	}
 	if err != nil || d.Scatter {
 		writePgError(s.client, "08006", "extended routing failed (no routing key; extended scatter unsupported)")

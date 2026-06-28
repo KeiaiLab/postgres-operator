@@ -348,6 +348,7 @@ func shardSpec() v1alpha1.ShardRangeSpec {
 		Keyspace:        env("PGROUTER_KEYSPACE", "default"),
 		Vindex:          v1alpha1.VindexSpec{Type: v1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
 		ReferenceTables: csv(env("PGROUTER_REFERENCE_TABLES", "")),
+		WriteBlocked:    env("PGROUTER_WRITE_BLOCKED", "") != "", // cutover write-block (static 모드 테스트/수동 knob).
 		Ranges: []v1alpha1.ShardRangeEntry{
 			{Lo: "0x00000000", Hi: "0x7fffffff", Shard: "shard-0"},
 			{Lo: "0x80000000", Hi: "0xffffffff", Shard: "shard-1"},

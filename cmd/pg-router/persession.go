@@ -15,9 +15,12 @@ Licensed under the MIT License. See the LICENSE file for details.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/keiailab/postgres-operator/internal/router"
 )
 
 // session 은 한 클라이언트 연결의 per-query 라우팅 상태다.
@@ -109,14 +112,18 @@ func (s *session) handleSimpleQuery(m pgMessage) bool {
 	d, err := s.qr.routeSQL(sql)
 	if d.Scatter { // 키 없음 → scatter (자체 연결).
 		if s.inTx {
-			writePgError(s.client, "0A000", "cannot scatter a keyless query inside a transaction")
+			s.queryError("0A000", "cannot scatter a keyless query inside a transaction")
 			return true
 		}
 		scatterQuery(s.client, s.qr, m, s.raw, s.dialer, s.password)
 		return true
 	}
+	if errors.Is(err, router.ErrWriteBlocked) {
+		s.queryError("25006", err.Error()) // read_only_sql_transaction — cutover write-block.
+		return true
+	}
 	if err != nil {
-		writePgError(s.client, "08006", "routing failed: "+err.Error())
+		s.queryError("08006", "routing failed: "+err.Error())
 		return true
 	}
 	conn, err := s.backendFor(d.Backend)
@@ -180,6 +187,18 @@ func (s *session) execAndRelay(conn net.Conn, m pgMessage) bool {
 			return true
 		}
 	}
+}
+
+// queryError 는 simple Query 실패에 ErrorResponse + ReadyForQuery 를 보낸다 — 클라이언트는
+// 에러 뒤 ReadyForQuery 를 기다리므로(없으면 hang) 세션을 이어가려면 반드시 함께 보낸다.
+// 트랜잭션 중이면 'E'(failed tx), 아니면 'I'(idle).
+func (s *session) queryError(code, msg string) {
+	writePgError(s.client, code, msg)
+	status := byte('I')
+	if s.inTx {
+		status = 'E'
+	}
+	_ = writeMessage(s.client, 'Z', []byte{status})
 }
 
 func (s *session) closeBackends() {

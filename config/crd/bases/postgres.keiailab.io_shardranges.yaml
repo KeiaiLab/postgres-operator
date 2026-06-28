@@ -152,6 +152,12 @@ spec:
                 required:
                 - type
                 type: object
+              writeBlocked:
+                description: |-
+                  WriteBlocked은 true 면 라우터가 이 키스페이스로의 *쓰기*를 일시 거부한다(읽기는 통과).
+                  online resharding 의 Cutover 동안 라우팅 전환 중 쓰기 유실을 막는 write-block 신호로
+                  ShardSplitJob 컨트롤러가 설정/해제한다(Cutover=true, RoutingUpdate 완료 시 false).
+                type: boolean
             required:
             - cluster
             - keyspace

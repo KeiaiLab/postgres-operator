@@ -105,6 +105,12 @@ type ShardRangeSpec struct {
 	// 이 테이블만 참조하는 쿼리는 샤딩 키 없이 임의 샤드로 라우팅된다 (분산 조인 우회).
 	// +optional
 	ReferenceTables []string `json:"referenceTables,omitempty"`
+
+	// WriteBlocked은 true 면 라우터가 이 키스페이스로의 *쓰기*를 일시 거부한다(읽기는 통과).
+	// online resharding 의 Cutover 동안 라우팅 전환 중 쓰기 유실을 막는 write-block 신호로
+	// ShardSplitJob 컨트롤러가 설정/해제한다(Cutover=true, RoutingUpdate 완료 시 false).
+	// +optional
+	WriteBlocked bool `json:"writeBlocked,omitempty"`
 }
 
 // ShardRangeStatus은 reconciler 가 관찰한 ShardRange 상태이다.

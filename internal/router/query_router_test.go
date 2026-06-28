@@ -44,6 +44,27 @@ func TestQueryRouter_WriteRoutesToPrimaryShard(t *testing.T) {
 	}
 }
 
+func TestQueryRouter_WriteBlockedRejectsWritesAllowsReads(t *testing.T) {
+	qr := testQueryRouter()
+	qr.Topology.Spec.WriteBlocked = true // cutover write-block.
+
+	// 쓰기는 ErrWriteBlocked.
+	if _, err := qr.Route("UPDATE t SET v = 1 WHERE tenant_id = 'alice'"); !errors.Is(err, ErrWriteBlocked) {
+		t.Fatalf("blocked write err = %v, want ErrWriteBlocked", err)
+	}
+	if _, err := qr.Route("INSERT INTO t (tenant_id) VALUES ('alice')"); !errors.Is(err, ErrWriteBlocked) {
+		t.Fatalf("blocked insert err = %v, want ErrWriteBlocked", err)
+	}
+	// 읽기는 통과(차단 중에도 SELECT 정상).
+	d, err := qr.Route("SELECT v FROM t WHERE tenant_id = 'alice'")
+	if err != nil {
+		t.Fatalf("blocked read err = %v, want nil (reads allowed)", err)
+	}
+	if !d.Read {
+		t.Fatal("SELECT should be Read")
+	}
+}
+
 func TestQueryRouter_ReadRoutesToReplica(t *testing.T) {
 	qr := testQueryRouter()
 	d, err := qr.Route("SELECT v FROM t WHERE tenant_id = 'alice'")
