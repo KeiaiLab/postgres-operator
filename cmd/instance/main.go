@@ -157,7 +157,11 @@ func main() {
 	dataDir := envOrDie("POSTGRES_DATA_DIR")
 	binDir := envOrDie("POSTGRES_BIN_DIR")
 	primaryEndpoint := os.Getenv("PRIMARY_ENDPOINT")
-	endpoint := instanceEndpoint(podName, cluster, int32(shardOrdinal), namespace)
+	serviceName := os.Getenv("POSTGRES_SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = fmt.Sprintf("%s-shard-%d-headless", cluster, shardOrdinal)
+	}
+	endpoint := instanceEndpoint(podName, serviceName, namespace)
 	restartedPrimaryAsStandby, err := prepareRestartedPrimaryAsStandby(
 		dataDir, primaryEndpoint, binDir, podName, memberCount, logger,
 	)
@@ -297,7 +301,7 @@ func main() {
 	}()
 	logger.Info("Election started", "identity", elect.Identity(), "lease", leaseName)
 
-	startStatusReporterIfPossible(ctx, clientset, namespace, podName, cluster, int32(shardOrdinal), dataDir, elect, sup, logger)
+	startStatusReporterIfPossible(ctx, clientset, namespace, podName, endpoint, dataDir, elect, sup, logger)
 
 	select {
 	case <-ctx.Done():
@@ -519,9 +523,8 @@ func patchRejoinFailureStatus(
 	return patchPodAnnotation(ctx, clientset, namespace, podName, st)
 }
 
-func instanceEndpoint(podName, cluster string, shardOrdinal int32, namespace string) string {
-	return fmt.Sprintf("%s.%s-shard-%d-headless.%s.svc.cluster.local:5432",
-		podName, cluster, shardOrdinal, namespace)
+func instanceEndpoint(podName, serviceName, namespace string) string {
+	return fmt.Sprintf("%s.%s.%s.svc.cluster.local:5432", podName, serviceName, namespace)
 }
 
 func delayElectionForRestartedPrimary(ctx context.Context, delay time.Duration, podName string, logger *slog.Logger) {
@@ -542,8 +545,7 @@ func delayElectionForRestartedPrimary(ctx context.Context, delay time.Duration, 
 func startStatusReporterIfPossible(
 	ctx context.Context,
 	clientset kubernetes.Interface,
-	namespace, podName, cluster string,
-	shardOrdinal int32,
+	namespace, podName, endpoint string,
 	dataDir string,
 	elect election.Election,
 	sup supervise.Supervisor,
@@ -552,7 +554,6 @@ func startStatusReporterIfPossible(
 	if clientset == nil {
 		return
 	}
-	endpoint := instanceEndpoint(podName, cluster, shardOrdinal, namespace)
 	go runStatusReporter(ctx, clientset, namespace, podName, endpoint, dataDir, elect, sup, logger)
 }
 

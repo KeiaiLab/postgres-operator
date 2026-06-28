@@ -40,6 +40,14 @@ func TestParsePodOrdinalOrDie_StatefulSetName(t *testing.T) {
 	}
 }
 
+func TestInstanceEndpoint_UsesProvidedServiceName(t *testing.T) {
+	got := instanceEndpoint("orders-rsd-t1-0", "orders-rsd-t1-headless", "ns1")
+	want := "orders-rsd-t1-0.orders-rsd-t1-headless.ns1.svc.cluster.local:5432"
+	if got != want {
+		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}
+
 func TestPrepareRestartedPrimaryAsStandby_UsesCurrentPrimaryEndpointForAnyOrdinal(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, supervise.RestartPrimaryAsStandbyMarker)

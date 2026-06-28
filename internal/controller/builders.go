@@ -955,6 +955,7 @@ fi
 // downward API + spec 매개변수 + current primary endpoint + 고정 경로의 합산.
 func buildInstanceEnv(
 	clusterName string,
+	serviceName string,
 	shardOrdinal int32,
 	pgMajor string,
 	members int32,
@@ -983,6 +984,7 @@ func buildInstanceEnv(
 		},
 		// spec 매개변수 — election lease 명명 + role 분기.
 		{Name: "POSTGRES_CLUSTER", Value: clusterName},
+		{Name: "POSTGRES_SERVICE_NAME", Value: serviceName},
 		{Name: "POSTGRES_ROLE", Value: "shard"},
 		{Name: "POSTGRES_SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
 		{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
@@ -1076,7 +1078,7 @@ func buildPGStatefulSet(
 	// instance manager 환경 변수. reshard target 이면 POSTGRES_RESHARD_TARGET 를
 	// 추가 주입 → cmd/instance 가 ordinal lease (PrimaryLeaseName) 대신 격리된
 	// ReshardTargetLeaseName 을 사용해 실 shard election 침범을 차단한다 (ADR-0027).
-	instanceEnv := buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
+	instanceEnv := buildInstanceEnv(cluster.Name, serviceName, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
 	if reshardTargetID != "" {
 		instanceEnv = append(instanceEnv, corev1.EnvVar{Name: "POSTGRES_RESHARD_TARGET", Value: reshardTargetID})
 	}

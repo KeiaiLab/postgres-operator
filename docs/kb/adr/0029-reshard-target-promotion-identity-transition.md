@@ -7,6 +7,17 @@
 
 ## P-A.2 selector audit / implementation note (2026-06-28)
 
+### P-A.2.1 status endpoint precondition (2026-06-28)
+
+instance manager 는 이제 `POSTGRES_SERVICE_NAME` 으로 전달된 실제 StatefulSet service name 으로
+Pod status endpoint 를 보고한다. ordinal shard 는 기존과 동일하게 `<cluster>-shard-<ordinal>-headless`
+를 받고, reshard target 은 `<cluster>-rsd-<target>-headless` 를 받는다. env var 가 없는 기존 Pod 는
+기존 ordinal service naming 으로 fallback 한다.
+
+이 변경은 Promote P-B 자체는 아니지만 P-B 의 전제 조건이다. target Pod 가 source ordinal service
+endpoint 를 status 로 내보내면, router/status/failover 가 승격 대상 shard 를 잘못된 DNS 로 해석할 수
+있기 때문이다. named target shard row 생성, source decommission, target HA 확대는 여전히 P-B/P-C 범위다.
+
 이번 hardening batch 에서 selector 사용처를 다음처럼 분리했다.
 
 - **그대로 둔 것**: `ShardStatefulSetName`, `ShardServiceName`, PDB/TLS/PVC resize, source shard DNS,

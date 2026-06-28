@@ -112,7 +112,7 @@ Expected: controller tests cover cdc-setup failure, cdc-finalize failure, and ab
   - Define idempotency markers.
   - Define live chaos drill requirements.
 
-Status as of 2026-06-28: selector audit is documented in ADR-0029 P-A.2. `aggregateShardStatus` now lists by cluster-level labels and filters pods by legacy `postgres.keiailab.io/shard=<ord>` OR additive `postgres.keiailab.io/shard-id=shard-<ord>`, without changing StatefulSet or Service selectors. Metrics/failover remain status consumers. Named target shard rows such as `shard-id=t1` are intentionally left for Promote P-B/P-C. The checkpoint command has not been run because the host Go toolchain is unavailable.
+Status as of 2026-06-28: selector audit is documented in ADR-0029 P-A.2. `aggregateShardStatus` now lists by cluster-level labels and filters pods by legacy `postgres.keiailab.io/shard=<ord>` OR additive `postgres.keiailab.io/shard-id=shard-<ord>`, without changing StatefulSet or Service selectors. Metrics/failover remain status consumers. Named target shard rows such as `shard-id=t1` are intentionally left for Promote P-B/P-C.
 
 **Checkpoint Verification:**
 
@@ -123,6 +123,32 @@ go test -count=1 ./internal/controller
 ```
 
 Expected: existing ordinal clusters still aggregate status, and target shards with `shard-id` can be observed without selector mutation.
+
+## Batch 2.5: Reshard Target Service Endpoint
+
+**Files:**
+- Modify: `internal/controller/builders.go`
+- Modify: `internal/controller/builders_test.go`
+- Modify: `cmd/instance/main.go`
+- Modify: `cmd/instance/main_test.go`
+
+- [x] Pass the actual StatefulSet `serviceName` to the instance manager as `POSTGRES_SERVICE_NAME`.
+  - Ordinal shards receive `<cluster>-shard-<ordinal>-headless`.
+  - Reshard targets receive `<cluster>-rsd-<target>-headless`.
+
+- [x] Build status endpoints from the provided service name.
+  - Keep the legacy ordinal fallback when the env var is absent so already-running Pods remain compatible during upgrades.
+  - Prevent reshard target Pods from reporting `*.shard-0-headless` endpoints before Promote P-B/P-C.
+
+**Checkpoint Verification:**
+
+```powershell
+go test -count=1 ./cmd/instance
+go test -count=1 ./internal/controller -run TestBuildTargetShardStatefulSet_Isolation
+go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller
+```
+
+Status as of 2026-06-28: all three checkpoint commands pass on Windows Go 1.26.4. Docker Desktop and WSL remain stopped.
 
 ## Batch 3: Native Router Concurrent-Write E2E Design
 
@@ -152,7 +178,7 @@ Status as of 2026-06-28: the scenario is documented in `docs/sharding/ROUTER-GAP
 Run after all selected batches are complete:
 
 ```powershell
-go test -count=1 ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller
+go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller
 make test-integration
 ```
 

@@ -988,6 +988,9 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 	if envByName["PRIMARY_ENDPOINT"] != "" {
 		t.Errorf("PRIMARY_ENDPOINT = %q, want \"\" (빈 값 → pod-0 initdb fresh primary)", envByName["PRIMARY_ENDPOINT"])
 	}
+	if got := envByName["POSTGRES_SERVICE_NAME"]; got != "orders-rsd-shard-0a-headless" {
+		t.Errorf("POSTGRES_SERVICE_NAME = %q, want target headless service", got)
+	}
 
 	// (4) POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용.
 	if got := envByName["POSTGRES_RESHARD_TARGET"]; got != "shard-0a" {

@@ -334,6 +334,11 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
 - Batch 2 P-A.2 개발 완료: `aggregateShardStatus` 가 legacy `postgres.keiailab.io/shard=<ord>` 와
   additive `postgres.keiailab.io/shard-id=shard-<ord>` 를 OR 필터링한다. StatefulSet/Service selector 는
   변경하지 않았다. metrics/failover 는 status 소비자라 aggregation 변경을 따라간다.
+- Batch 2.5 개발 완료: reshard target Pod 가 status endpoint 를 source ordinal service 로 잘못 보고하지
+  않도록 컨트롤러가 실제 StatefulSet service name 을 `POSTGRES_SERVICE_NAME` 으로 주입하고,
+  instance manager 가 그 값을 endpoint 조립에 사용한다. env var 가 없는 기존 Pod 는 기존 ordinal
+  service naming 으로 fallback 한다. 이 작업은 Promote P-B 전제 조건이며, target status/backend
+  resolution 의 DNS 오염을 막는다.
 - Batch 3 설계 문서 완료: native router concurrent-write e2e 시나리오를
   `docs/sharding/ROUTER-GAP-ANALYSIS.ko.md` 에 기록했다. write stream 중 online CDC, write-block
   `ReadyForQuery`, routing update, checksum/key ownership, PK 없는 target UPDATE/DELETE, abort cleanup 을
@@ -345,8 +350,10 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   시도한다. source 접속 불가 상황에서는 cleanup Job 이 실패하고 `AbortCleanup=False` 로 남는 것이 현재
   의도한 안전 동작이다. source-down 상태에서도 target subscription 만 강제 제거하는 fallback 은 live drill
   결과를 보고 별도 보강한다.
-- 검증 상태: Docker Desktop / WSL / VM 은 종료 유지. Windows host 에 `go`/`gofmt` 가 없어
-  `go test`/`gofmt` 는 아직 미실행. 현재 확인된 것은 `git diff --check` 통과뿐이다.
+- 검증 상태: Docker Desktop / WSL / VM 은 종료 유지. Windows Go 1.26.4 로 다음 focused gate 를 통과했다:
+  `go test -count=1 ./cmd/instance`,
+  `go test -count=1 ./internal/controller -run TestBuildTargetShardStatefulSet_Isolation`,
+  `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./internal/controller`.
 
 ---
 
