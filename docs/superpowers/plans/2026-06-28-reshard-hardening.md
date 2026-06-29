@@ -14,7 +14,8 @@
 
 - Keep Docker Desktop, WSL, and local VMs stopped during development unless a verification checkpoint explicitly requires them.
 - Do not run tests after every small edit. Run grouped verification only after a coherent batch is complete.
-- Prefer native `go test` on Windows/host first. Start Docker/kind only for the live e2e checkpoint.
+- Use Windows/host `go test` only as a low-cost smoke path. Final acceptance for resource-dependent behavior must run in Docker/kind or Dev Container at the checkpoint.
+- After Docker/kind verification, brief the result and release resources. `KEEP=1` is an explicit local-debug exception only.
 - If a generated API/CRD file is affected, run `make manifests generate` and `make sync-crds` at the checkpoint, not after every individual edit.
 - Commit after each verified batch.
 

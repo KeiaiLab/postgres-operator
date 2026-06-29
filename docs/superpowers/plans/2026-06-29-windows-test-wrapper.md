@@ -1,8 +1,8 @@
-# Windows Test Wrapper Implementation Plan
+# Windows Smoke Test Wrapper Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Provide a Windows PowerShell test wrapper that keeps Go test temp/cache outputs out of the repository and reduces Windows security scanning friction.
+**Goal:** Provide a Windows PowerShell smoke-test wrapper that keeps Go test temp/cache outputs out of the repository and reduces Windows security scanning friction. This is not a replacement for the grouped Docker/kind acceptance gate.
 
 **Architecture:** Add one focused script under `scripts/` that normalizes `GOTMPDIR`, `GOCACHE`, Go binary discovery, optional envtest asset discovery, and common package presets. Add a lightweight PowerShell self-test mode so script behavior can be validated without running expensive Go tests.
 

@@ -322,8 +322,9 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
 4. **그 다음 ADR-0029 잔여**: selector/status 일반화와 Promote target-adopt 이후에는
    precondition/fence 강화, source cleanup 정책, named shard spec-model 전환으로 들어간다.
    #220-class 정체성 위험 때문에 live chaos drill 전에는 GA 완료로 보지 않는다.
-5. **검증 체크포인트**: 기본은 native Go test 로 시작한다. Docker/kind 는 native router 동시쓰기 e2e
-   또는 full live gate 에서만 사용한다.
+5. **검증 체크포인트**: 개발 중에는 저비용 smoke 만 수행하고, 기능 단위가 닫히면 Docker/kind 를 켜서
+   통합·라이브 검증을 묶어서 실행한다. 테스트 결과는 브리핑하고, `KEEP=1` 을 명시하지 않는 한 kind
+   클러스터는 target 종료 시 반납한다.
 
 2026-06-28 현재 진행 상태:
 
@@ -392,14 +393,32 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   `go test -count=1 ./internal/controller --ginkgo.focus="source active"`,
   `go test -count=1 ./internal/controller`,
   `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./api/v1alpha1 ./internal/controller`.
-- Windows 로컬 테스트는 `scripts/test-windows.ps1` 를 우선 사용한다. 기본은 Go test cache 를 살리고,
-  `-Fresh` 를 줄 때만 `-count=1` 을 붙인다. `GOTMPDIR` / `GOCACHE` 는 repo 밖
+- Windows 로컬 테스트 wrapper(`scripts/test-windows.ps1`)는 개발 중 빠른 smoke 용도다. 최종 수용
+  검증은 Docker/kind 또는 Dev Container 경로에서 묶어서 수행한다. wrapper 는 기본적으로 Go test cache 를
+  살리고, `-Fresh` 를 줄 때만 `-count=1` 을 붙인다. `GOTMPDIR` / `GOCACHE` 는 repo 밖
   `%LOCALAPPDATA%\keiailab\postgres-operator\...` 로 고정해 `*.test.exe` 가 workspace 에 남지 않게 한다.
-  예:
+  smoke 예:
 
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-windows.ps1 -Preset controller -GinkgoFocus "Promote phase"
   ```
+
+### 6.9 현재 미구현 / 부분구현 재정리 (2026-06-29)
+
+- **테스트 자원 운영 정책**: 개발 중에는 Windows wrapper 같은 저비용 smoke 만 사용하고, 기능 단위가
+  닫힌 뒤 Docker/kind/Dev Container 로 통합·라이브 검증을 묶어서 수행한다. e2e Make target 은
+  `KEEP=1` 을 주지 않는 한 종료 시 `cleanup-test-e2e` 로 kind 클러스터를 반납한다. 테스트 완료 후에는
+  pass/fail, 실패 RCA, 남은 위험, 정리된 자원 상태를 브리핑한다.
+- **Router autoscaling**: `PostgresCluster.spec.router.autoscale` 스키마와 RFC HPA 설계는 있으나,
+  `PostgresClusterReconciler` 는 현재 router `ConfigMap` / `Service` / `Deployment` 만 reconcile 한다.
+  `HorizontalPodAutoscaler` 생성, autoscaling/v2 RBAC, router active-connection metric 노출/어댑터 결선은
+  미구현이다. 현재 router 는 `spec.router.replicas` 기반 수동 scale 이다.
+- **AutoSplit / 자동 shard 확장**: `spec.autoSplit` 스키마와 admission 검증은 있으나, shard size/latency/CPU
+  관측, 지속시간 판정, 후보 계산, `ShardSplitJob` 자동 생성 루프는 미구현이다.
+- **남은 live gate**: native router concurrent-write online resharding e2e, target promotion 후 live
+  chaos/failover drill, source-down abort cleanup fallback 검증은 아직 남아 있다.
+- **의도적 보류**: source Service/PVC/PDB 삭제는 기본 동작이 아니며, 향후 별도 opt-in 정책과 live drill 후에만
+  검토한다. cross-shard 2PC, extended scatter, Flush 파이프라이닝도 아직 범위 밖이다.
 
 ---
 
