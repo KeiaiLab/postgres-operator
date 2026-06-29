@@ -30,23 +30,43 @@ function Normalize-PathSet {
     return ,$set
 }
 
+function Normalize-StringSet {
+    param([string[]]$Values)
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($value in $Values) {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            continue
+        }
+        [void]$set.Add($value.Trim())
+    }
+    return ,$set
+}
+
 $baseDir = Join-Path $env:LOCALAPPDATA "keiailab\postgres-operator"
 $goTmpDir = Ensure-Directory (Join-Path $baseDir "go-tmp")
 $goCacheDir = Ensure-Directory (Join-Path $baseDir "go-cache")
 $exclusionPaths = @($goTmpDir, $goCacheDir)
+$exclusionProcesses = @("controller.test.exe")
 
 if (-not (Get-Command Get-MpPreference -ErrorAction SilentlyContinue) -or
     -not (Get-Command Add-MpPreference -ErrorAction SilentlyContinue)) {
     throw "Microsoft Defender PowerShell cmdlets are not available on this host."
 }
 
-$current = Normalize-PathSet -Paths @((Get-MpPreference).ExclusionPath)
-$desired = Normalize-PathSet -Paths $exclusionPaths
+$preferences = Get-MpPreference
+$current = Normalize-PathSet -Paths @($preferences.ExclusionPath)
+$currentProcesses = Normalize-StringSet -Values @($preferences.ExclusionProcess)
 
 Write-Host "Go test executable/cache paths:"
 foreach ($path in $exclusionPaths) {
     $enabled = $current.Contains([System.IO.Path]::GetFullPath($path).TrimEnd('\'))
     Write-Host ("  {0}  DefenderExclusion={1}" -f $path, $enabled)
+}
+
+Write-Host "Go test executable process names:"
+foreach ($process in $exclusionProcesses) {
+    $enabled = $currentProcesses.Contains($process)
+    Write-Host ("  {0}  DefenderExclusion={1}" -f $process, $enabled)
 }
 
 if ($Check) {
@@ -72,5 +92,22 @@ foreach ($path in $exclusionPaths) {
         Write-Host "added Defender exclusion: $path"
     } else {
         Write-Host "already allowed: $path"
+    }
+}
+
+foreach ($process in $exclusionProcesses) {
+    if ($Remove) {
+        if ($currentProcesses.Contains($process)) {
+            Remove-MpPreference -ExclusionProcess $process
+            Write-Host "removed Defender process exclusion: $process"
+        }
+        continue
+    }
+
+    if (-not $currentProcesses.Contains($process)) {
+        Add-MpPreference -ExclusionProcess $process
+        Write-Host "added Defender process exclusion: $process"
+    } else {
+        Write-Host "already allowed process: $process"
     }
 }
