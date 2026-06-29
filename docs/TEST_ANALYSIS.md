@@ -3,6 +3,15 @@
 > 실행 환경: Dev Container (golang:1.26, Debian 13 trixie) | 실행 명령: `make test`  
 > 테스트 프레임워크: Go 표준 `testing` + Ginkgo v2 (컨트롤러 통합) | envtest: Kubernetes 1.36
 
+> ⚠️ **수치 스냅샷 주의 (2026-06-29 기준)**: 아래 §2 패키지별 **커버리지 / 소요시간 표는 2026-06-25경
+> `make test` 실행 스냅샷**이다. 이후 분산 SQL 라우터(per-query simple+extended, scatter forwarding,
+> scram 인증대행), 온라인 resharding 컨트롤러 결선(InitialCopy / CDCCatchup / Cutover write-block /
+> Cleanup / Promote phase), router CPU HPA 등 대량 테스트가 추가돼 패키지 구성·커버리지가 바뀌었다.
+> 신규 패키지 `cmd/reshard-copy-poc`·`cmd/router-bench`(측정 도구)는 표에 아직 없다. **정확한 테스트
+> 카탈로그(무엇을 어떻게 검증/실행)는 [`docs/sharding/ROUTER-TESTS.ko.md`](sharding/ROUTER-TESTS.ko.md)
+> 가 2026-06-29 기준으로 최신**이며, 아래 수치는 Docker/Dev Container 로 `make test` 재실행 후
+> 갱신해야 한다(호스트 Windows 에 Go 미상주 → 정적 재구성 단계에서는 재측정 보류).
+
 ---
 
 ## 1. 실행 환경 및 자원 사용

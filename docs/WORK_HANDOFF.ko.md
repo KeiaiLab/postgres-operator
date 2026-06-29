@@ -418,10 +418,14 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   닫힌 뒤 Docker/kind/Dev Container 로 통합·라이브 검증을 묶어서 수행한다. e2e Make target 은
   `KEEP=1` 을 주지 않는 한 종료 시 `cleanup-test-e2e` 로 kind 클러스터를 반납한다. 테스트 완료 후에는
   pass/fail, 실패 RCA, 남은 위험, 정리된 자원 상태를 브리핑한다.
-- **Router autoscaling**: `PostgresCluster.spec.router.autoscale` 스키마와 RFC HPA 설계는 있으나,
-  `PostgresClusterReconciler` 는 현재 router `ConfigMap` / `Service` / `Deployment` 만 reconcile 한다.
-  `HorizontalPodAutoscaler` 생성, autoscaling/v2 RBAC, router active-connection metric 노출/어댑터 결선은
-  미구현이다. 현재 router 는 `spec.router.replicas` 기반 수동 scale 이다.
+- **Router autoscaling (CPU HPA 구현 완료, 2026-06-29)**: `PostgresClusterReconciler` 가 router
+  `ConfigMap` / `Service` / `Deployment` 에 더해 **`HorizontalPodAutoscaler`** 도 reconcile 한다.
+  `spec.router.autoscale.{enabled,minReplicas,maxReplicas,targetCPUUtilizationPercentage}` →
+  `buildRouterHPA`(autoscaling/v2, CPU utilization target) → `routerAutoscaleEnabled` gate 에서 upsert,
+  비활성/DB 정지 시 `deleteRouterHPA`. `Owns(HorizontalPodAutoscaler)` watch, autoscaling/v2 RBAC
+  (`config/rbac/role.yaml`), webhook bounds 검증(`maxReplicas>0`, `maxReplicas≥effective minReplicas`)까지
+  결선·단위테스트 완료. **남은 것**: active-connection custom metric 노출/어댑터(현재는 CPU utilization
+  기준). 미설정 시 기존대로 `spec.router.replicas` 수동 scale.
 - **AutoSplit / 자동 shard 확장**: `spec.autoSplit` 스키마와 admission 검증은 있으나, shard size/latency/CPU
   관측, 지속시간 판정, 후보 계산, `ShardSplitJob` 자동 생성 루프는 미구현이다.
 - **남은 live gate**: native router concurrent-write online resharding e2e, target promotion 후 live
