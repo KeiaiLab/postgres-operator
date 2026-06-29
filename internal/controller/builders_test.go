@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -694,6 +695,120 @@ func TestBuildRouterDeployment_AppliesSecurityContextAndEphemeralMounts(t *testi
 	// 보장되므로(시그니처 변경 시 본 호출 자체가 fail), 별도 type assertion 불요.
 
 	assertDataplaneSecurityContext(t, &dep.Spec.Template.Spec, "Router Deployment")
+}
+
+func TestBuildRouterHPA_CPUDefaultsAndTarget(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MaxReplicas: 8,
+				},
+			},
+		},
+	}
+
+	hpa := buildRouterHPA(cluster, RouterDeploymentName("orders"))
+
+	if hpa.Name != "orders-router" {
+		t.Fatalf("hpa name = %q, want orders-router", hpa.Name)
+	}
+	if hpa.Namespace != "default" {
+		t.Fatalf("namespace = %q, want default", hpa.Namespace)
+	}
+	if hpa.Spec.ScaleTargetRef.APIVersion != "apps/v1" ||
+		hpa.Spec.ScaleTargetRef.Kind != "Deployment" ||
+		hpa.Spec.ScaleTargetRef.Name != "orders-router" {
+		t.Fatalf("scaleTargetRef = %+v", hpa.Spec.ScaleTargetRef)
+	}
+	if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 2 {
+		t.Fatalf("minReplicas = %v, want 2", hpa.Spec.MinReplicas)
+	}
+	if hpa.Spec.MaxReplicas != 8 {
+		t.Fatalf("maxReplicas = %d, want 8", hpa.Spec.MaxReplicas)
+	}
+	if len(hpa.Spec.Metrics) != 1 {
+		t.Fatalf("metrics len = %d, want 1", len(hpa.Spec.Metrics))
+	}
+	metric := hpa.Spec.Metrics[0]
+	if metric.Type != autoscalingv2.ResourceMetricSourceType {
+		t.Fatalf("metric type = %q, want Resource", metric.Type)
+	}
+	if metric.Resource == nil || metric.Resource.Name != corev1.ResourceCPU {
+		t.Fatalf("resource metric = %+v, want cpu", metric.Resource)
+	}
+	if metric.Resource.Target.Type != autoscalingv2.UtilizationMetricType ||
+		metric.Resource.Target.AverageUtilization == nil ||
+		*metric.Resource.Target.AverageUtilization != 70 {
+		t.Fatalf("target = %+v, want 70%% utilization", metric.Resource.Target)
+	}
+}
+
+func TestBuildRouterHPA_ExplicitMinAndCPU(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MinReplicas: 3,
+					MaxReplicas: 9,
+					TargetCPU:   55,
+				},
+			},
+		},
+	}
+
+	hpa := buildRouterHPA(cluster, RouterDeploymentName("orders"))
+
+	if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 3 {
+		t.Fatalf("minReplicas = %v, want 3", hpa.Spec.MinReplicas)
+	}
+	if hpa.Spec.MaxReplicas != 9 {
+		t.Fatalf("maxReplicas = %d, want 9", hpa.Spec.MaxReplicas)
+	}
+	gotCPU := hpa.Spec.Metrics[0].Resource.Target.AverageUtilization
+	if gotCPU == nil || *gotCPU != 55 {
+		t.Fatalf("targetCPU = %v, want 55", gotCPU)
+	}
+}
+
+func TestBuildRouterDeployment_LabelsAutoscaleManagedReplicas(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MinReplicas: 3,
+					MaxReplicas: 8,
+				},
+			},
+		},
+	}
+
+	dep := buildRouterDeployment(cluster, "orders-router", "orders-router-config", "example.com/router:dev", routerMinReplicas(cluster), corev1.ResourceRequirements{})
+
+	if dep.Labels[RouterAutoscaleLabelKey] != "true" {
+		t.Fatalf("deployment label %s = %q, want true", RouterAutoscaleLabelKey, dep.Labels[RouterAutoscaleLabelKey])
+	}
+	if dep.Spec.Template.Labels[RouterAutoscaleLabelKey] != "true" {
+		t.Fatalf("pod template label %s = %q, want true", RouterAutoscaleLabelKey, dep.Spec.Template.Labels[RouterAutoscaleLabelKey])
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 3 {
+		t.Fatalf("initial replicas = %v, want minReplicas 3", dep.Spec.Replicas)
+	}
 }
 
 // assertDataplaneSecurityContext는 PG StatefulSet과 Router Deployment 모두에서

@@ -83,6 +83,11 @@ func RouterConfigMapName(cluster string) string {
 	return fmt.Sprintf("%s-router-config", cluster)
 }
 
+// RouterHPAName은 QueryRouter Deployment 를 대상으로 하는 HPA 이름을 반환한다.
+func RouterHPAName(cluster string) string {
+	return fmt.Sprintf("%s-router", cluster)
+}
+
 // PoolerDeploymentName 은 Pooler CR 이 소유하는 PgBouncer Deployment 이름이다.
 func PoolerDeploymentName(pooler string) string {
 	return fmt.Sprintf("%s-pooler", pooler)
@@ -143,6 +148,9 @@ func SelectorLabels(cluster, role string, shardOrdinal int32) map[string]string 
 
 // ReshardTargetLabelKey 는 resharding target shard 를 식별하는 label key 다 (ADR-0027).
 const ReshardTargetLabelKey = "postgres.keiailab.io/reshard-target"
+
+// RouterAutoscaleLabelKey 는 router Deployment replicas 를 HPA 가 관리하는지 표시한다.
+const RouterAutoscaleLabelKey = "postgres.keiailab.io/router-autoscale"
 
 // ShardIDLabelKey 는 *명명(named) shard* 식별 label key 다 (ADR-0029). ordinal shard 는
 // `shard-<N>`, 승격된 resharding target 은 그 shardID 를 값으로 갖는다 — ordinal·명명 shard 를

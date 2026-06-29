@@ -15,6 +15,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1263,6 +1264,75 @@ func buildTargetHeadlessService(cluster *postgresv1alpha1.PostgresCluster, shard
 	}
 }
 
+func routerAutoscaleEnabled(cluster *postgresv1alpha1.PostgresCluster) bool {
+	return cluster != nil &&
+		cluster.Spec.Router != nil &&
+		cluster.Spec.Router.Autoscale != nil &&
+		cluster.Spec.Router.Autoscale.Enabled
+}
+
+func routerMinReplicas(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster == nil || cluster.Spec.Router == nil {
+		return 1
+	}
+	if as := cluster.Spec.Router.Autoscale; as != nil && as.MinReplicas > 0 {
+		return as.MinReplicas
+	}
+	if cluster.Spec.Router.Replicas > 0 {
+		return cluster.Spec.Router.Replicas
+	}
+	return 1
+}
+
+func routerMaxReplicas(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster == nil || cluster.Spec.Router == nil || cluster.Spec.Router.Autoscale == nil {
+		return routerMinReplicas(cluster)
+	}
+	if cluster.Spec.Router.Autoscale.MaxReplicas > 0 {
+		return cluster.Spec.Router.Autoscale.MaxReplicas
+	}
+	return routerMinReplicas(cluster)
+}
+
+func routerTargetCPU(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster != nil && cluster.Spec.Router != nil && cluster.Spec.Router.Autoscale != nil &&
+		cluster.Spec.Router.Autoscale.TargetCPU > 0 {
+		return cluster.Spec.Router.Autoscale.TargetCPU
+	}
+	return 70
+}
+
+func buildRouterHPA(cluster *postgresv1alpha1.PostgresCluster, deploymentName string) *autoscalingv2.HorizontalPodAutoscaler {
+	minReplicas := routerMinReplicas(cluster)
+	targetCPU := routerTargetCPU(cluster)
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RouterHPAName(cluster.Name),
+			Namespace: cluster.Namespace,
+			Labels:    SelectorLabels(cluster.Name, "router", -1),
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deploymentName,
+			},
+			MinReplicas: &minReplicas,
+			MaxReplicas: routerMaxReplicas(cluster),
+			Metrics: []autoscalingv2.MetricSpec{{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+					Target: autoscalingv2.MetricTarget{
+						Type:               autoscalingv2.UtilizationMetricType,
+						AverageUtilization: &targetCPU,
+					},
+				},
+			}},
+		},
+	}
+}
+
 // buildRouterDeployment는 stateless QueryRouter의 Deployment를 만든다.
 // ADR 0003 §강제 메커니즘에 의해 PVC를 절대 마운트하지 않는다(StatefulSet 사용
 // 금지). 본 함수는 P12-T2 시점에 cmd/router 바이너리 이미지로 교체된다. 현재는
@@ -1274,6 +1344,9 @@ func buildRouterDeployment(
 	resources corev1.ResourceRequirements,
 ) *appsv1.Deployment {
 	labels := SelectorLabels(cluster.Name, "router", -1)
+	if routerAutoscaleEnabled(cluster) {
+		labels[RouterAutoscaleLabelKey] = "true"
+	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
