@@ -1,0 +1,23 @@
+# Build the reshard-copy-poc binary — the online-resharding InitialCopy data mover
+# (ShardSplitJob InitialCopy phase runs this as a K8s Job; RFC 0003 / ROADMAP G4).
+# Separate image from the operator manager so the copy Job pulls a minimal surface.
+FROM golang:1.26.4@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+COPY . .
+
+# CGO disabled → static distroless binary (lib/pq is pure Go).
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o reshard-copy ./cmd/reshard-copy-poc
+
+FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+WORKDIR /
+COPY --from=builder /workspace/reshard-copy .
+USER 65532:65532
+
+ENTRYPOINT ["/reshard-copy"]

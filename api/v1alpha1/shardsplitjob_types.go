@@ -25,8 +25,8 @@ import (
 // 본 CRD 는 *state machine 만 정의* — 실 step 구현은 internal/controller/
 // shardsplit/ + internal/router/ 에 위임 (P-D §D.9.* 후속).
 
-// ShardSplitJobPhase 는 7-step state machine 의 현재 phase 이다.
-// +kubebuilder:validation:Enum=Pending;SnapshotWAL;Bootstrap;InitialCopy;CDCCatchup;Cutover;RoutingUpdate;Cleanup;Completed;Failed;Aborted
+// ShardSplitJobPhase 는 resharding state machine 의 현재 phase 이다.
+// +kubebuilder:validation:Enum=Pending;SnapshotWAL;Bootstrap;InitialCopy;CDCCatchup;Cutover;RoutingUpdate;Cleanup;Promote;Completed;Failed;Aborted
 type ShardSplitJobPhase string
 
 const (
@@ -38,6 +38,7 @@ const (
 	ShardSplitPhaseCutover       ShardSplitJobPhase = "Cutover"
 	ShardSplitPhaseRoutingUpdate ShardSplitJobPhase = "RoutingUpdate"
 	ShardSplitPhaseCleanup       ShardSplitJobPhase = "Cleanup"
+	ShardSplitPhasePromote       ShardSplitJobPhase = "Promote"
 	ShardSplitPhaseCompleted     ShardSplitJobPhase = "Completed"
 	ShardSplitPhaseFailed        ShardSplitJobPhase = "Failed"
 	ShardSplitPhaseAborted       ShardSplitJobPhase = "Aborted"
@@ -101,6 +102,14 @@ type ShardSplitJobSpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	AllowForwardOnly bool `json:"allowForwardOnly,omitempty"`
+
+	// Online 은 true 면 CDC(논리복제) 기반 *무중단* 이동을 쓴다 — InitialCopy 의 정적 bulk
+	// 복사 대신 CDCCatchup phase 가 subscription(copy_data=true)으로 라이브 쓰기를 따라잡고,
+	// write-block 은 최종 drain 구간만 짧게 건다. false(기본)는 offline 모드(InitialCopy
+	// 범위복사 + cutover write-block) — 동시 쓰기 없는 유지보수 창에 단순·빠름.
+	// +kubebuilder:default=false
+	// +optional
+	Online bool `json:"online,omitempty"`
 }
 
 // ShardSplitTarget 는 split/merge 의 target shard 1건 정의.

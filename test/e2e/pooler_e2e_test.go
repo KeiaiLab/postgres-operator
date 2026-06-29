@@ -24,14 +24,21 @@ import (
 )
 
 const (
-	poolerNamespace  = "pg-pooler-e2e"
-	poolerCRName     = "pg-pooler-test"
-	poolerClusterFor = "quickstart"
+	poolerNamespace     = "pg-pooler-e2e"
+	poolerCRName        = "pg-pooler-test"
+	poolerWorkloadName  = poolerCRName + "-pooler"
+	poolerClusterFor    = "quickstart"
+	poolerBuiltinRole   = "keiailab_pooler_pgbouncer"
+	poolerImage         = "ghcr.io/cloudnative-pg/pgbouncer:1.24.1"
+	poolerExporterImage = "quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.0"
 )
 
 var _ = Describe("Pooler PgBouncer live (D.5.4 + D.5.5)", Ordered, Label("p2"), func() {
 	BeforeAll(func() {
-		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", poolerNamespace))
+		ensurePostgresClusterReady(poolerNamespace, poolerClusterFor)
+		ensureDockerImageLoaded(poolerImage)
+		ensureDockerImageLoaded(poolerExporterImage)
+
 		manifest := fmt.Sprintf(`
 apiVersion: postgres.keiailab.io/v1alpha1
 kind: Pooler
@@ -39,19 +46,25 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  cluster: %s
+  cluster:
+    name: %s
   instances: 2
   type: rw
   pgbouncer:
+    image: %s
     poolMode: transaction
+    exporter:
+      image: %s
+      port: 9127
+      args:
+        - --pgBouncer.connectionString=postgres://%s@127.0.0.1:5432/pgbouncer?sslmode=disable
     parameters:
+      auth_type: trust
+      stats_users: %s
       max_client_conn: "200"
       default_pool_size: "25"
-`, poolerCRName, poolerNamespace, poolerClusterFor)
-		cmd := exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(manifest)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
+`, poolerCRName, poolerNamespace, poolerClusterFor, poolerImage, poolerExporterImage, poolerBuiltinRole, poolerBuiltinRole)
+		applyManifest(manifest)
 	})
 
 	AfterAll(func() {
@@ -62,7 +75,7 @@ spec:
 		It("Deployment 2/2 Ready", func() {
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "get", "deploy",
-					poolerCRName+"-pgbouncer", "-n", poolerNamespace,
+					poolerWorkloadName, "-n", poolerNamespace,
 					"-o", "jsonpath={.status.readyReplicas}"))
 				return strings.TrimSpace(out)
 			}, 3*time.Minute, 5*time.Second).Should(Equal("2"))
@@ -72,8 +85,8 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "run", "psql-test",
 					"-n", poolerNamespace, "--rm", "-i", "--restart=Never",
-					"--image=ghcr.io/keiailab/pg:18", "--",
-					"psql", fmt.Sprintf("postgresql://postgres@%s-pgbouncer/postgres", poolerCRName),
+					"--image=ghcr.io/keiailab/pg:18", "--command", "--",
+					"psql", fmt.Sprintf("postgresql://%s@%s/postgres", poolerBuiltinRole, poolerWorkloadName),
 					"-t", "-A", "-c", "SELECT 1"))
 				return strings.TrimSpace(out)
 			}, 1*time.Minute, 5*time.Second).Should(ContainSubstring("1"))
@@ -100,10 +113,9 @@ spec:
 
 	Context("PgBouncer exporter live scrape (D.5.5)", func() {
 		It("/metrics endpoint pgbouncer_pools 노출", func() {
-			pod := poolerCRName + "-pgbouncer"
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
-				fmt.Sprintf("deploy/%s", pod), "-n", poolerNamespace,
-				"-c", "exporter", "--",
+				fmt.Sprintf("deploy/%s", poolerWorkloadName), "-n", poolerNamespace,
+				"-c", "pgbouncer-exporter", "--",
 				"sh", "-c", "wget -qO- localhost:9127/metrics | grep -c pgbouncer_pools"))
 			cnt := strings.TrimSpace(out)
 			Expect(cnt).NotTo(Equal("0"), "pgbouncer_pools metric 노출")

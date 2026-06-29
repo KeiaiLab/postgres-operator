@@ -28,14 +28,28 @@ import (
 // adapter 는 failover scope 의 lease 명명 규약 + 기본 매개변수 + 콜백
 // 시그니처 만 노출한다.
 //
-// 사용처: cmd/main.go 에서 manager 시작 후 별 goroutine 에서 Run.
+// 배선 상태 (RFC 0007 P2-T3, 미완): 본 adapter 는 *아직 production 에 배선되지
+// 않은 building block* 이다. 현재 자동 failover (detection + promotion) 는
+// PostgresCluster reconcile 루프 (clusterFailoverDecision -> executeCluster
+// Promotion) 에서 실행되며, 이는 controller-runtime manager 의 자체 leader
+// election 으로 이미 단일 replica 로 게이팅된다. 따라서 별도 failover lease 없이도
+// "오직 한 operator 가 failover 수행" 이 보장된다.
+//
+// 본 lease 를 reconcile 루프 failover 의 게이트로 *순진하게* 연결하면 안 된다:
+// reconciler 는 manager-lease holder 에서만 돌고, 본 lease 는 그와 독립적인
+// 별도 lease 라 holder 가 다른 Pod 일 수 있다 — 그 경우 failover 가 어느 Pod
+// 에서도 실행되지 않는 deadlock 이 된다. 제대로 된 P2-T3 는 failover 를
+// reconcile 루프 밖의 leader-election-agnostic runnable 로 먼저 분리한 뒤,
+// 그 runnable 을 본 lease 로 게이팅해야 한다 (후속 과제).
+//
+// 의도된 사용 형태 (P2-T3 완성 시):
 //
 //	cfg := failover.LeaseConfig{
 //	    Client:    clientset,
 //	    Namespace: operatorNS,
 //	    Identity:  podName,
-//	    OnStartedLeading: func(ctx context.Context) { failoverCtrl.Enable() },
-//	    OnStoppedLeading: func() { failoverCtrl.Disable() },
+//	    OnStartedLeading: func(ctx context.Context) { failoverRunnable.Enable() },
+//	    OnStoppedLeading: func() { failoverRunnable.Disable() },
 //	}
 //	lease, err := failover.NewLease(cfg)
 //	go lease.Run(ctx)

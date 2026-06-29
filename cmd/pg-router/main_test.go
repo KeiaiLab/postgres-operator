@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,62 @@ func TestBackendForUsesEnvMapping(t *testing.T) {
 	}
 	if got := backendFor("shard-9"); got != "127.0.0.1:5432" {
 		t.Fatalf("backendFor(shard-9) default = %q, want 127.0.0.1:5432", got)
+	}
+}
+
+// TestTemplateResolver 는 DNS 템플릿 resolver 가 {cluster}/{shard}/{namespace}
+// 를 치환해 per-shard env 없이 backend 를 만든다.
+func TestTemplateResolver(t *testing.T) {
+	t.Setenv("PGROUTER_BACKEND_TEMPLATE", "{cluster}-{shard}-0.{cluster}-{shard}-headless.{namespace}.svc.cluster.local:5432")
+	t.Setenv("PGROUTER_CLUSTER", "demo")
+	t.Setenv("PGROUTER_NAMESPACE", "prod")
+	got, err := templateResolver()("shard-1")
+	want := "demo-shard-1-0.demo-shard-1-headless.prod.svc.cluster.local:5432"
+	if err != nil || got != want {
+		t.Fatalf("template resolver = (%q,%v), want %q", got, err, want)
+	}
+}
+
+// TestEnvBackendResolver 는 env 매핑 resolver 를 검증.
+func TestEnvBackendResolver(t *testing.T) {
+	t.Setenv("PGROUTER_BACKEND_SHARD_2", "1.2.3.4:5432")
+	got, err := envBackendResolver("shard-2")
+	if err != nil || got != "1.2.3.4:5432" {
+		t.Fatalf("env resolver = (%q,%v), want 1.2.3.4:5432", got, err)
+	}
+}
+
+// TestWritePgError 는 우아한 실패가 유효한 PostgreSQL ErrorResponse('E')로 인코딩됨을
+// 검증한다 (샤드 down 시 조용한 drop 대신 클라이언트가 사유를 받는다).
+func TestWritePgError(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
+	go func() {
+		writePgError(c2, "08006", "shard shard-0 unavailable")
+		_ = c2.Close()
+	}()
+
+	_ = c1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	hdr := make([]byte, 5)
+	if _, err := io.ReadFull(c1, hdr); err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	if hdr[0] != 'E' {
+		t.Fatalf("type = %q, want 'E'", hdr[0])
+	}
+	length := binary.BigEndian.Uint32(hdr[1:5])
+	body := make([]byte, length-4)
+	if _, err := io.ReadFull(c1, body); err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	s := string(body)
+	for _, want := range []string{"ERROR", "08006", "shard shard-0 unavailable"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("ErrorResponse missing %q in %q", want, s)
+		}
+	}
+	if body[len(body)-1] != 0 {
+		t.Fatalf("ErrorResponse must end with NUL terminator")
 	}
 }
 

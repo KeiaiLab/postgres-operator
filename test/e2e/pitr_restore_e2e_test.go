@@ -16,6 +16,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -38,8 +39,8 @@ var _ = Describe("PITR restore + checksum drill (D.3.2)", Ordered, Label("p1"), 
 		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", pitrNamespace))
 
 		// PostgresCluster 부트스트랩 — backup/restore 대상 cluster.
-		// pgBackRest repo 는 operator 가 filesystem(posix) repo 를 PG Pod 의
-		// /var/lib/pgbackrest EmptyDir 에 자동 구성 + stanza-create 한다 (#209).
+		// pgBackRest repo 는 data PVC 내부 경로로 유지된다. EmptyDir
+		// repo 는 Pod 재시작/restore orchestration 중 사라지므로 PITR 전제가 아니다.
 		// 외부 S3 불필요 — single primary(replicas=0) 로 backup→PITR restore 검증.
 		manifest := fmt.Sprintf(`
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -55,6 +56,12 @@ spec:
     replicas: 0
     storage:
       size: 1Gi
+  backup:
+    enabled: true
+    schedule: "0 0 * * *"
+    repo:
+      type: filesystem
+      path: /var/lib/postgresql/data/pgbackrest
 `, pitrCRName, pitrNamespace)
 		cmd := exec.Command("kubectl", "apply", "-f", "-")
 		cmd.Stdin = strings.NewReader(manifest)
@@ -72,6 +79,9 @@ spec:
 	})
 
 	AfterAll(func() {
+		if os.Getenv("E2E_KEEP_PITR_NAMESPACE") == "true" {
+			return
+		}
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", pitrNamespace, "--wait=false"))
 	})
 
@@ -99,9 +109,9 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "get", "backupjob",
 					"pitr-full-bj", "-n", pitrNamespace,
-					"-o", "jsonpath={.status.phase}"))
+					"-o", "jsonpath=phase={.status.phase} reason={.status.conditions[?(@.type==\"Ready\")].reason} message={.status.conditions[?(@.type==\"Ready\")].message}"))
 				return out
-			}, 5*time.Minute, 10*time.Second).Should(Equal("Succeeded"))
+			}, 5*time.Minute, 10*time.Second).Should(ContainSubstring("phase=Succeeded"))
 		})
 
 		It("marker row 'before' 삽입 + 시점 기록", func() {
@@ -119,9 +129,9 @@ spec:
 				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
 				"-c", "postgres",
 				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
-				"SELECT now() AT TIME ZONE 'UTC'"))
+				"SELECT clock_timestamp() AT TIME ZONE 'UTC'"))
 			t, err := time.Parse("2006-01-02 15:04:05.999999", strings.TrimSpace(out))
-			Expect(err).NotTo(HaveOccurred(), "parse pg now(): %s", out)
+			Expect(err).NotTo(HaveOccurred(), "parse pg clock_timestamp(): %s", out)
 			pitrTarget = t
 		})
 
@@ -133,21 +143,31 @@ spec:
 				"--", "psql", "-U", "postgres", "-c",
 				"INSERT INTO drill VALUES ('after');"))
 			Expect(err).NotTo(HaveOccurred())
+
+			// 저트래픽 E2E에서는 WAL 세그먼트가 자연스럽게 꽉 차지 않는다.
+			// target 이후 WAL을 명시적으로 switch/archive 해야 PITR replay 입력이 결정적이다.
+			out, err := utils.Run(exec.Command("kubectl", "exec",
+				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+				"-c", "postgres",
+				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+				"SELECT pg_walfile_name(pg_switch_wal())"))
+			Expect(err).NotTo(HaveOccurred())
+			walFile := strings.TrimSpace(out)
+			Expect(walFile).NotTo(BeEmpty())
+
+			Eventually(func() string {
+				out, _ := utils.Run(exec.Command("kubectl", "exec",
+					fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+					"-c", "postgres",
+					"--", "sh", "-lc",
+					fmt.Sprintf("find /var/lib/postgresql/data/pgbackrest/archive/%s -type f -name '%s*' | head -n 1", pitrCRName, walFile)))
+				return strings.TrimSpace(out)
+			}, 2*time.Minute, 5*time.Second).Should(ContainSubstring(walFile),
+				"switched WAL %s must be archived before restore", walFile)
 		})
 	})
 
-	// PENDING (ROADMAP G1 §Backup/Restore — PITR `[~]`): in-place PITR restore
-	// orchestration is not yet implemented. `pgbackrest restore` requires the
-	// cluster to be stopped and PGDATA emptied (or `--delta`); the current
-	// sidecar-exec path (internal/plugin/backup/pgbackrest.RestoreCommand) runs
-	// `restore` against a RUNNING primary, which pgBackRest refuses. A correct
-	// restore needs the operator to orchestrate STS stop → delta restore →
-	// recovery-target → restart (a dedicated Phase 1 code-gap task, GA #248).
-	// The full-backup + marker sub-steps above DO pass live; only the restore
-	// execution is gated. Marked Pending (not failing) to keep the p1 gate
-	// honest: implemented features green, this unimplemented feature visibly
-	// Pending rather than a silent skip or a false pass.
-	PContext("Restore type=time targetTime=<pitrTarget> (PENDING: restore orchestration unimplemented, GA #248)", func() {
+	Context("Restore type=time targetTime=<pitrTarget>", func() {
 		It("BackupJob type=restore + targetTime 적용", func() {
 			manifest := fmt.Sprintf(`
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -164,7 +184,7 @@ spec:
   executionMode: sidecar
   restore:
     targetTime: %q
-`, pitrNamespace, pitrCRName, pitrTarget.UTC().Format(time.RFC3339))
+`, pitrNamespace, pitrCRName, pitrTarget.UTC().Format(time.RFC3339Nano))
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(manifest)
 			_, err := utils.Run(cmd)
@@ -173,9 +193,9 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "get", "backupjob",
 					"pitr-restore-bj", "-n", pitrNamespace,
-					"-o", "jsonpath={.status.phase}"))
+					"-o", "jsonpath=phase={.status.phase} runner={.status.runnerJobName} reason={.status.conditions[?(@.type==\"Ready\")].reason} message={.status.conditions[?(@.type==\"Ready\")].message}"))
 				return out
-			}, 10*time.Minute, 20*time.Second).Should(Equal("Succeeded"))
+			}, 10*time.Minute, 20*time.Second).Should(ContainSubstring("phase=Succeeded"))
 		})
 
 		It("restore 후 marker row 'before' 존재", func() {
@@ -200,17 +220,18 @@ spec:
 		})
 	})
 
-	// PENDING: depends on the restore above (GA #248). See the PContext note.
-	PContext("pg_checksums verify (PENDING: depends on restore orchestration, GA #248)", func() {
+	Context("pg_checksums verify", func() {
 		It("data checksums 일치 (online 가능 시 pg_checksums --check)", func() {
 			// pg_checksums --check 는 PG 서버 stop 필요. 일부 환경은 PG 18 의
 			// pg_verify_backup 또는 cluster-level checksum 활성 시 다른 명령 사용.
-			out, _ := utils.Run(exec.Command("kubectl", "exec",
-				fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
-				"-c", "postgres",
-				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
-				"SELECT count(*) FROM pg_stat_database WHERE checksum_failures > 0"))
-			Expect(strings.TrimSpace(out)).To(Equal("0"),
+			Eventually(func() string {
+				out, _ := utils.Run(exec.Command("kubectl", "exec",
+					fmt.Sprintf("%s-shard-0-0", pitrCRName), "-n", pitrNamespace,
+					"-c", "postgres",
+					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"SELECT count(*) FROM pg_stat_database WHERE checksum_failures > 0"))
+				return strings.TrimSpace(out)
+			}, 2*time.Minute, 5*time.Second).Should(Equal("0"),
 				"restore 후 checksum_failures = 0")
 		})
 	})

@@ -38,6 +38,8 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0025](0025-repmgr-pgbouncer-barman-integration.md) | Repmgr / PgBouncer / Barman 통합 — bitnami parity (orphan recovery from duplicate 0006; PR #98/#96 attempted 0023/0024 but collided with concurrent merges, renumbered to next free 0025) | Proposed | 2026-05-14 |
 | [ADR-0026](0026-operatorhub-io-version-sync.md) | OperatorHub.io 최신 버전 자동 sync (orphan recovery from duplicate 0007; PR #98/#96 attempted 0024 but collided with concurrent merges, renumbered to next free 0026) | Proposed | 2026-05-14 |
 | [ADR-0027](0027-non-ordinal-reshard-target-shard-identity.md) | G3 online-resharding 의 비-ordinal target shard 식별 모델 (격리 label `reshard-target` + phase 별 mergeable 증분 + #220 identity 교훈 반영, #223 설계) | Proposed | 2026-06-05 |
+| [ADR-0028](0028-postgres-first-then-commons-dedup.md) | PostgreSQL 우선 구현 → commons 중복 제거는 후행 일괄 (4 operator 독립 유지, mongo freeze, G4 가 Phase 2 trigger, 승격 3-test + 어댑터 패턴) | Proposed | 2026-06-26 |
+| [ADR-0029](0029-reshard-target-promotion-identity-transition.md) | resharding target shard 영구 승격 — 정체성 전이 설계 (ordinal→명명 shard 일반화 `shard-id` label + fenced single-authority 승격 + source 폐기, ADR-0027 P6 상세화, #220 교훈 반영) | Proposed | 2026-06-28 |
 
 ## Archived (v0.x — decisions from before the redesign)
 

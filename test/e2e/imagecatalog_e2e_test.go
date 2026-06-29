@@ -31,6 +31,9 @@ const (
 
 var _ = Describe("ImageCatalog live rollout (D.5.9)", Ordered, Label("p2"), func() {
 	BeforeAll(func() {
+		ensurePGRuntimeImageMajor("17")
+		ensurePGRuntimeImageMajor("18")
+
 		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", imageCatalogNamespace))
 
 		catalogManifest := fmt.Sprintf(`
@@ -41,9 +44,9 @@ metadata:
   namespace: %s
 spec:
   images:
-    - major: "17"
+    - major: 17
       image: ghcr.io/keiailab/pg:17
-    - major: "18"
+    - major: 18
       image: ghcr.io/keiailab/pg:18
 `, imageCatalogName, imageCatalogNamespace)
 		cmd := exec.Command("kubectl", "apply", "-f", "-")
@@ -58,11 +61,12 @@ metadata:
   name: %s
   namespace: %s
 spec:
+  postgresVersion: "17"
   imageCatalogRef:
     apiGroup: postgres.keiailab.io
     kind: ImageCatalog
     name: %s
-    major: "17"
+    major: 17
   shards:
     initialCount: 1
     replicas: 0
@@ -103,7 +107,7 @@ spec:
 		It("Cluster spec.imageCatalogRef.major patch", func() {
 			_, err := utils.Run(exec.Command("kubectl", "patch", "postgrescluster",
 				imageCatalogCluster, "-n", imageCatalogNamespace, "--type=merge",
-				"-p", `{"spec":{"imageCatalogRef":{"major":"18"}}}`))
+				"-p", `{"spec":{"postgresVersion":"18","imageCatalogRef":{"major":18}}}`))
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -119,7 +123,7 @@ spec:
 		It("image-hash annotation drift 추적", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "get", "sts",
 				imageCatalogCluster+"-shard-0", "-n", imageCatalogNamespace,
-				"-o", "jsonpath={.metadata.annotations.postgres\\.keiailab\\.io/image-hash}"))
+				"-o", "jsonpath={.spec.template.metadata.annotations.postgres\\.keiailab\\.io/postgres-image-catalog-sha256}"))
 			Expect(strings.TrimSpace(out)).NotTo(BeEmpty(), "image-hash annotation must be set")
 		})
 	})

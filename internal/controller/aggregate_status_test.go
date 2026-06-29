@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/instance/fencing"
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
@@ -98,6 +99,56 @@ func TestAggregateShardStatus_PrimaryAndReplica(t *testing.T) {
 	}
 }
 
+func TestAggregateShardStatus_UsesShardIDLabelWhenOrdinalLabelMissing(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	pod := makePod("demo-rsd-shard-0-0", statusapi.Status{
+		Role: statusapi.RolePrimary, Ready: true,
+		Endpoint: "demo-rsd-shard-0-0.svc:5432", LastUpdate: now,
+	}, true)
+	delete(pod.Labels, "postgres.keiailab.io/shard")
+	pod.Labels["app.kubernetes.io/component"] = "reshard-target"
+	pod.Labels[ShardIDLabelKey] = ShardIDForOrdinal(0)
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
+
+	out := aggregateShardStatus(context.Background(), c, newCluster(), 0, "demo-shard-0-headless")
+	if out.Primary == nil || out.Primary.Pod != "demo-rsd-shard-0-0" {
+		t.Fatalf("shard-id-only pod was not selected as primary: %+v", out.Primary)
+	}
+	if out.Name != "shard-0" || out.Ordinal != 0 {
+		t.Fatalf("shard identity = name %q ordinal %d, want shard-0/0", out.Name, out.Ordinal)
+	}
+}
+
+func TestAggregateNamedShardStatus_UsesReshardTargetLabel(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	labels := ReshardTargetSelectorLabels("demo", "t1")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "demo-rsd-t1-0",
+			Namespace: "default",
+			Labels:    labels,
+		},
+	}
+	raw, _ := json.Marshal(statusapi.Status{
+		Role:       statusapi.RolePrimary,
+		Ready:      true,
+		Endpoint:   "demo-rsd-t1-0.demo-rsd-t1-headless.default.svc.cluster.local:5432",
+		LastUpdate: now,
+	})
+	pod.Annotations = map[string]string{statusapi.AnnotationKey: string(raw)}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
+
+	out := aggregateNamedShardStatus(context.Background(), c, newCluster(), "t1", "demo-rsd-t1-headless")
+	if out.Name != "t1" || out.Ordinal != -1 {
+		t.Fatalf("shard identity = name %q ordinal %d, want t1/-1", out.Name, out.Ordinal)
+	}
+	if out.Primary == nil || out.Primary.Pod != "demo-rsd-t1-0" || !out.Primary.Ready {
+		t.Fatalf("target primary not aggregated: %+v", out.Primary)
+	}
+}
+
 func TestAggregateShardStatus_PropagatesInstanceReasonAndMessage(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -120,6 +171,74 @@ func TestAggregateShardStatus_PropagatesInstanceReasonAndMessage(t *testing.T) {
 	}
 	if out.Replicas[0].Message != "pg_rewind failed; basebackup fallback failed" {
 		t.Fatalf("replica message = %q", out.Replicas[0].Message)
+	}
+}
+
+func TestAggregateShardStatus_FencedPrimaryIsNotPromotionReadyReplica(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	pod := makePod("demo-shard-0-0", statusapi.Status{
+		Role:       statusapi.RolePrimary,
+		Ready:      true,
+		Endpoint:   "demo-shard-0-0.svc:5432",
+		LagBytes:   0,
+		LastUpdate: now,
+	}, true)
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "data-demo-shard-0-0",
+			Namespace: "default",
+			Labels: map[string]string{
+				fencing.FenceLabelKey: fencing.FenceLabelValue,
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod, pvc).Build()
+
+	out := aggregateShardStatus(context.Background(), c, newCluster(), 0, "demo-shard-0-headless")
+	if out.Primary != nil {
+		t.Fatalf("fenced primary must not be selected as shard primary: %+v", out.Primary)
+	}
+	if len(out.Replicas) != 1 {
+		t.Fatalf("replicas = %d, want fenced pod as not-ready replica", len(out.Replicas))
+	}
+	if out.Replicas[0].Ready {
+		t.Fatalf("fenced pod must not remain promotion-ready replica: %+v", out.Replicas[0])
+	}
+	if out.Replicas[0].Reason != "fenced" {
+		t.Fatalf("fenced replica reason = %q, want fenced", out.Replicas[0].Reason)
+	}
+}
+
+func TestAggregateShardStatus_PodNotReadyIsNotPromotionReadyReplica(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	pod := makePod("demo-shard-0-1", statusapi.Status{
+		Role:       statusapi.RoleReplica,
+		Ready:      true,
+		Endpoint:   "demo-shard-0-1.svc:5432",
+		LagBytes:   0,
+		LastUpdate: now,
+	}, true)
+	pod.Status.Conditions = []corev1.PodCondition{{
+		Type:   corev1.PodReady,
+		Status: corev1.ConditionFalse,
+	}}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:  pgContainerName,
+		Ready: false,
+	}}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
+
+	out := aggregateShardStatus(context.Background(), c, newCluster(), 0, "demo-shard-0-headless")
+	if len(out.Replicas) != 1 {
+		t.Fatalf("replicas = %d, want pod as not-ready replica", len(out.Replicas))
+	}
+	if out.Replicas[0].Ready {
+		t.Fatalf("Kubernetes-not-ready pod must not remain promotion-ready replica: %+v", out.Replicas[0])
+	}
+	if out.Replicas[0].Reason != "pod-not-ready" {
+		t.Fatalf("not-ready replica reason = %q, want pod-not-ready", out.Replicas[0].Reason)
 	}
 }
 

@@ -19,9 +19,11 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -505,7 +507,7 @@ func TestBackupJobReconcile_RunningSidecarBackupExecutesPrimaryPod(t *testing.T)
 	}
 }
 
-func TestBackupJobReconcile_RunningSidecarRestoreExecutesPrimaryPod(t *testing.T) {
+func TestBackupJobReconcile_RunningSidecarRestoreScalesShardStatefulSetDown(t *testing.T) {
 	t.Parallel()
 	scheme := newScheme(t)
 	bj := newBackupJob("bj-sidecar-restore", postgresv1alpha1.BackupJobRunning)
@@ -522,8 +524,20 @@ func TestBackupJobReconcile_RunningSidecarRestoreExecutesPrimaryPod(t *testing.T
 			Ready: true,
 		},
 	}}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
 	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(bj, cluster).
+		WithObjects(bj, cluster, sts).
 		WithStatusSubresource(&postgresv1alpha1.BackupJob{}).
 		Build()
 	stub := &stubBackupPlugin{
@@ -540,14 +554,302 @@ func TestBackupJobReconcile_RunningSidecarRestoreExecutesPrimaryPod(t *testing.T
 	if stub.restoreCalled != 0 {
 		t.Errorf("sidecar restore must not call RestorePIT directly, called=%d", stub.restoreCalled)
 	}
+	if stub.restoreCommandCalled != 0 {
+		t.Errorf("RestoreCommand called %d times, want 0 while StatefulSet is stopping", stub.restoreCommandCalled)
+	}
+	if exec.called != 0 {
+		t.Fatalf("sidecar Exec called %d times, want 0 for PITR restore orchestration", exec.called)
+	}
+	if got.Status.Phase != postgresv1alpha1.BackupJobRunning {
+		t.Errorf("Phase: got %q, want Running while restore is orchestrating", got.Status.Phase)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, BackupJobConditionReady)
+	if cond == nil || cond.Reason != "RestoreClusterStopping" {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+	var observed appsv1.StatefulSet
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(sts), &observed); err != nil {
+		t.Fatalf("get StatefulSet: %v", err)
+	}
+	if observed.Spec.Replicas == nil || *observed.Spec.Replicas != 0 {
+		t.Fatalf("StatefulSet replicas = %v, want 0 for offline restore", observed.Spec.Replicas)
+	}
+	var observedCluster postgresv1alpha1.PostgresCluster
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(cluster), &observedCluster); err != nil {
+		t.Fatalf("get PostgresCluster: %v", err)
+	}
+	if got := observedCluster.Annotations["postgres.keiailab.io/restore-in-progress"]; got != bj.Name {
+		t.Fatalf("restore annotation = %q, want BackupJob name %q", got, bj.Name)
+	}
+}
+
+func TestBackupJobReconcile_RunningSidecarRestoreCreatesRestoreJobAfterStatefulSetStopped(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	bj := newBackupJob("bj-sidecar-restore-job", postgresv1alpha1.BackupJobRunning)
+	targetTime := metav1.NewTime(time.Date(2026, 5, 12, 2, 0, 0, 0, time.UTC))
+	bj.Spec.ExecutionMode = backupJobExecutionModeSidecar
+	bj.Spec.Type = backupJobTypeRestore
+	bj.Spec.Restore = &postgresv1alpha1.BackupRestoreSpec{TargetTime: &targetTime}
+	cluster := newBackupJobCluster()
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+	stopped := int32(0)
+	sts.Spec.Replicas = &stopped
+	restoreCommand := []string{"sh", "-c", "pgbackrest --stanza=demo --type=time restore"}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(bj, cluster, sts).
+		WithStatusSubresource(&postgresv1alpha1.BackupJob{}).
+		Build()
+	stub := &stubBackupPlugin{
+		name:           "pgbackrest",
+		restoreCommand: restoreCommand,
+	}
+	reg := plugin.NewRegistry()
+	reg.RegisterBackup(stub)
+	exec := &fakeBackupSidecarExecutor{}
+
+	r := &BackupJobReconciler{Client: c, Scheme: scheme, Plugins: reg, SidecarExecutor: exec}
+	got := reconcileOnce(t, r, c, bj)
+
+	if exec.called != 0 {
+		t.Fatalf("sidecar Exec called %d times, want 0; restore must run in a Job", exec.called)
+	}
 	if stub.restoreCommandCalled != 1 {
-		t.Errorf("RestoreCommand called %d times, want 1", stub.restoreCommandCalled)
+		t.Fatalf("RestoreCommand called %d times, want 1", stub.restoreCommandCalled)
 	}
-	if exec.called != 1 {
-		t.Fatalf("sidecar Exec called %d times, want 1", exec.called)
+	if got.Status.Phase != postgresv1alpha1.BackupJobRunning {
+		t.Fatalf("Phase = %q, want Running while restore Job executes", got.Status.Phase)
 	}
+	if got.Status.RunnerJobName != "bj-sidecar-restore-job-runner" {
+		t.Fatalf("RunnerJobName = %q, want bj-sidecar-restore-job-runner", got.Status.RunnerJobName)
+	}
+
+	var job batchv1.Job
+	if err := c.Get(context.Background(), client.ObjectKey{
+		Namespace: bj.Namespace,
+		Name:      "bj-sidecar-restore-job-runner",
+	}, &job); err != nil {
+		t.Fatalf("restore Job get: %v", err)
+	}
+	if len(job.OwnerReferences) != 1 || job.OwnerReferences[0].Kind != "BackupJob" || job.OwnerReferences[0].Name != bj.Name {
+		t.Fatalf("ownerReferences mismatch: %+v", job.OwnerReferences)
+	}
+	container := job.Spec.Template.Spec.Containers[0]
+	if container.Image != "example.com/postgres:18" {
+		t.Fatalf("restore Job image = %q, want source StatefulSet postgres image", container.Image)
+	}
+	if gotCommand := strings.Join(container.Command, " "); gotCommand != strings.Join(restoreCommand, " ") {
+		t.Fatalf("restore Job command = %q, want %q", gotCommand, strings.Join(restoreCommand, " "))
+	}
+	assertVolumeMount(t, container.VolumeMounts, "data", pgDataMountPath, "")
+	assertVolumeMount(t, container.VolumeMounts, "ephemeral-pgbackrest-spool", "/var/spool/pgbackrest", "")
+	assertPVCVolume(t, job.Spec.Template.Spec.Volumes, "data", "data-demo-shard-0-0")
+	assertEmptyDirVolume(t, job.Spec.Template.Spec.Volumes, "ephemeral-pgbackrest-spool")
+}
+
+func TestBackupJobReconcile_RunningSidecarRestoreWaitsForShardPodsToStopBeforeCreatingJob(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	bj := newBackupJob("bj-sidecar-restore-wait-pod", postgresv1alpha1.BackupJobRunning)
+	targetTime := metav1.NewTime(time.Date(2026, 5, 12, 2, 0, 0, 0, time.UTC))
+	bj.Spec.ExecutionMode = backupJobExecutionModeSidecar
+	bj.Spec.Type = backupJobTypeRestore
+	bj.Spec.Restore = &postgresv1alpha1.BackupRestoreSpec{TargetTime: &targetTime}
+	cluster := newBackupJobCluster()
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+	stopped := int32(0)
+	sts.Spec.Replicas = &stopped
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "demo-shard-0-0",
+			Namespace: "default",
+			Labels:    SelectorLabels("demo", "shard", 0),
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(bj, cluster, sts, pod).
+		WithStatusSubresource(&postgresv1alpha1.BackupJob{}).
+		Build()
+	reg := plugin.NewRegistry()
+	reg.RegisterBackup(&stubBackupPlugin{name: "pgbackrest", restoreCommand: []string{"sh", "-c", "restore"}})
+
+	r := &BackupJobReconciler{Client: c, Scheme: scheme, Plugins: reg}
+	got := reconcileOnce(t, r, c, bj)
+
+	if got.Status.RunnerJobName != "" {
+		t.Fatalf("RunnerJobName = %q, want empty while shard pod still exists", got.Status.RunnerJobName)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, BackupJobConditionReady)
+	if cond == nil || cond.Reason != "RestoreWaitingForPodsToStop" {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+	var jobs batchv1.JobList
+	if err := c.List(context.Background(), &jobs, client.InNamespace(bj.Namespace)); err != nil {
+		t.Fatalf("list Jobs: %v", err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Fatalf("restore Job count = %d, want 0 while shard pod still exists", len(jobs.Items))
+	}
+}
+
+func TestBackupJobReconcile_RunningSidecarRestoreCompleteReleasesRestoreLockAndMarksSucceeded(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	bj := newBackupJob("bj-sidecar-restore-complete", postgresv1alpha1.BackupJobRunning)
+	targetTime := metav1.NewTime(time.Date(2026, 5, 12, 2, 0, 0, 0, time.UTC))
+	bj.Spec.ExecutionMode = backupJobExecutionModeSidecar
+	bj.Spec.Type = backupJobTypeRestore
+	bj.Spec.Restore = &postgresv1alpha1.BackupRestoreSpec{TargetTime: &targetTime}
+	bj.Status.RunnerJobName = "bj-sidecar-restore-complete-runner"
+	cluster := newBackupJobCluster()
+	cluster.Spec.Shards.Replicas = 1
+	cluster.Annotations = map[string]string{
+		"postgres.keiailab.io/restore-in-progress": bj.Name,
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		2,
+		postgresv1alpha1.StorageSpec{},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+	stopped := int32(0)
+	sts.Spec.Replicas = &stopped
+	runner := backupJobRunner("bj-sidecar-restore-complete-runner", bj)
+	runner.Status.Conditions = []batchv1.JobCondition{{
+		Type:   batchv1.JobComplete,
+		Status: corev1.ConditionTrue,
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(bj, cluster, sts, runner).
+		WithStatusSubresource(&postgresv1alpha1.BackupJob{}).
+		Build()
+	reg := plugin.NewRegistry()
+	reg.RegisterBackup(&stubBackupPlugin{name: "pgbackrest"})
+
+	r := &BackupJobReconciler{Client: c, Scheme: scheme, Plugins: reg}
+	got := reconcileOnce(t, r, c, bj)
+
 	if got.Status.Phase != postgresv1alpha1.BackupJobSucceeded {
-		t.Errorf("Phase: got %q, want Succeeded", got.Status.Phase)
+		t.Fatalf("Phase = %q, want Succeeded", got.Status.Phase)
+	}
+	if got.Status.EndedAt == nil {
+		t.Fatal("EndedAt must be recorded after restore completion")
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, BackupJobConditionReady)
+	if cond == nil || cond.Reason != BackupJobReasonRestoreSucceeded {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+	var observed appsv1.StatefulSet
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(sts), &observed); err != nil {
+		t.Fatalf("get StatefulSet: %v", err)
+	}
+	if observed.Spec.Replicas == nil || *observed.Spec.Replicas != 0 {
+		t.Fatalf("StatefulSet replicas = %v, want 0 until PostgresCluster reconciler restores desired template", observed.Spec.Replicas)
+	}
+	var observedCluster postgresv1alpha1.PostgresCluster
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(cluster), &observedCluster); err != nil {
+		t.Fatalf("get PostgresCluster: %v", err)
+	}
+	if _, ok := observedCluster.Annotations["postgres.keiailab.io/restore-in-progress"]; ok {
+		t.Fatal("restore annotation must be released after successful restore")
+	}
+	if observedCluster.Spec.Shards.Replicas != 1 {
+		t.Fatalf("PostgresCluster spec.shards.replicas = %d, want preserved", observedCluster.Spec.Shards.Replicas)
+	}
+}
+
+func TestBackupJobReconcile_RunningSidecarRestoreFailedLeavesStatefulSetStoppedAndMarksFailed(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	bj := newBackupJob("bj-sidecar-restore-failed", postgresv1alpha1.BackupJobRunning)
+	targetTime := metav1.NewTime(time.Date(2026, 5, 12, 2, 0, 0, 0, time.UTC))
+	bj.Spec.ExecutionMode = backupJobExecutionModeSidecar
+	bj.Spec.Type = backupJobTypeRestore
+	bj.Spec.Restore = &postgresv1alpha1.BackupRestoreSpec{TargetTime: &targetTime}
+	bj.Status.RunnerJobName = "bj-sidecar-restore-failed-runner"
+	cluster := newBackupJobCluster()
+	cluster.Annotations = map[string]string{
+		"postgres.keiailab.io/restore-in-progress": bj.Name,
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+	stopped := int32(0)
+	sts.Spec.Replicas = &stopped
+	runner := backupJobRunner("bj-sidecar-restore-failed-runner", bj)
+	runner.Status.Conditions = []batchv1.JobCondition{{
+		Type:    batchv1.JobFailed,
+		Status:  corev1.ConditionTrue,
+		Reason:  "BackoffLimitExceeded",
+		Message: "restore exited 56",
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(bj, cluster, sts, runner).
+		WithStatusSubresource(&postgresv1alpha1.BackupJob{}).
+		Build()
+	reg := plugin.NewRegistry()
+	reg.RegisterBackup(&stubBackupPlugin{name: "pgbackrest"})
+
+	r := &BackupJobReconciler{Client: c, Scheme: scheme, Plugins: reg}
+	got := reconcileOnce(t, r, c, bj)
+
+	if got.Status.Phase != postgresv1alpha1.BackupJobFailed {
+		t.Fatalf("Phase = %q, want Failed", got.Status.Phase)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, BackupJobConditionReady)
+	if cond == nil || cond.Reason != BackupJobReasonRestoreFailed {
+		t.Fatalf("Ready condition mismatch: %+v", cond)
+	}
+	var observed appsv1.StatefulSet
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(sts), &observed); err != nil {
+		t.Fatalf("get StatefulSet: %v", err)
+	}
+	if observed.Spec.Replicas == nil || *observed.Spec.Replicas != 0 {
+		t.Fatalf("StatefulSet replicas = %v, want 0 after failed restore", observed.Spec.Replicas)
+	}
+	var observedCluster postgresv1alpha1.PostgresCluster
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(cluster), &observedCluster); err != nil {
+		t.Fatalf("get PostgresCluster: %v", err)
+	}
+	if got := observedCluster.Annotations["postgres.keiailab.io/restore-in-progress"]; got != bj.Name {
+		t.Fatalf("restore annotation = %q, want failed BackupJob name %q for manual intervention", got, bj.Name)
 	}
 }
 
@@ -571,8 +873,11 @@ func TestBackupJobReconcile_RunningSidecarRequiresReadyPrimary(t *testing.T) {
 	if exec.called != 0 {
 		t.Fatalf("sidecar Exec should not run without ready primary, called=%d", exec.called)
 	}
-	if got.Status.Phase != postgresv1alpha1.BackupJobFailed {
-		t.Errorf("Phase: got %q, want Failed", got.Status.Phase)
+	if got.Status.Phase != postgresv1alpha1.BackupJobRunning {
+		t.Errorf("Phase: got %q, want Running while waiting for ready primary", got.Status.Phase)
+	}
+	if got.Status.EndedAt != nil {
+		t.Errorf("EndedAt = %v, want nil for transient sidecar target wait", got.Status.EndedAt)
 	}
 	cond := meta.FindStatusCondition(got.Status.Conditions, BackupJobConditionReady)
 	if cond == nil || cond.Reason != BackupJobReasonSidecarTargetNotFound {
@@ -722,4 +1027,38 @@ func assertEnv(t *testing.T, env []corev1.EnvVar, name, want string) {
 		}
 	}
 	t.Fatalf("env %s not found in %+v", name, env)
+}
+
+func assertVolumeMount(t *testing.T, mounts []corev1.VolumeMount, name, mountPath, subPath string) {
+	t.Helper()
+	for _, mount := range mounts {
+		if mount.Name == name && mount.MountPath == mountPath && mount.SubPath == subPath {
+			return
+		}
+	}
+	t.Fatalf("VolumeMount name=%q mountPath=%q subPath=%q not found in %+v", name, mountPath, subPath, mounts)
+}
+
+func assertPVCVolume(t *testing.T, volumes []corev1.Volume, name, claimName string) {
+	t.Helper()
+	for _, volume := range volumes {
+		if volume.Name != name || volume.PersistentVolumeClaim == nil {
+			continue
+		}
+		if volume.PersistentVolumeClaim.ClaimName != claimName {
+			t.Fatalf("PVC volume %q claimName = %q, want %q", name, volume.PersistentVolumeClaim.ClaimName, claimName)
+		}
+		return
+	}
+	t.Fatalf("PVC volume %q not found in %+v", name, volumes)
+}
+
+func assertEmptyDirVolume(t *testing.T, volumes []corev1.Volume, name string) {
+	t.Helper()
+	for _, volume := range volumes {
+		if volume.Name == name && volume.EmptyDir != nil {
+			return
+		}
+	}
+	t.Fatalf("EmptyDir volume %q not found in %+v", name, volumes)
 }

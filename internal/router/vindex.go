@@ -1,11 +1,7 @@
 /*
 Copyright 2026 keiailab.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
+Licensed under the MIT License. See the LICENSE file for details.
 */
 
 package router
@@ -26,8 +22,8 @@ import (
 // 함수 (D.8.2 / ROADMAP G3 L150). 본 패키지는 *순수 함수* 만 노출 — K8s
 // reconciler 와 wire-protocol 은 별도 layer. RFC-0002 §3.2 분기 정합.
 
-// ErrVindexUnsupported 는 lookup / consistent-hash 등 본 turn 미구현 vindex
-// 호출 시 반환된다. 호출자 (pg-router) 는 본 sentinel 로 fallback 라우팅
+// ErrVindexUnsupported 는 lookup 등 미구현 vindex 호출 시 반환된다 (hash · range ·
+// consistent-hash 는 구현됨). 호출자 (pg-router) 는 본 sentinel 로 fallback 라우팅
 // 또는 명시적 에러 응답을 선택.
 var ErrVindexUnsupported = errors.New("router: vindex type not supported in this build")
 
@@ -42,7 +38,8 @@ var ErrVindexNoMatch = errors.New("router: key did not match any range")
 //
 //   - hash: function(key) % 2^32 → uint32, ranges 의 [Lo, Hi] hex 와 비교 (포함 비교)
 //   - range: key 자체를 ranges 의 [Lo, Hi] 와 사전식 비교
-//   - consistent-hash: ErrVindexUnsupported (D.8.2 scope 외, P3+)
+//   - consistent-hash: function(shard:vnode) 로 만든 해시 링 위에서 key 를 시계방향
+//     으로 가장 가까운 virtual node 의 shard 로 (vindex_consistent.go)
 //   - lookup: ErrVindexUnsupported (ShardLookup CRD P3+)
 //
 // 본 함수는 결정적 (deterministic) — 동일 spec + 동일 key 에서 동일 shard 반환.
@@ -53,7 +50,7 @@ func ResolveShard(spec v1alpha1.ShardRangeSpec, key string) (string, error) {
 	case v1alpha1.VindexTypeRange:
 		return resolveRange(spec, key)
 	case v1alpha1.VindexTypeConsistentHash:
-		return "", fmt.Errorf("%w: consistent-hash (deferred to P3+)", ErrVindexUnsupported)
+		return resolveConsistentHash(spec, key)
 	case v1alpha1.VindexTypeLookup:
 		return "", fmt.Errorf("%w: lookup (ShardLookup CRD P3+)", ErrVindexUnsupported)
 	default:

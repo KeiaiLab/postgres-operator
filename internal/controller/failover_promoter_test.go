@@ -9,6 +9,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -36,12 +37,7 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-	}
+	pod := readyPromotionPod(namespace, podName)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, pod).Build()
 	executor := &fakePromotionPodExecutor{}
 	reconciler := &PostgresClusterReconciler{
@@ -70,7 +66,7 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 		t.Fatalf("target = %+v, want promotion candidate postgres container", executor.target)
 	}
 	command := strings.Join(executor.command, " ")
-	for _, want := range []string{"standby.signal", ".keiailab-restart-primary-as-standby", "pg_ctl", "promote", "pg_is_in_recovery"} {
+	for _, want := range []string{"standby.signal", ".keiailab-restart-primary-as-standby", "pg_promote", "promote", "pg_is_in_recovery"} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("promotion command %q missing %q", command, want)
 		}
@@ -96,22 +92,53 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 	}
 }
 
+func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) {
+	t.Parallel()
+
+	command := strings.Join(postgresPromotionCommand(), "\n")
+	promoteIdx := strings.Index(command, "pg_promote(true, 30)")
+	if promoteIdx < 0 {
+		t.Fatalf("promotion command must use PostgreSQL SQL promotion API: %s", command)
+	}
+	if strings.Contains(command, "pg_ctl") {
+		t.Fatalf("promotion command must not use pg_ctl promote in the operator exec path: %s", command)
+	}
+	for _, mutation := range []string{
+		`rm -f "$DATA/standby.signal"`,
+		`touch "$DATA/.keiailab-promoted-primary"`,
+	} {
+		mutationIdx := strings.Index(command, mutation)
+		if mutationIdx < 0 {
+			t.Fatalf("promotion command missing PGDATA mutation %q: %s", mutation, command)
+		}
+		if mutationIdx < promoteIdx {
+			t.Fatalf("promotion command mutates PGDATA before promote succeeds: %q", mutation)
+		}
+	}
+}
+
 type fakePromotionPodExecutor struct {
 	called  int
 	target  BackupSidecarTarget
 	command []string
 	out     []byte
 	err     error
+	onExec  func(context.Context) error
 }
 
 func (f *fakePromotionPodExecutor) Exec(
-	_ context.Context,
+	ctx context.Context,
 	target BackupSidecarTarget,
 	command []string,
 ) ([]byte, error) {
 	f.called++
 	f.target = target
 	f.command = append([]string{}, command...)
+	if f.onExec != nil {
+		if err := f.onExec(ctx); err != nil {
+			return nil, err
+		}
+	}
 	out := f.out
 	if out == nil {
 		// Default to a real promotion so promotion/fence tests exercise the
@@ -119,6 +146,152 @@ func (f *fakePromotionPodExecutor) Exec(
 		out = []byte("PROMOTE_RESULT=promoted\n")
 	}
 	return out, f.err
+}
+
+func readyPromotionPod(namespace, podName string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  pgContainerName,
+				Ready: true,
+			}},
+		},
+	}
+}
+
+// TestPostgresClusterPromotionPreFencesFailedOldPrimaryBeforeExec pins the live
+// failover race: StatefulSet can recreate the old primary ordinal before the
+// standby promotion settles. The failed old primary's PVC must be fenced before
+// the promotion exec is attempted, so a self-healed old-primary Pod fails closed
+// at VerifyNotFenced instead of re-acquiring primary identity.
+func TestPostgresClusterPromotionPreFencesFailedOldPrimaryBeforeExec(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace     = "default"
+		oldPrimaryPod = "demo-shard-0-0"
+		targetPod     = "demo-shard-0-1"
+		oldPrimaryPVC = "data-demo-shard-0-0"
+	)
+
+	scheme := newScheme(t)
+	ctx := context.Background()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+		Status: postgresv1alpha1.PostgresClusterStatus{
+			Shards: []postgresv1alpha1.ShardStatus{{
+				Name: "shard-0",
+				Primary: &postgresv1alpha1.ShardEndpoint{
+					Pod:      oldPrimaryPod,
+					Endpoint: "demo-shard-0-0.demo-shard-0.default.svc.cluster.local:5432",
+					Ready:    false,
+				},
+			}},
+		},
+	}
+	target := readyPromotionPod(namespace, targetPod)
+	oldPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: oldPrimaryPVC, Namespace: namespace},
+	}
+	targetPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-" + targetPod, Namespace: namespace},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, target, oldPVC, targetPVC).Build()
+	executor := &fakePromotionPodExecutor{
+		onExec: func(ctx context.Context) error {
+			var got corev1.PersistentVolumeClaim
+			if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: oldPrimaryPVC}, &got); err != nil {
+				return fmt.Errorf("get old primary pvc before promotion exec: %w", err)
+			}
+			if got.Labels[fencing.FenceLabelKey] != fencing.FenceLabelValue {
+				return fmt.Errorf("old primary PVC must be fenced before promotion exec, labels=%v", got.Labels)
+			}
+			return nil
+		},
+	}
+	reconciler := &PostgresClusterReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		PromotionPodExecutor: executor,
+	}
+	decision := failover.Decision{
+		Failed: true,
+		Reason: failover.ReasonPrimaryNotReady,
+		PromotionCandidate: &postgresv1alpha1.ShardEndpoint{
+			Pod:      targetPod,
+			Endpoint: "demo-shard-0-1.demo-shard-0.default.svc.cluster.local:5432",
+			Ready:    true,
+		},
+	}
+
+	if err := reconciler.executeClusterPromotion(ctx, cluster, "shard-0", decision); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+}
+
+func TestPostgresClusterPromotionSkipsExecWhenCandidatePodNotReady(t *testing.T) {
+	t.Parallel()
+
+	const (
+		namespace = "default"
+		targetPod = "demo-shard-0-1"
+	)
+
+	scheme := newScheme(t)
+	ctx := context.Background()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: targetPod, Namespace: namespace},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionFalse,
+			}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  pgContainerName,
+				Ready: false,
+			}},
+		},
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-" + targetPod, Namespace: namespace},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, pod, pvc).Build()
+	executor := &fakePromotionPodExecutor{}
+	reconciler := &PostgresClusterReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		PromotionPodExecutor: executor,
+	}
+	decision := failover.Decision{
+		Failed: true,
+		Reason: failover.ReasonPrimaryNotReady,
+		PromotionCandidate: &postgresv1alpha1.ShardEndpoint{
+			Pod:      targetPod,
+			Endpoint: "demo-shard-0-1.demo-shard-0.default.svc.cluster.local:5432",
+			Ready:    true,
+		},
+	}
+
+	err := reconciler.executeClusterPromotion(ctx, cluster, "shard-0", decision)
+	if err == nil {
+		t.Fatal("executeClusterPromotion must reject a Kubernetes-not-ready promotion candidate")
+	}
+	if executor.called != 0 {
+		t.Fatalf("Exec called %d times, want 0 for a Kubernetes-not-ready candidate", executor.called)
+	}
+	if !strings.Contains(err.Error(), "not ready for promotion exec") {
+		t.Fatalf("error = %q, want not-ready-for-exec reason", err.Error())
+	}
 }
 
 // TestPostgresClusterPromotionUnfencesTargetPVC pins the fix for the
@@ -138,9 +311,7 @@ func TestPostgresClusterPromotionUnfencesTargetPVC(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
-	}
+	pod := readyPromotionPod(namespace, podName)
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,
@@ -197,9 +368,7 @@ func TestPostgresClusterPromotionFencesNonTargetMembers(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: targetPod, Namespace: namespace},
-	}
+	pod := readyPromotionPod(namespace, targetPod)
 	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
 		return &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -273,7 +442,7 @@ func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: targetPod, Namespace: namespace}}
+	pod := readyPromotionPod(namespace, targetPod)
 	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
 		return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
 	}

@@ -8,7 +8,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -116,7 +118,7 @@ var _ = AfterSuite(func() {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if testEnv != nil {
-		Expect(testEnv.Stop()).To(Succeed())
+		Expect(stopEnvtest(testEnv)).To(Succeed())
 	}
 })
 
@@ -140,9 +142,50 @@ func envtestAssetsPath(projectRoot string) string {
 
 func hasEnvtestBinaries(dir string) bool {
 	for _, name := range []string{"etcd", "kube-apiserver", "kubectl"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, envtestBinaryName(name))); err != nil {
 			return false
 		}
 	}
 	return true
+}
+
+func envtestBinaryName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
+func stopEnvtest(env *envtest.Environment) error {
+	err := env.Stop()
+	if err == nil || runtime.GOOS != "windows" {
+		return err
+	}
+	if cleanupErr := stopWindowsEnvtestProcess(env.ControlPlane.GetAPIServer().Path); cleanupErr != nil {
+		return fmt.Errorf("%w; cleanup kube-apiserver: %v", err, cleanupErr)
+	}
+	if env.ControlPlane.Etcd != nil {
+		if cleanupErr := stopWindowsEnvtestProcess(env.ControlPlane.Etcd.Path); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup etcd: %v", err, cleanupErr)
+		}
+	}
+	return nil
+}
+
+func stopWindowsEnvtestProcess(path string) error {
+	if path == "" {
+		return nil
+	}
+	script := `
+$target = [System.IO.Path]::GetFullPath($env:ENVTEST_PROCESS_PATH)
+Get-Process | Where-Object {
+  $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $target)
+} | Stop-Process -Force
+`
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Env = append(os.Environ(), "ENVTEST_PROCESS_PATH="+path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, string(out))
+	}
+	return nil
 }

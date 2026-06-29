@@ -33,9 +33,33 @@ const (
 
 var _ = Describe("Replica clusters cross-cluster drill (D.5.10)", Ordered, Label("p2"), func() {
 	BeforeAll(func() {
-		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", externalNamespace))
+		ensurePostgresClusterReady(externalNamespace, sourceClusterName)
 
-		// Source cluster + 인증 정보 Secret 가정 (smoke.sh 가 사전 부트스트랩).
+		// Replica cluster가 pg_basebackup을 수행할 source role과 password Secret을
+		// 테스트 안에서 준비해 p2 단독 실행 시에도 외부 smoke.sh에 의존하지 않는다.
+		_, _ = utils.Run(exec.Command("kubectl", "create", "secret", "generic",
+			"src-replicator-pwd", "-n", externalNamespace,
+			"--from-literal=username=replicator",
+			"--from-literal=password=replicator_pwd_v1"))
+		replicatorUser := fmt.Sprintf(`
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresUser
+metadata:
+  name: src-replicator
+  namespace: %s
+spec:
+  cluster:
+    name: %s
+  name: replicator
+  ensure: present
+  login: true
+  replication: true
+  passwordSecretRef:
+    name: src-replicator-pwd
+`, externalNamespace, sourceClusterName)
+		applyManifest(replicatorUser)
+		waitPostgresUserApplied(externalNamespace, "src-replicator")
+
 		// Replica cluster manifest:
 		replica := fmt.Sprintf(`
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -51,7 +75,7 @@ spec:
   externalClusters:
     - name: src
       connectionParameters:
-        host: %s-shard-0-0.%s-headless.%s.svc.cluster.local
+        host: %s-shard-0-0.%s-shard-0-headless.%s.svc.cluster.local
         port: "5432"
         user: replicator
         dbname: postgres
@@ -83,17 +107,17 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", replicaClusterName), "-n", externalNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT pg_is_in_recovery()::text"))
 				return strings.TrimSpace(out)
-			}, 5*time.Minute, 10*time.Second).Should(Equal("t"),
+			}, 5*time.Minute, 10*time.Second).Should(Equal("true"),
 				"replica 는 in_recovery=true 유지")
 		})
 
 		It("source 의 데이터가 replica 에 도달 (read-only SELECT)", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", replicaClusterName), "-n", externalNamespace,
-				"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+				"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 				"SELECT count(*) FROM pg_database"))
 			Expect(strings.TrimSpace(out)).NotTo(Equal("0"),
 				"source 의 system catalog 가 replica 에 streaming")

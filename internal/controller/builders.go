@@ -8,12 +8,14 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -82,8 +84,10 @@ const (
 	externalClusterCredentialsVolumeName = "external-cluster-credentials"
 	externalClusterCredentialsMountPath  = "/etc/postgres-external/source"
 
-	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 가 마운트되는 위치다.
-	backupRepoMountPath   = "/var/lib/pgbackrest"
+	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 위치다.
+	// 별도 subPath mount는 kubelet이 root-owned 디렉터리를 만들 수 있어 non-root
+	// postgres 컨테이너가 쓰지 못한다. 이미 writable인 data PVC 내부 경로를 쓴다.
+	backupRepoMountPath   = pgDataMountPath + "/pgbackrest"
 	primaryPGPassFile     = "/tmp/primary.pgpass"
 	primaryClientKeyFile  = "/tmp/primary-client.key"
 	primaryClientCertFile = "/tmp/primary-client.crt"
@@ -179,8 +183,7 @@ func dataplaneEphemeralVolumeMounts() []corev1.VolumeMount {
 		{Name: "ephemeral-tmp", MountPath: "/tmp"},
 		{Name: "ephemeral-run", MountPath: "/run"},
 		{Name: "ephemeral-pg-run", MountPath: "/var/run/postgresql"},
-		// #209: filesystem pgBackRest repo (WAL archive-push + full backup land here).
-		{Name: "pgbackrest-repo", MountPath: backupRepoMountPath},
+		{Name: "ephemeral-pgbackrest-spool", MountPath: "/var/spool/pgbackrest"},
 	}
 }
 
@@ -191,7 +194,7 @@ func dataplaneEphemeralVolumes() []corev1.Volume {
 		{Name: "ephemeral-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "ephemeral-pg-run", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		{Name: "pgbackrest-repo", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "ephemeral-pgbackrest-spool", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 }
 
@@ -321,8 +324,10 @@ func renderPostgresConf(
 	sb.WriteString("port = 5432\n")
 	// Unix socket 위치 — instance manager 의 LocalDSN 이 본 경로에 의존.
 	fmt.Fprintf(&sb, "unix_socket_directories = '%s'\n", pgRunDir)
-	// WAL + replication 기본값 — replicas>0 일 때 streaming replication 전제.
-	sb.WriteString("wal_level = replica\n")
+	// WAL + replication 기본값. logical: 물리 streaming replication(HA)의 상위집합이라
+	// replicas HA 와 호환되며, online resharding 의 CDC 증분 catch-up(논리복제 subscription)
+	// 을 가능케 한다. 약간의 WAL 증가가 있으나 분산 SQL(resharding) 제품엔 필수.
+	sb.WriteString("wal_level = logical\n")
 	// pg_rewind 전제. data checksums 없는 기존 스토리지에서도 failover 후
 	// former primary 를 current primary timeline 으로 되감을 수 있게 한다.
 	sb.WriteString("wal_log_hints = on\n")
@@ -386,14 +391,14 @@ func archiveConfigForCluster(cluster *postgresv1alpha1.PostgresCluster) *archive
 	// `exec VAR=val cmd` 는 POSIX 에서 VAR=val 을 실행 파일로 오인한다 (exec 는 special
 	// builtin → env 할당 prefix 불가, "exec: VAR=val: not found"). `env` 명령으로 감싸
 	// 변수 설정 후 pgbackrest 를 exec 한다 (라이브 sidecar exec 2026-06-04 회귀 fix).
-	// pgbackrest 공통 옵션 (plugin.go pgbackrestCommonArgs 미러, 라이브 검증 2026-06-04):
-	// readOnlyRootFilesystem + uid 70 + deb /etc/pgbackrest.conf(640) 환경 회피
-	// (--config=/dev/null + --log-level-file=off + --pg1-path + --pg1-user/database).
-	commonArgs := "--config=/dev/null --log-level-file=off --pg1-path=" + pgDataSubdir +
-		" --pg1-user=postgres --pg1-database=postgres"
+	// stanza-create는 DB 접속 옵션이 필요하지만, archive-push는 해당 옵션을 받지 않는다.
+	// WAL path는 PostgreSQL의 %p placeholder를 직접 전달해 shell positional argument
+	// escape 문제를 피한다.
+	archiveArgs := "--config=/dev/null --log-level-file=off --pg1-path=" + pgDataSubdir
+	stanzaArgs := archiveArgs + " --pg1-user=postgres --pg1-database=postgres"
 	cmd := fmt.Sprintf(
-		`sh -c "env %s pgbackrest %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s pgbackrest %s --stanza=%s archive-push \"$1\"" -- %%p`,
-		repoEnv, commonArgs, stanza, repoEnv, commonArgs, stanza)
+		`sh -c "env %s pgbackrest %s --stanza=%s stanza-create 2>/dev/null || true; exec env %s pgbackrest %s --stanza=%s archive-push \"%%p\""`,
+		repoEnv, stanzaArgs, stanza, repoEnv, archiveArgs, stanza)
 	return &archivePostgresConfig{
 		Enabled: true,
 		Command: cmd,
@@ -951,6 +956,7 @@ fi
 // downward API + spec 매개변수 + current primary endpoint + 고정 경로의 합산.
 func buildInstanceEnv(
 	clusterName string,
+	serviceName string,
 	shardOrdinal int32,
 	pgMajor string,
 	members int32,
@@ -979,6 +985,7 @@ func buildInstanceEnv(
 		},
 		// spec 매개변수 — election lease 명명 + role 분기.
 		{Name: "POSTGRES_CLUSTER", Value: clusterName},
+		{Name: "POSTGRES_SERVICE_NAME", Value: serviceName},
 		{Name: "POSTGRES_ROLE", Value: "shard"},
 		{Name: "POSTGRES_SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
 		{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
@@ -1022,6 +1029,15 @@ func buildPGStatefulSet(
 	if reshardTargetID != "" {
 		labels = ReshardTargetSelectorLabels(cluster.Name, reshardTargetID)
 	}
+	// podLabels 는 셀렉터(labels)의 *superset* — ordinal shard 에 명명 식별 label `shard-id`
+	// 를 부가한다(ADR-0029 P-A). 셀렉터(labels)에는 넣지 않아 기존 STS selector 불변 + 업그레이드
+	// race 회피. reshard target 은 격리 유지(부가 안 함 — 승격 시 부여).
+	podLabels := labels
+	if reshardTargetID == "" {
+		podLabels = make(map[string]string, len(labels)+1)
+		maps.Copy(podLabels, labels)
+		podLabels[ShardIDLabelKey] = ShardIDForOrdinal(shardOrdinal)
+	}
 	replicaConfig, _ := replicaBootstrapConfigForCluster(cluster)
 	replicaClusterEnabled := replicaConfig != nil
 	primaryUser := ""
@@ -1063,24 +1079,28 @@ func buildPGStatefulSet(
 	// instance manager 환경 변수. reshard target 이면 POSTGRES_RESHARD_TARGET 를
 	// 추가 주입 → cmd/instance 가 ordinal lease (PrimaryLeaseName) 대신 격리된
 	// ReshardTargetLeaseName 을 사용해 실 shard election 침범을 차단한다 (ADR-0027).
-	instanceEnv := buildInstanceEnv(cluster.Name, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
+	instanceEnv := buildInstanceEnv(cluster.Name, serviceName, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
 	if reshardTargetID != "" {
 		instanceEnv = append(instanceEnv, corev1.EnvVar{Name: "POSTGRES_RESHARD_TARGET", Value: reshardTargetID})
 	}
+
+	pvcLabels := make(map[string]string, len(labels)+1)
+	maps.Copy(pvcLabels, labels)
+	pvcLabels["postgres.keiailab.io/cluster"] = cluster.Name
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: cluster.Namespace,
-			Labels:    labels,
+			Labels:    podLabels,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
 			Replicas:    &members,
-			Selector:    &metav1.LabelSelector{MatchLabels: labels},
+			Selector:    &metav1.LabelSelector{MatchLabels: labels}, // 불변 — shard-id 미포함.
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: podLabels,
 					Annotations: map[string]string{
 						postgresConfigHashAnnotation:       configHash,
 						postgresImageCatalogHashAnnotation: sha256Hex(image),
@@ -1145,7 +1165,7 @@ func buildPGStatefulSet(
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "data",
-					Labels: labels,
+					Labels: pvcLabels,
 				},
 				Spec: pvcSpec,
 			}},
@@ -1175,15 +1195,33 @@ func buildTargetShardStatefulSet(
 	resources corev1.ResourceRequirements,
 	configMapName, configHash string,
 ) *appsv1.StatefulSet {
+	return buildTargetShardStatefulSetWithMembers(
+		cluster, shardID, image, pgMajor,
+		1, "",
+		storage, resources,
+		configMapName, configHash,
+	)
+}
+
+func buildTargetShardStatefulSetWithMembers(
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardID string,
+	image, pgMajor string,
+	members int32,
+	primaryEndpoint string,
+	storage postgresv1alpha1.StorageSpec,
+	resources corev1.ResourceRequirements,
+	configMapName, configHash string,
+) *appsv1.StatefulSet {
 	return buildPGStatefulSet(
 		cluster,
 		TargetShardStatefulSetName(cluster.Name, shardID),
 		TargetShardServiceName(cluster.Name, shardID),
 		0, // shardOrdinal: pod-0 initdb 경로용 (SHARD_ORDINAL env 는 정보용, 격리 label 은 reshardTargetID 가 결정)
 		image, configMapName, pgMajor,
-		1, // members: 단일 fresh primary (초기 복제본 없음)
+		members,
 		storage, resources,
-		"", // primaryEndpoint: 빈 값 → pod-0 initdb fresh primary
+		primaryEndpoint,
 		configHash,
 		shardID, // reshardTargetID → 격리 label + POSTGRES_RESHARD_TARGET env
 	)
@@ -1226,6 +1264,75 @@ func buildTargetHeadlessService(cluster *postgresv1alpha1.PostgresCluster, shard
 	}
 }
 
+func routerAutoscaleEnabled(cluster *postgresv1alpha1.PostgresCluster) bool {
+	return cluster != nil &&
+		cluster.Spec.Router != nil &&
+		cluster.Spec.Router.Autoscale != nil &&
+		cluster.Spec.Router.Autoscale.Enabled
+}
+
+func routerMinReplicas(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster == nil || cluster.Spec.Router == nil {
+		return 1
+	}
+	if as := cluster.Spec.Router.Autoscale; as != nil && as.MinReplicas > 0 {
+		return as.MinReplicas
+	}
+	if cluster.Spec.Router.Replicas > 0 {
+		return cluster.Spec.Router.Replicas
+	}
+	return 1
+}
+
+func routerMaxReplicas(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster == nil || cluster.Spec.Router == nil || cluster.Spec.Router.Autoscale == nil {
+		return routerMinReplicas(cluster)
+	}
+	if cluster.Spec.Router.Autoscale.MaxReplicas > 0 {
+		return cluster.Spec.Router.Autoscale.MaxReplicas
+	}
+	return routerMinReplicas(cluster)
+}
+
+func routerTargetCPU(cluster *postgresv1alpha1.PostgresCluster) int32 {
+	if cluster != nil && cluster.Spec.Router != nil && cluster.Spec.Router.Autoscale != nil &&
+		cluster.Spec.Router.Autoscale.TargetCPU > 0 {
+		return cluster.Spec.Router.Autoscale.TargetCPU
+	}
+	return 70
+}
+
+func buildRouterHPA(cluster *postgresv1alpha1.PostgresCluster, deploymentName string) *autoscalingv2.HorizontalPodAutoscaler {
+	minReplicas := routerMinReplicas(cluster)
+	targetCPU := routerTargetCPU(cluster)
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RouterHPAName(cluster.Name),
+			Namespace: cluster.Namespace,
+			Labels:    SelectorLabels(cluster.Name, "router", -1),
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deploymentName,
+			},
+			MinReplicas: &minReplicas,
+			MaxReplicas: routerMaxReplicas(cluster),
+			Metrics: []autoscalingv2.MetricSpec{{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+					Target: autoscalingv2.MetricTarget{
+						Type:               autoscalingv2.UtilizationMetricType,
+						AverageUtilization: &targetCPU,
+					},
+				},
+			}},
+		},
+	}
+}
+
 // buildRouterDeployment는 stateless QueryRouter의 Deployment를 만든다.
 // ADR 0003 §강제 메커니즘에 의해 PVC를 절대 마운트하지 않는다(StatefulSet 사용
 // 금지). 본 함수는 P12-T2 시점에 cmd/router 바이너리 이미지로 교체된다. 현재는
@@ -1236,7 +1343,11 @@ func buildRouterDeployment(
 	replicas int32,
 	resources corev1.ResourceRequirements,
 ) *appsv1.Deployment {
-	labels := SelectorLabels(cluster.Name, "router", -1)
+	selectorLabels := SelectorLabels(cluster.Name, "router", -1)
+	labels := maps.Clone(selectorLabels)
+	if routerAutoscaleEnabled(cluster) {
+		labels[RouterAutoscaleLabelKey] = "true"
+	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1246,7 +1357,7 @@ func buildRouterDeployment(
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{

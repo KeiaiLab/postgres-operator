@@ -86,10 +86,16 @@ func TestPerformBackupRunsPgBackRestCommand(t *testing.T) {
 	if runner.command != "sh" || len(runner.args) != 2 || runner.args[0] != "-c" {
 		t.Fatalf("command should be sh -c wrapper: command=%q args=%v", runner.command, runner.args)
 	}
-	for _, want := range []string{"pgbackrest-test", "--stanza=demo", "--repo=1", "--type=incr", "backup", "stanza-create", "exec env ", "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"} {
+	for _, want := range []string{"pgbackrest-test", "--stanza=demo", "--repo=1", "--type=incr", "backup", "stanza-create", "exec env ", "PGBACKREST_REPO1_PATH=/var/lib/postgresql/data/pgbackrest"} {
 		if !strings.Contains(runner.args[1], want) {
 			t.Fatalf("backup wrapper missing %q in %q", want, runner.args[1])
 		}
+	}
+	if strings.Contains(runner.args[1], "--spool-path=") {
+		t.Fatalf("backup wrapper must not include restore-only spool-path option: %q", runner.args[1])
+	}
+	if strings.Contains(runner.args[1], "--archive-check") {
+		t.Fatalf("backup wrapper must not bypass WAL archive validation: %q", runner.args[1])
 	}
 	if result.BackupID != "20260512-010203F" {
 		t.Fatalf("BackupID: got %q, want parsed label", result.BackupID)
@@ -123,15 +129,31 @@ func TestRestorePITRunsPgBackRestTimeRestore(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
 	p := New(WithRunner(runner))
-	targetTime := time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC)
+	targetTime := time.Date(2026, 5, 12, 1, 2, 3, 123456000, time.UTC)
 
 	if err := p.RestorePIT(context.Background(), plugin.ClusterTarget{Name: "demo"}, targetTime); err != nil {
 		t.Fatalf("RestorePIT error: %v", err)
 	}
 
-	for _, want := range []string{"--stanza=demo", "--type=time", "--target=2026-05-12 01:02:03+00:00", "restore", "exec env ", "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest"} {
+	for _, want := range []string{"rm -f /var/lib/postgresql/data/pgdata/postmaster.pid", "--stanza=demo", "--type=time", "--target='2026-05-12 01:02:03.123456+00:00'", "--delta", "restore", "env PGBACKREST_REPO1_TYPE=posix", "PGBACKREST_REPO1_PATH=/var/lib/postgresql/data/pgbackrest"} {
 		if !strings.Contains(runner.args[1], want) {
 			t.Fatalf("restore wrapper missing %q in %q", want, runner.args[1])
+		}
+	}
+	for _, want := range []string{"sed -i", "postgresql.auto.conf", "restore_command = 'env PGBACKREST_REPO1_TYPE=posix PGBACKREST_REPO1_PATH=/var/lib/postgresql/data/pgbackrest", "--pg1-path=/var/lib/postgresql/data/pgdata --stanza=demo archive-get %f \\\"%p\\\""} {
+		if !strings.Contains(runner.args[1], want) {
+			t.Fatalf("restore wrapper missing recovery command override %q in %q", want, runner.args[1])
+		}
+	}
+	if strings.Contains(runner.args[1], "--spool-path=") {
+		t.Fatalf("restore wrapper must rely on writable /var/spool/pgbackrest mount, not pgBackRest spool-path option: %q", runner.args[1])
+	}
+	if strings.Contains(runner.args[1], "--target=2026-05-12 01:02:03.123456+00:00") {
+		t.Fatalf("restore wrapper must quote target time with spaces: %q", runner.args[1])
+	}
+	for _, invalid := range []string{"--pg1-user=", "--pg1-database="} {
+		if strings.Contains(runner.args[1], invalid) {
+			t.Fatalf("restore wrapper must not include backup-only option %q: %q", invalid, runner.args[1])
 		}
 	}
 }

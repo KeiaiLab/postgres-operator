@@ -124,11 +124,23 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 # 빈 값(디폴트)은 전체 e2e 실행. CI 매트릭스가 본 변수를 채워 Pillar 단위 통과율을
 # 추적한다(.github/workflows/ci.yml의 e2e job).
 PILLAR ?=
+KEEP ?=
+E2E_LABEL_FILTER = $(if $(PILLAR),-ginkgo.label-filter=$(PILLAR),)
+
+define run-e2e-and-cleanup
+	@status=0; \
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) $(1) || status=$$?; \
+	if [ "$(KEEP)" = "1" ]; then \
+		echo "KEEP=1 set; preserving Kind cluster '$(KIND_CLUSTER)'."; \
+	else \
+		$(MAKE) cleanup-test-e2e || { cleanup_status=$$?; if [ $$status -eq 0 ]; then status=$$cleanup_status; fi; }; \
+	fi; \
+	exit $$status
+endef
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind. Use PILLAR=p1 to narrow to one Pillar.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) PILLAR=$(PILLAR) go test -tags=e2e ./test/e2e/ -v -ginkgo.v $(if $(PILLAR),-ginkgo.label-filter=$(PILLAR),)
-	$(MAKE) cleanup-test-e2e
+	$(call run-e2e-and-cleanup,PILLAR=$(PILLAR) go test -tags=e2e ./test/e2e/ -v -ginkgo.v $(E2E_LABEL_FILTER))
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
@@ -140,13 +152,13 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 # KEEP=1 시 cleanup skip (로컬 디버그).
 .PHONY: test-e2e-pg
 test-e2e-pg: setup-test-e2e manifests generate fmt vet ## Run RFC 0006 R1+R2 회귀 e2e (kind 의존, p1 라벨).
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p1
+	$(call run-e2e-and-cleanup,go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p1)
 
 # RFC 0006 R3 회귀 — primary kill → 새 primary auto-promote (RTO < 30s) → 옛 primary standby rejoin.
 # replicas=1 (Pod 2 개) failover 라이프사이클. KEEP=1 시 cleanup skip.
 .PHONY: test-e2e-failover
 test-e2e-failover: setup-test-e2e manifests generate fmt vet ## RFC 0006 R3 회귀 e2e (kind 의존, p2 라벨, replicas=1 primary kill).
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p2
+	$(call run-e2e-and-cleanup,go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p2)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

@@ -23,14 +23,18 @@ import (
 )
 
 var (
-	// managerImage 는 dist/install.yaml 의 controller image (config/manager/kustomization.yaml
-	// newTag = Chart.yaml appVersion = 0.3.0-alpha) 와 정렬돼야 한다. kubebuilder
-	// 기본값 (`example.com/postgres-operator:v0.0.1`) 을 그대로 두면 install.yaml 이
-	// IfNotPresent 정책으로 ghcr.io 의 :0.3.0-alpha 를 pull 시도 → kind 노드에 부재 →
-	// ImagePullBackOff. 동일 출처 (appVersion) 정렬로 drift 차단.
-	managerImage = "ghcr.io/keiailab/postgres-operator:0.3.0-alpha"
+	// managerImage 는 dist/install.yaml 및 config/manager/kustomization.yaml 의
+	// controller image 와 정렬돼야 한다. 동일 tag 재사용 시에도 BeforeSuite 가
+	// 이미지를 다시 build/load 하고 rollout을 강제하므로, 세 manifest의 출처가
+	// 갈라지면 E2E가 오래된 manager Pod로 실행될 수 있다.
+	managerImage = "ghcr.io/keiailab/postgres-operator:0.4.0-beta.8"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
+)
+
+const (
+	managerNamespace  = "postgres-operator-system"
+	managerDeployment = "postgres-operator-controller-manager"
 )
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
@@ -73,11 +77,15 @@ var _ = BeforeSuite(func() {
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to apply dist/install.yaml")
 
+	By("forcing operator manager Deployment rollout for same-tag e2e reruns")
+	err = refreshManagerDeployment()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "operator manager Deployment did not roll out")
+
 	By("waiting for operator manager Deployment to become Available")
 	cmd = exec.Command("kubectl",
-		"-n", "postgres-operator-system",
+		"-n", managerNamespace,
 		"wait", "--for=condition=Available",
-		"deployment/postgres-operator-controller-manager",
+		"deployment/"+managerDeployment,
 		"--timeout=180s")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "operator manager Deployment did not become Available")
@@ -88,6 +96,31 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	teardownCertManager()
 })
+
+func refreshManagerDeployment() error {
+	for _, cmd := range managerDeploymentRefreshCommands(managerNamespace, managerDeployment) {
+		out, err := utils.Run(cmd)
+		if err != nil {
+			return fmt.Errorf("refresh manager deployment: %w\n%s", err, out)
+		}
+	}
+	return nil
+}
+
+func managerDeploymentRefreshCommands(namespace, deployment string) []*exec.Cmd {
+	deployRef := "deployment/" + deployment
+	return []*exec.Cmd{
+		exec.Command("kubectl",
+			"-n", namespace,
+			"rollout", "restart",
+			deployRef),
+		exec.Command("kubectl",
+			"-n", namespace,
+			"rollout", "status",
+			deployRef,
+			"--timeout=180s"),
+	}
+}
 
 // setupCertManager installs CertManager if needed for webhook tests.
 // Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.

@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -15,7 +16,9 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -24,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
+	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
 // 본 envtest 는 RFC 0001 PostgresCluster CRD v2 위에서의 reconcile 를 검증한다.
@@ -59,6 +63,40 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 	})
 
 	Context("when shardingMode=none with single shard and no router", func() {
+		It("sets deterministic ordinal-zero PRIMARY_ENDPOINT on initial HA bootstrap", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "ha-bootstrap", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNone,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			stsName := ShardStatefulSetName("ha-bootstrap", 0)
+			svcName := ShardServiceName("ha-bootstrap", 0)
+			wantEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:5432", stsName, svcName, namespace)
+
+			Eventually(func(g Gomega) {
+				var sts appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts)).To(Succeed())
+				g.Expect(*sts.Spec.Replicas).To(Equal(int32(2)), "primary 1 + async 1")
+
+				initEnv := envMap(sts.Spec.Template.Spec.InitContainers[0].Env)
+				g.Expect(initEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+
+				mainEnv := envMap(sts.Spec.Template.Spec.Containers[0].Env)
+				g.Expect(mainEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
 		It("creates exactly one shard's resources and reaches Ready after STS readiness", func() {
 			cluster := &postgresv1alpha1.PostgresCluster{
 				ObjectMeta: metav1.ObjectMeta{Name: "single", Namespace: namespace},
@@ -172,6 +210,264 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				g.Expect(svc.Spec.ClusterIP).NotTo(Equal(corev1.ClusterIPNone))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
+
+		It("router autoscale creates router HPA when enabled", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 5,
+							TargetCPU:   60,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale"),
+				}, &hpa)).To(Succeed())
+				g.Expect(hpa.Spec.ScaleTargetRef.Kind).To(Equal("Deployment"))
+				g.Expect(hpa.Spec.ScaleTargetRef.Name).To(Equal(RouterDeploymentName("autoscale")))
+				g.Expect(hpa.Spec.MinReplicas).NotTo(BeNil())
+				g.Expect(*hpa.Spec.MinReplicas).To(Equal(int32(2)))
+				g.Expect(hpa.Spec.MaxReplicas).To(Equal(int32(5)))
+				g.Expect(hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).NotTo(BeNil())
+				g.Expect(*hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).To(Equal(int32(60)))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("router autoscale deletes router HPA when disabled", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale-off", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 5,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale-off"),
+				}, &hpa)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "autoscale-off"}, &got)).To(Succeed())
+				got.Spec.Router.Autoscale.Enabled = false
+				g.Expect(k8sClient.Update(ctx, &got)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale-off"),
+				}, &hpa)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("router autoscale preserves existing router Deployment replicas", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale-preserve", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 6,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var dep appsv1.Deployment
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterDeploymentName("autoscale-preserve"),
+				}, &dep)).To(Succeed())
+				replicas := int32(4)
+				dep.Spec.Replicas = &replicas
+				g.Expect(k8sClient.Update(ctx, &dep)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			bumpAnnotation(ctx, cluster)
+
+			Consistently(func(g Gomega) {
+				var dep appsv1.Deployment
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterDeploymentName("autoscale-preserve"),
+				}, &dep)).To(Succeed())
+				g.Expect(dep.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*dep.Spec.Replicas).To(Equal(int32(4)))
+			}, 2*time.Second, envtestInterval).Should(Succeed())
+		})
+
+		It("adds active named reshard targets to cluster shard status", func() {
+			clusterName := "named-status"
+			keyspace := "default"
+			targetShard := "t1"
+			targetPod := TargetShardStatefulSetName(clusterName, targetShard) + "-0"
+			targetService := TargetShardServiceName(clusterName, targetShard)
+			targetEndpoint := fmt.Sprintf("%s.%s.%s.svc.cluster.local:5432", targetPod, targetService, namespace)
+
+			raw, err := json.Marshal(statusapi.Status{
+				Role:       statusapi.RolePrimary,
+				Ready:      true,
+				Endpoint:   targetEndpoint,
+				LastUpdate: time.Now().UTC(),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        targetPod,
+					Namespace:   namespace,
+					Labels:      ReshardTargetSelectorLabels(clusterName, targetShard),
+					Annotations: map[string]string{statusapi.AnnotationKey: string(raw)},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: pgContainerName, Image: "postgres:18"}}},
+			}
+			Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+			pod.Status.Phase = corev1.PodRunning
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+			pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: pgContainerName, Ready: true, Image: "postgres:18", ImageID: "postgres:18"}}
+			Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+			Expect(k8sClient.Create(ctx, &postgresv1alpha1.ShardRange{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: namespace},
+				Spec: postgresv1alpha1.ShardRangeSpec{
+					Cluster:  clusterName,
+					Keyspace: keyspace,
+					Vindex:   postgresv1alpha1.VindexSpec{Type: postgresv1alpha1.VindexTypeHash, Column: "id", Function: "murmur3"},
+					Ranges:   []postgresv1alpha1.ShardRangeEntry{{Lo: "0x00000000", Hi: "0xffffffff", Shard: targetShard}},
+				},
+			})).To(Succeed())
+
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, BuildShardPDB(cluster, 0, 2))).To(Succeed())
+			sourcePVC := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("data-%s-0", ShardStatefulSetName(clusterName, 0)),
+					Namespace: namespace,
+					Labels:    SelectorLabels(clusterName, "shard", 0),
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, sourcePVC)).To(Succeed())
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: clusterName}, &got)).To(Succeed())
+				var named *postgresv1alpha1.ShardStatus
+				var source *postgresv1alpha1.ShardStatus
+				for i := range got.Status.Shards {
+					if got.Status.Shards[i].Name == targetShard {
+						named = &got.Status.Shards[i]
+					}
+					if got.Status.Shards[i].Name == "shard-0" {
+						source = &got.Status.Shards[i]
+					}
+				}
+				g.Expect(source).To(BeNil(), "inactive source shard must be excluded from active status topology")
+				g.Expect(named).NotTo(BeNil(), "active ShardRange target must appear in status.shards")
+				g.Expect(named.Ordinal).To(Equal(int32(-1)))
+				g.Expect(named.Primary).NotTo(BeNil())
+				g.Expect(named.Primary.Pod).To(Equal(targetPod))
+				g.Expect(named.Primary.Endpoint).To(Equal(targetEndpoint))
+				g.Expect(named.Primary.Ready).To(BeTrue())
+				g.Expect(got.Status.Phase).To(Equal(postgresv1alpha1.ClusterPhaseReady))
+
+				var sourceSTS appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: ShardStatefulSetName(clusterName, 0),
+				}, &sourceSTS)).To(Succeed())
+				g.Expect(sourceSTS.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*sourceSTS.Spec.Replicas).To(Equal(int32(0)), "inactive source ordinal STS must scale to zero")
+
+				var sourceSvc corev1.Service
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: ShardServiceName(clusterName, 0),
+				}, &sourceSvc)).To(Succeed(), "inactive source Service is retained for conservative rollback/debug")
+
+				var sourcePDB policyv1.PodDisruptionBudget
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: ShardPDBName(clusterName, 0),
+				}, &sourcePDB)).To(Succeed(), "pre-existing source PDB is retained by default")
+
+				var retainedPVC corev1.PersistentVolumeClaim
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: sourcePVC.Name,
+				}, &retainedPVC)).To(Succeed(), "source PVC is retained by default")
+
+				var targetSTS appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: TargetShardStatefulSetName(clusterName, targetShard),
+				}, &targetSTS)).To(Succeed())
+				g.Expect(targetSTS.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*targetSTS.Spec.Replicas).To(Equal(int32(2)), "active target STS must match cluster members")
+				mainEnv := envMap(targetSTS.Spec.Template.Spec.Containers[0].Env)
+				g.Expect(mainEnv["POSTGRES_MEMBER_COUNT"].Value).To(Equal("2"))
+				g.Expect(mainEnv["PRIMARY_ENDPOINT"].Value).To(Equal(targetEndpoint))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
 	})
 
 	Context("when cnpg-compatible hibernation annotation is enabled", func() {
@@ -241,6 +537,47 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).To(Equal(ReasonNotHibernated))
 				g.Expect(got.Status.Phase).NotTo(Equal(postgresv1alpha1.ClusterPhaseHibernated))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+	})
+
+	Context("when offline restore is in progress", func() {
+		It("keeps shard StatefulSets scaled to zero without reporting user hibernation", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "restore-freeze",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"postgres.keiailab.io/restore-in-progress": "restore-bj",
+					},
+				},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNone,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage: postgresv1alpha1.StorageSpec{
+							Size: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			stsName := ShardStatefulSetName("restore-freeze", 0)
+			Eventually(func(g Gomega) {
+				var sts appsv1.StatefulSet
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts)).To(Succeed())
+				g.Expect(sts.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*sts.Spec.Replicas).To(Equal(int32(0)))
+
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "restore-freeze"}, &got)).To(Succeed())
+				hibernation := meta.FindStatusCondition(got.Status.Conditions, ConditionHibernation)
+				g.Expect(hibernation).NotTo(BeNil())
+				g.Expect(hibernation.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(hibernation.Reason).To(Equal(ReasonNotHibernated))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 	})

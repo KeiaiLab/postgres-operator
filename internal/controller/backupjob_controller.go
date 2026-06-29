@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -81,6 +82,9 @@ const (
 	BackupJobReasonBackupSucceeded              = "BackupSucceeded"
 	BackupJobReasonBackupFailed                 = "BackupFailed"
 	BackupJobReasonRestoreInProgress            = "RestoreInProgress"
+	BackupJobReasonRestoreClusterStopping       = "RestoreClusterStopping"
+	BackupJobReasonRestoreWaitingForPodsToStop  = "RestoreWaitingForPodsToStop"
+	BackupJobReasonRestoreAlreadyInProgress     = "RestoreAlreadyInProgress"
 	BackupJobReasonRestoreSucceeded             = "RestoreSucceeded"
 	BackupJobReasonRestoreFailed                = "RestoreFailed"
 	BackupJobReasonRunnerJobCreated             = "RunnerJobCreated"
@@ -96,7 +100,10 @@ const (
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=backupjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=backupjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=backupjobs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 
 // Reconcile은 BackupJob CR 변화에 반응한다 (RFC 0004 §3).
@@ -452,6 +459,9 @@ func (r *BackupJobReconciler) reconcileSidecar(
 			"BackupPlugin "+bj.Spec.Tool+" does not support sidecar command planning")
 		return ctrl.Result{}, r.statusUpdate(ctx, bj)
 	}
+	if bj.Spec.Type == backupJobTypeRestore {
+		return r.reconcileSidecarRestore(ctx, bj, cluster, commandPlugin)
+	}
 	if r.SidecarExecutor == nil {
 		r.markFailed(bj, BackupJobReasonSidecarExecutorNotConfigured,
 			"Backup sidecar executor is not configured")
@@ -459,9 +469,12 @@ func (r *BackupJobReconciler) reconcileSidecar(
 	}
 	target, ok := backupSidecarTarget(cluster)
 	if !ok {
-		r.markFailed(bj, BackupJobReasonSidecarTargetNotFound,
+		bj.Status.Phase = postgresv1alpha1.BackupJobRunning
+		bj.Status.ObservedGeneration = bj.Generation
+		setBackupJobCondition(bj, metav1.ConditionFalse,
+			BackupJobReasonSidecarTargetNotFound,
 			"Ready primary pod not found for sidecar BackupJob")
-		return ctrl.Result{}, r.statusUpdate(ctx, bj)
+		return ctrl.Result{RequeueAfter: backupJobRunnerRequeueWait}, r.statusUpdate(ctx, bj)
 	}
 
 	clusterTarget := plugin.ClusterTarget{
@@ -537,6 +550,270 @@ func backupSidecarTarget(cluster *postgresv1alpha1.PostgresCluster) (BackupSidec
 		}
 	}
 	return BackupSidecarTarget{}, false
+}
+
+func (r *BackupJobReconciler) reconcileSidecarRestore(
+	ctx context.Context,
+	bj *postgresv1alpha1.BackupJob,
+	cluster *postgresv1alpha1.PostgresCluster,
+	commandPlugin plugin.BackupCommandPlugin,
+) (ctrl.Result, error) {
+	if ok, err := r.ensureClusterRestoreAnnotation(ctx, bj, cluster); !ok || err != nil {
+		return ctrl.Result{}, err
+	}
+
+	stsName := ShardStatefulSetName(cluster.Name, 0)
+	var sts appsv1.StatefulSet
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: stsName}, &sts); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.markFailed(bj, BackupJobReasonRestoreFailed,
+				"Shard StatefulSet "+stsName+" not found for sidecar PITR restore")
+			return ctrl.Result{}, r.statusUpdate(ctx, bj)
+		}
+		return ctrl.Result{}, err
+	}
+
+	if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
+		stopped := int32(0)
+		sts.Spec.Replicas = &stopped
+		if err := r.Update(ctx, &sts); err != nil {
+			return ctrl.Result{}, err
+		}
+		bj.Status.ObservedGeneration = bj.Generation
+		setBackupJobCondition(bj, metav1.ConditionFalse,
+			BackupJobReasonRestoreClusterStopping,
+			"Scaling shard StatefulSet "+stsName+" to 0 before offline PITR restore")
+		return ctrl.Result{Requeue: true}, r.statusUpdate(ctx, bj)
+	}
+
+	stopped, err := r.shardPodsStopped(ctx, cluster, 0)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !stopped {
+		bj.Status.ObservedGeneration = bj.Generation
+		setBackupJobCondition(bj, metav1.ConditionFalse,
+			BackupJobReasonRestoreWaitingForPodsToStop,
+			"Waiting for shard-0 Pods to stop before mounting the data PVC in a restore Job")
+		return ctrl.Result{RequeueAfter: backupJobRunnerRequeueWait}, r.statusUpdate(ctx, bj)
+	}
+
+	if bj.Status.RunnerJobName == "" {
+		command, err := commandPlugin.RestoreCommand(plugin.ClusterTarget{
+			Namespace: bj.Namespace,
+			Name:      bj.Spec.Cluster.Name,
+		}, bj.Spec.Restore.TargetTime.Time)
+		if err != nil {
+			r.markFailed(bj, BackupJobReasonInvalidSpec, err.Error())
+			return ctrl.Result{}, r.statusUpdate(ctx, bj)
+		}
+		jobName := backupRunnerJobName(bj.Name)
+		runner, err := buildSidecarRestoreJob(bj, &sts, jobName, command)
+		if err != nil {
+			r.markFailed(bj, BackupJobReasonInvalidSpec, err.Error())
+			return ctrl.Result{}, r.statusUpdate(ctx, bj)
+		}
+		if err := controllerutil.SetControllerReference(bj, runner, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Create(ctx, runner); err != nil && !apierrors.IsAlreadyExists(err) {
+			return ctrl.Result{}, err
+		}
+		bj.Status.RunnerJobName = jobName
+		bj.Status.ObservedGeneration = bj.Generation
+		setBackupJobCondition(bj, metav1.ConditionFalse,
+			BackupJobReasonRunnerJobCreated,
+			"Restore runner Job "+jobName+" created for offline PITR restore")
+		return ctrl.Result{Requeue: true}, r.statusUpdate(ctx, bj)
+	}
+
+	var runner batchv1.Job
+	if err := r.Get(ctx, client.ObjectKey{Namespace: bj.Namespace, Name: bj.Status.RunnerJobName}, &runner); err != nil {
+		if apierrors.IsNotFound(err) {
+			endedAt := nowFunc()
+			bj.Status.EndedAt = &endedAt
+			bj.Status.Phase = postgresv1alpha1.BackupJobFailed
+			bj.Status.ObservedGeneration = bj.Generation
+			setBackupJobCondition(bj, metav1.ConditionFalse,
+				BackupJobReasonRunnerJobMissing,
+				"Restore runner Job "+bj.Status.RunnerJobName+" is missing before terminal status")
+			return ctrl.Result{}, r.statusUpdate(ctx, bj)
+		}
+		return ctrl.Result{}, err
+	}
+
+	if jobConditionTrue(&runner, batchv1.JobComplete) {
+		if err := r.releaseClusterRestoreAnnotation(ctx, bj, cluster); err != nil {
+			return ctrl.Result{}, err
+		}
+		endedAt := nowFunc()
+		bj.Status.EndedAt = &endedAt
+		bj.Status.Phase = postgresv1alpha1.BackupJobSucceeded
+		bj.Status.ObservedGeneration = bj.Generation
+		setBackupJobCondition(bj, metav1.ConditionTrue,
+			BackupJobReasonRestoreSucceeded,
+			"Restore runner Job "+runner.Name+" completed successfully")
+		commonsevents.Emitf(r.Recorder, bj, BackupJobReasonRestoreSucceeded,
+			"Restore runner Job %s completed successfully", runner.Name)
+		return ctrl.Result{}, r.statusUpdate(ctx, bj)
+	}
+
+	if failed := findJobCondition(&runner, batchv1.JobFailed); failed != nil && failed.Status == corev1.ConditionTrue {
+		endedAt := nowFunc()
+		bj.Status.EndedAt = &endedAt
+		bj.Status.Phase = postgresv1alpha1.BackupJobFailed
+		bj.Status.ObservedGeneration = bj.Generation
+		message := "Restore runner Job " + runner.Name + " failed"
+		if failed.Reason != "" || failed.Message != "" {
+			message = fmt.Sprintf("Restore runner Job %s failed: %s %s",
+				runner.Name, strings.TrimSpace(failed.Reason), strings.TrimSpace(failed.Message))
+		}
+		setBackupJobCondition(bj, metav1.ConditionFalse, BackupJobReasonRestoreFailed, strings.TrimSpace(message))
+		commonsevents.EmitWarningf(r.Recorder, bj, BackupJobReasonRestoreFailed,
+			"Restore runner Job %s failed", runner.Name)
+		return ctrl.Result{}, r.statusUpdate(ctx, bj)
+	}
+
+	bj.Status.ObservedGeneration = bj.Generation
+	setBackupJobCondition(bj, metav1.ConditionFalse,
+		BackupJobReasonRestoreInProgress,
+		"Shard StatefulSet "+stsName+" is stopped; restore runner Job orchestration pending")
+	return ctrl.Result{RequeueAfter: backupJobRunnerRequeueWait}, r.statusUpdate(ctx, bj)
+}
+
+func buildSidecarRestoreJob(
+	bj *postgresv1alpha1.BackupJob,
+	sts *appsv1.StatefulSet,
+	name string,
+	command []string,
+) (*batchv1.Job, error) {
+	image, ok := postgresImageFromStatefulSet(sts)
+	if !ok {
+		return nil, fmt.Errorf("source StatefulSet %s has no %q container image", sts.Name, pgContainerName)
+	}
+	backoffLimit := int32(0)
+	labels := map[string]string{
+		backupJobRunnerLabelKey:  bj.Name,
+		backupJobClusterLabelKey: bj.Spec.Cluster.Name,
+	}
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: bj.Namespace,
+			Labels:    labels,
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: &backoffLimit,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					SecurityContext: dataplanePodSecurityContext(),
+					RestartPolicy:   corev1.RestartPolicyNever,
+					Containers: []corev1.Container{{
+						Name:            "pgbackrest-restore",
+						Image:           image,
+						Command:         append([]string{}, command...),
+						SecurityContext: dataplaneContainerSecurityContext(),
+						VolumeMounts: append([]corev1.VolumeMount{
+							{Name: "data", MountPath: pgDataMountPath},
+						}, dataplaneEphemeralVolumeMounts()...),
+					}},
+					Volumes: append([]corev1.Volume{{
+						Name: "data",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: statefulSetDataPVCName(sts.Name, 0),
+							},
+						},
+					}}, dataplaneEphemeralVolumes()...),
+				},
+			},
+		},
+	}, nil
+}
+
+func postgresImageFromStatefulSet(sts *appsv1.StatefulSet) (string, bool) {
+	for i := range sts.Spec.Template.Spec.Containers {
+		container := &sts.Spec.Template.Spec.Containers[i]
+		if container.Name == pgContainerName && strings.TrimSpace(container.Image) != "" {
+			return container.Image, true
+		}
+	}
+	return "", false
+}
+
+func statefulSetDataPVCName(stsName string, ordinal int32) string {
+	return fmt.Sprintf("data-%s-%d", stsName, ordinal)
+}
+
+func (r *BackupJobReconciler) shardPodsStopped(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardOrdinal int32,
+) (bool, error) {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(SelectorLabels(cluster.Name, "shard", shardOrdinal)),
+	); err != nil {
+		return false, err
+	}
+	return len(pods.Items) == 0, nil
+}
+
+func (r *BackupJobReconciler) ensureClusterRestoreAnnotation(
+	ctx context.Context,
+	bj *postgresv1alpha1.BackupJob,
+	cluster *postgresv1alpha1.PostgresCluster,
+) (bool, error) {
+	owner := strings.TrimSpace(cluster.Annotations[AnnotationRestoreInProgress])
+	if owner == bj.Name {
+		return true, nil
+	}
+	if owner != "" {
+		r.markFailed(bj, BackupJobReasonRestoreAlreadyInProgress,
+			"PostgresCluster "+cluster.Name+" already has offline restore owner BackupJob "+owner)
+		return false, r.statusUpdate(ctx, bj)
+	}
+
+	before := cluster.DeepCopy()
+	annotations := maps.Clone(cluster.Annotations)
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[AnnotationRestoreInProgress] = bj.Name
+	cluster.Annotations = annotations
+	if err := r.patchClusterMetadata(ctx, before, cluster); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *BackupJobReconciler) releaseClusterRestoreAnnotation(
+	ctx context.Context,
+	bj *postgresv1alpha1.BackupJob,
+	cluster *postgresv1alpha1.PostgresCluster,
+) error {
+	owner := strings.TrimSpace(cluster.Annotations[AnnotationRestoreInProgress])
+	if owner == "" || owner != bj.Name {
+		return nil
+	}
+	before := cluster.DeepCopy()
+	annotations := maps.Clone(cluster.Annotations)
+	delete(annotations, AnnotationRestoreInProgress)
+	if len(annotations) == 0 {
+		annotations = nil
+	}
+	cluster.Annotations = annotations
+	return r.patchClusterMetadata(ctx, before, cluster)
+}
+
+func (r *BackupJobReconciler) patchClusterMetadata(
+	ctx context.Context,
+	before *postgresv1alpha1.PostgresCluster,
+	cluster *postgresv1alpha1.PostgresCluster,
+) error {
+	return r.Patch(ctx, cluster, client.MergeFrom(before))
 }
 
 func (r *BackupJobReconciler) reconcileRestore(

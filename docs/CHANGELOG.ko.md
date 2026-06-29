@@ -15,6 +15,14 @@
 
 ### Added (추가됨)
 
+- *(router,sharding)* **분산 SQL 쿼리 라우터** (`cmd/pg-router`, RFC-0004). 쿼리 인지
+  라우팅(`PGROUTER_MODE=query`): PG wire 프레이밍 + 토크나이저 라우팅키 추출 +
+  vindex(hash/range/consistent-hash) → 샤드 backend. 교체 가능 토폴로지(static / ShardRange
+  CRD watch), failover-aware 백엔드(`status.primary`), 읽기→replica, reference table,
+  circuit breaker. **scram-sha-256 / cleartext 백엔드 인증 대행** → 실 프로덕션 PostgreSQL
+  동작. 배포 가능(`Dockerfile.router`, `config/router/`). scram PostgreSQL 라이브 검증(id 기준
+  올바른 샤드 라우팅).
+
 - *(helm,security)* External Secrets Operator / Infisical 기반
   PostgresUser password Secret, PgBouncer `userlist.txt`, external replica
   source password 의 opt-in `externalSecrets` chart 렌더링 추가.

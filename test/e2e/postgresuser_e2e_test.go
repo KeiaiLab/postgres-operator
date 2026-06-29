@@ -32,7 +32,7 @@ const (
 
 var _ = Describe("PostgresUser live smoke + rotation (D.5.7)", Ordered, Label("p2"), func() {
 	BeforeAll(func() {
-		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", pgUserNamespace))
+		ensurePostgresClusterReady(pgUserNamespace, pgClusterForU)
 
 		// Secret 사전 생성 (초기 password).
 		_, _ = utils.Run(exec.Command("kubectl", "create", "secret", "generic",
@@ -47,7 +47,8 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  cluster: %s
+  cluster:
+    name: %s
   name: app_role
   ensure: present
   login: true
@@ -55,13 +56,11 @@ spec:
   createrole: false
   passwordSecretRef:
     name: %s
+  userReclaimPolicy: delete
   inRoles:
     - postgres
 `, pgUserCRName, pgUserNamespace, pgClusterForU, pgUserSecret)
-		cmd := exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(manifest)
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "apply PostgresUser: %s", out)
+		applyManifest(manifest)
 	})
 
 	AfterAll(func() {
@@ -82,7 +81,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT 1 FROM pg_roles WHERE rolname='app_role'"))
 				return strings.TrimSpace(out)
 			}, 1*time.Minute, 5*time.Second).Should(Equal("1"))
@@ -91,7 +90,7 @@ spec:
 		It("초기 password 로 connect SELECT 1 PASS", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
-				"--", "psql", "postgresql://app_role:initial_pwd_v1@localhost/postgres",
+				"-c", "postgres", "--", "psql", pgUserAppRoleConninfo("initial_pwd_v1"),
 				"-t", "-A", "-c", "SELECT 1"))
 			Expect(strings.TrimSpace(out)).To(Equal("1"))
 		})
@@ -110,7 +109,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
-					"--", "psql", "postgresql://app_role:rotated_pwd_v2@localhost/postgres",
+					"-c", "postgres", "--", "psql", pgUserAppRoleConninfo("rotated_pwd_v2"),
 					"-t", "-A", "-c", "SELECT 1"))
 				return strings.TrimSpace(out)
 			}, 1*time.Minute, 5*time.Second).Should(Equal("1"),
@@ -120,7 +119,7 @@ spec:
 		It("이전 password 는 거부", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
-				"--", "psql", "postgresql://app_role:initial_pwd_v1@localhost/postgres",
+				"-c", "postgres", "--", "psql", pgUserAppRoleConninfo("initial_pwd_v1"),
 				"-t", "-A", "-c", "SELECT 1"))
 			Expect(out).To(ContainSubstring("authentication failed"),
 				"이전 password 인증 거부")
@@ -135,7 +134,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT count(*) FROM pg_roles WHERE rolname='app_role'"))
 				return strings.TrimSpace(out)
 			}, 1*time.Minute, 5*time.Second).Should(Equal("0"))
@@ -147,6 +146,15 @@ spec:
 func base64Encode(s string) string {
 	// k8s.io/apimachinery 의 base64 import 회피 — stdlib 만 사용.
 	return base64stdEncode(s)
+}
+
+func pgUserAppRoleConninfo(password string) string {
+	out, _ := utils.Run(exec.Command("kubectl", "get", "pod",
+		fmt.Sprintf("%s-shard-0-0", pgClusterForU), "-n", pgUserNamespace,
+		"-o", "jsonpath={.status.podIP}"))
+	podIP := strings.TrimSpace(out)
+	Expect(podIP).NotTo(BeEmpty(), "PostgresUser e2e pod IP must be available")
+	return fmt.Sprintf("host=%s user=app_role password=%s dbname=postgres", podIP, password)
 }
 
 func base64stdEncode(s string) string {

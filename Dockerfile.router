@@ -1,0 +1,22 @@
+# Build the pg-router binary (the stateless query router — RFC 0004 / ROADMAP G3).
+# Separate image from the operator manager so the router can scale independently.
+FROM golang:1.26.4@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+COPY . .
+
+# CGO disabled → static distroless binary (zero external runtime, minimal surface).
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o pg-router ./cmd/pg-router
+
+FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+WORKDIR /
+COPY --from=builder /workspace/pg-router .
+USER 65532:65532
+
+ENTRYPOINT ["/pg-router"]

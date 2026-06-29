@@ -1,10 +1,19 @@
 # RFC-0004: pg-router architecture
 
-- Status: Draft
-- Date: 2026-05-02
+- Status: **Partially implemented** (P2 single-shard routing live-validated 2026-06-27)
+- Date: 2026-05-02 (impl status updated 2026-06-27)
 - Authors: @phil
 - Target: Phase P2 (~v0.5.0) ~ P6 (~v0.9.0)
 - Supersedes: none (new)
+
+> **구현 현황 (2026-06-27)** — 상세: [docs/sharding/ROUTER-GAP-ANALYSIS.ko.md](../sharding/ROUTER-GAP-ANALYSIS.ko.md):
+> - ✅ **P2 single-shard 라우팅 라이브 검증** — `cmd/pg-router` query-mode(`PGROUTER_MODE=query`):
+>   PG wire 프레이밍 + 라우팅키 추출(토크나이저) + vindex(hash/range/consistent-hash) → 샤드 backend.
+>   **scram-sha-256 / cleartext 백엔드 인증 대행** 완료 → 실 프로덕션 PG 동작. 배포 가능(`Dockerfile.router`
+>   + `config/router/`). 라이브: `id='alice'`→shard-0 / `'bob'`→shard-1.
+> - 🟡 **P3 scatter-gather** — in-process 라이브러리 동작(`scatter.go` merge), 프록시 레벨 forwarding 후속.
+> - ⬜ **parameterized(extended) 라우팅** — 단일라운드만; lib/pq describe-first 는 describe-round 대행 필요.
+>   **P6 분산 트랜잭션 coordinator** 미착수.
 
 ## §1 Summary
 

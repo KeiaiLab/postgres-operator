@@ -33,9 +33,34 @@ const (
 
 var _ = Describe("PostgresDatabase live smoke (D.5.6)", Ordered, Label("p2"), func() {
 	BeforeAll(func() {
-		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", pgDatabaseNamespace))
-		// 전제: PostgresCluster "quickstart" 가 동일 ns 에 Ready=True.
-		// 별 BeforeSuite 가 quickstart 를 부트스트랩하거나, smoke.sh 가 선 실행.
+		ensurePostgresClusterReady(pgDatabaseNamespace, pgClusterForDB)
+
+		usersManifest := fmt.Sprintf(`
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresUser
+metadata:
+  name: app-owner
+  namespace: %s
+spec:
+  cluster:
+    name: %s
+  name: app_owner
+  disablePassword: true
+---
+apiVersion: postgres.keiailab.io/v1alpha1
+kind: PostgresUser
+metadata:
+  name: app-reader
+  namespace: %s
+spec:
+  cluster:
+    name: %s
+  name: app_reader
+  disablePassword: true
+`, pgDatabaseNamespace, pgClusterForDB, pgDatabaseNamespace, pgClusterForDB)
+		applyManifest(usersManifest)
+		waitPostgresUserApplied(pgDatabaseNamespace, "app-owner")
+		waitPostgresUserApplied(pgDatabaseNamespace, "app-reader")
 
 		manifest := fmt.Sprintf(`
 apiVersion: postgres.keiailab.io/v1alpha1
@@ -44,7 +69,8 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  cluster: %s
+  cluster:
+    name: %s
   name: app_db
   owner: app_owner
   ensure: present
@@ -54,15 +80,11 @@ spec:
   schemas:
     - name: app
       owner: app_owner
-  privileges:
-    - schema: app
-      grantee: app_reader
-      privileges: [USAGE]
+      privileges:
+        - role: app_reader
+          privileges: [USAGE]
 `, pgDatabaseCRName, pgDatabaseNamespace, pgClusterForDB)
-		cmd := exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = strings.NewReader(manifest)
-		out, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "apply PostgresDatabase: %s", out)
+		applyManifest(manifest)
 	})
 
 	AfterAll(func() {
@@ -83,7 +105,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgClusterForDB), "-n", pgDatabaseNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT 1 FROM pg_database WHERE datname='app_db'"))
 				return strings.TrimSpace(out)
 			}, 2*time.Minute, 5*time.Second).Should(Equal("1"))
@@ -92,13 +114,13 @@ spec:
 		It("app schema + pg_stat_statements extension 적용 확인", func() {
 			out, _ := utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pgClusterForDB), "-n", pgDatabaseNamespace,
-				"--", "psql", "-U", "postgres", "-d", "app_db", "-t", "-A", "-c",
+				"-c", "postgres", "--", "psql", "-U", "postgres", "-d", "app_db", "-t", "-A", "-c",
 				"SELECT 1 FROM information_schema.schemata WHERE schema_name='app'"))
 			Expect(strings.TrimSpace(out)).To(Equal("1"), "app schema must exist")
 
 			out, _ = utils.Run(exec.Command("kubectl", "exec",
 				fmt.Sprintf("%s-shard-0-0", pgClusterForDB), "-n", pgDatabaseNamespace,
-				"--", "psql", "-U", "postgres", "-d", "app_db", "-t", "-A", "-c",
+				"-c", "postgres", "--", "psql", "-U", "postgres", "-d", "app_db", "-t", "-A", "-c",
 				"SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements'"))
 			Expect(strings.TrimSpace(out)).To(Equal("1"), "pg_stat_statements extension")
 		})
@@ -113,7 +135,7 @@ spec:
 			Eventually(func() string {
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgClusterForDB), "-n", pgDatabaseNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT count(*) FROM pg_database WHERE datname='app_db'"))
 				return strings.TrimSpace(out)
 			}, 1*time.Minute, 5*time.Second).Should(Equal("0"),

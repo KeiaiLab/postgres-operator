@@ -9,8 +9,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,7 +48,9 @@ type ShardSplitJobReconciler struct {
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=shardranges,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps;services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 ShardSplitJob 의 다음 phase 로 한 단계 전이한다 (즉시 requeue 로 진행).
 func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -57,9 +62,13 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	switch ssj.Status.Phase {
-	case postgresv1alpha1.ShardSplitPhaseCompleted,
-		postgresv1alpha1.ShardSplitPhaseFailed,
+	case postgresv1alpha1.ShardSplitPhaseCompleted:
+		return ctrl.Result{}, nil
+	case postgresv1alpha1.ShardSplitPhaseFailed,
 		postgresv1alpha1.ShardSplitPhaseAborted:
+		if ssj.Spec.Online {
+			return r.reconcileTerminalAbortCleanup(ctx, &ssj)
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -83,8 +92,106 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// InitialCopy phase: source→target 데이터 복사 Job 을 띄우고 완료를 기다린다. 완료
+	// 전엔 phase 를 전이하지 않고 requeue 한다(가역 — Job 실패 시 Failed, target drop 으로
+	// rollback). 실 데이터 이동이 끝나야 CDCCatchup/Cutover 가 의미를 가진다.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseInitialCopy {
+		done, failure, err := r.reconcileInitialCopy(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err // 전이 가능(ShardRange 부재 등) — backoff requeue.
+		}
+		if failure != "" {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = failure
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+		if !done {
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // 복사 Job 대기.
+		}
+		// 복사 완료 → 아래 nextPhase 가 CDCCatchup 으로 전이.
+	}
+
+	// CDCCatchup phase (online): 논리복제로 라이브 쓰기를 따라잡고, 거의 catch-up 되면
+	// write-block 을 켠 뒤 최종 drain·정리한다(reconcileCDC). 완료 전엔 전이하지 않는다.
+	// offline 모드는 no-op(아래 nextPhase 가 즉시 Cutover 로).
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCDCCatchup && ssj.Spec.Online {
+		done, failure, err := r.reconcileCDC(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if failure != "" {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = failure
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+		if !done {
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // CDC catch-up 대기.
+		}
+		// CDC 완료(write-block 켜짐) → nextPhase 가 Cutover 로.
+	}
+
+	// Cutover phase: 라우팅 전환 직전 write-block 을 켠다(라우터가 쓰기 거부, 읽기는 통과) —
+	// RoutingUpdate 가 ranges 를 flip 하고 동시에 write-block 을 해제한다. forward-only(비가역)는
+	// nextPhase 가 Failed 로 막으므로 write-block 을 켜지 않는다.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCutover && !ssj.Spec.AllowForwardOnly {
+		if err := r.setWriteBlock(ctx, &ssj, true); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseRoutingUpdate {
 		if err := r.applyRouting(ctx, &ssj); err != nil {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = err.Error()
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// Cleanup phase: cutover·라우팅 전환 후 source 에서 이동분(각 target 키)을 삭제하는 Job 을
+	// 띄우고 완료를 기다린다. 라우팅이 이미 target 으로 갔으므로 안전(이동분은 더는 source 가
+	// 서빙하지 않음). 완료 전엔 전이하지 않는다.
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCleanup {
+		done, failure, err := r.reconcileCleanup(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if failure != "" {
+			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+			ssj.Status.FailureReason = failure
+			now := metav1.Now()
+			ssj.Status.CompletedAt = &now
+			ssj.Status.ObservedGeneration = ssj.Generation
+			_ = r.Status().Update(ctx, &ssj)
+			return ctrl.Result{}, nil
+		}
+		if !done {
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // 삭제 Job 대기.
+		}
+		// 정리 완료 → 아래 nextPhase 가 Completed 로 전이.
+	}
+
+	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhasePromote {
+		ready, reason, err := r.promotePreconditionsMet(ctx, &ssj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !ready {
+			logger.Info("ShardSplitJob Promote precondition not met", "reason", reason)
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+		}
+		if err := r.reconcilePromote(ctx, &ssj); err != nil {
 			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
 			ssj.Status.FailureReason = err.Error()
 			now := metav1.Now()
@@ -146,7 +253,8 @@ func (r *ShardSplitJobReconciler) nextPhase(ssj *postgresv1alpha1.ShardSplitJob)
 	case postgresv1alpha1.ShardSplitPhaseBootstrap:
 		return postgresv1alpha1.ShardSplitPhaseInitialCopy, ""
 	case postgresv1alpha1.ShardSplitPhaseInitialCopy:
-		// 실 데이터 이동은 router.CopyTable(#215, 가역). DSN 결선은 별 트랙.
+		// 실 데이터 이동(복사 Job)은 Reconcile 의 InitialCopy 블록이 완료까지 게이트한 뒤
+		// 이 전이에 도달한다(shardsplitjob_copy.go reconcileInitialCopy). 가역.
 		return postgresv1alpha1.ShardSplitPhaseCDCCatchup, ""
 	case postgresv1alpha1.ShardSplitPhaseCDCCatchup:
 		return postgresv1alpha1.ShardSplitPhaseCutover, ""
@@ -161,9 +269,145 @@ func (r *ShardSplitJobReconciler) nextPhase(ssj *postgresv1alpha1.ShardSplitJob)
 	case postgresv1alpha1.ShardSplitPhaseRoutingUpdate:
 		return postgresv1alpha1.ShardSplitPhaseCleanup, ""
 	case postgresv1alpha1.ShardSplitPhaseCleanup:
+		return postgresv1alpha1.ShardSplitPhasePromote, ""
+	case postgresv1alpha1.ShardSplitPhasePromote:
 		return postgresv1alpha1.ShardSplitPhaseCompleted, ""
 	}
 	return ssj.Status.Phase, ""
+}
+
+func (r *ShardSplitJobReconciler) reconcilePromote(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) error {
+	for i := range ssj.Spec.Targets {
+		shardID := ssj.Spec.Targets[i].ShardID
+		if err := r.adoptTargetShardIdentity(ctx, ssj.Namespace, ssj.Spec.Cluster, shardID); err != nil {
+			return fmt.Errorf("adopt target shard %q identity: %w", shardID, err)
+		}
+	}
+	return nil
+}
+
+func (r *ShardSplitJobReconciler) promotePreconditionsMet(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (bool, string, error) {
+	active, err := r.activeShardRangeIDs(ctx, ssj)
+	if err != nil {
+		return false, "", err
+	}
+	for _, source := range ssj.Spec.Sources {
+		if _, ok := active[source]; ok {
+			return false, fmt.Sprintf("source shard %q is still active in ShardRange", source), nil
+		}
+	}
+	for i := range ssj.Spec.Targets {
+		shardID := ssj.Spec.Targets[i].ShardID
+		if _, ok := active[shardID]; !ok {
+			return false, fmt.Sprintf("target shard %q is not active in ShardRange", shardID), nil
+		}
+		ready, reason, err := r.targetShardReadyForPromote(ctx, ssj.Namespace, ssj.Spec.Cluster, shardID)
+		if err != nil {
+			return false, "", err
+		}
+		if !ready {
+			return false, reason, nil
+		}
+	}
+	return true, "", nil
+}
+
+func (r *ShardSplitJobReconciler) activeShardRangeIDs(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (map[string]struct{}, error) {
+	var list postgresv1alpha1.ShardRangeList
+	if err := r.List(ctx, &list, client.InNamespace(ssj.Namespace)); err != nil {
+		return nil, fmt.Errorf("list ShardRange for promote precondition: %w", err)
+	}
+	active := map[string]struct{}{}
+	matched := false
+	for i := range list.Items {
+		sr := &list.Items[i]
+		if sr.Spec.Cluster != ssj.Spec.Cluster || sr.Spec.Keyspace != ssj.Spec.Keyspace {
+			continue
+		}
+		matched = true
+		for j := range sr.Spec.Ranges {
+			shardID := sr.Spec.Ranges[j].Shard
+			if shardID == "" {
+				continue
+			}
+			active[shardID] = struct{}{}
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
+	}
+	return active, nil
+}
+
+func (r *ShardSplitJobReconciler) targetShardReadyForPromote(ctx context.Context, namespace, cluster, shardID string) (bool, string, error) {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(namespace),
+		client.MatchingLabels(ReshardTargetSelectorLabels(cluster, shardID)),
+	); err != nil {
+		return false, "", fmt.Errorf("list target pods for promote precondition: %w", err)
+	}
+	if len(pods.Items) == 0 {
+		return false, fmt.Sprintf("target shard %q has no pods", shardID), nil
+	}
+	for i := range pods.Items {
+		if podReadyForPromote(&pods.Items[i]) {
+			return true, "", nil
+		}
+	}
+	return false, fmt.Sprintf("target shard %q has no Ready pods", shardID), nil
+}
+
+func podReadyForPromote(pod *corev1.Pod) bool {
+	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			return pod.Status.Conditions[i].Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func (r *ShardSplitJobReconciler) adoptTargetShardIdentity(ctx context.Context, namespace, cluster, shardID string) error {
+	var sts appsv1.StatefulSet
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: TargetShardStatefulSetName(cluster, shardID)}, &sts); err != nil {
+		return err
+	}
+	stsBefore := sts.DeepCopy()
+	ensureLabel(&sts.Labels, ShardIDLabelKey, shardID)
+	ensureLabel(&sts.Spec.Template.Labels, ShardIDLabelKey, shardID)
+	if err := r.Patch(ctx, &sts, client.MergeFrom(stsBefore)); err != nil {
+		return fmt.Errorf("patch target StatefulSet %q: %w", sts.Name, err)
+	}
+
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods,
+		client.InNamespace(namespace),
+		client.MatchingLabels(ReshardTargetSelectorLabels(cluster, shardID)),
+	); err != nil {
+		return fmt.Errorf("list target pods: %w", err)
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Labels[ShardIDLabelKey] == shardID {
+			continue
+		}
+		podBefore := pod.DeepCopy()
+		ensureLabel(&pod.Labels, ShardIDLabelKey, shardID)
+		if err := r.Patch(ctx, pod, client.MergeFrom(podBefore)); err != nil {
+			return fmt.Errorf("patch target pod %q: %w", pod.Name, err)
+		}
+	}
+	return nil
+}
+
+func ensureLabel(labels *map[string]string, key, value string) {
+	if *labels == nil {
+		*labels = map[string]string{}
+	}
+	(*labels)[key] = value
 }
 
 // flattenTargetRanges 는 모든 target shard 의 키 범위를 하나의 slice 로 모은다.
@@ -187,8 +431,32 @@ func (r *ShardSplitJobReconciler) applyRouting(ctx context.Context, ssj *postgre
 		sr := &list.Items[i]
 		if sr.Spec.Cluster == ssj.Spec.Cluster && sr.Spec.Keyspace == ssj.Spec.Keyspace {
 			sr.Spec.Ranges = flattenTargetRanges(ssj.Spec.Targets)
+			sr.Spec.WriteBlocked = false // 라우팅 전환 완료 → write-block 해제(쓰기 재개, 이제 새 shard 로).
 			if err := r.Update(ctx, sr); err != nil {
 				return fmt.Errorf("update ShardRange %s: %w", sr.Name, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no ShardRange for cluster=%s keyspace=%s", ssj.Spec.Cluster, ssj.Spec.Keyspace)
+}
+
+// setWriteBlock 은 cluster/keyspace 의 ShardRange 에 write-block 을 설정/해제한다 — Cutover
+// 동안 라우터가 쓰기를 거부하게 해(읽기는 통과) 라우팅 전환 중 쓰기 유실을 막는다.
+func (r *ShardSplitJobReconciler) setWriteBlock(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, blocked bool) error {
+	var list postgresv1alpha1.ShardRangeList
+	if err := r.List(ctx, &list, client.InNamespace(ssj.Namespace)); err != nil {
+		return fmt.Errorf("list ShardRange: %w", err)
+	}
+	for i := range list.Items {
+		sr := &list.Items[i]
+		if sr.Spec.Cluster == ssj.Spec.Cluster && sr.Spec.Keyspace == ssj.Spec.Keyspace {
+			if sr.Spec.WriteBlocked == blocked {
+				return nil // 멱등.
+			}
+			sr.Spec.WriteBlocked = blocked
+			if err := r.Update(ctx, sr); err != nil {
+				return fmt.Errorf("update ShardRange %s write-block: %w", sr.Name, err)
 			}
 			return nil
 		}
@@ -270,6 +538,7 @@ func containerImage(sts *appsv1.StatefulSet, name string) string {
 func (r *ShardSplitJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&postgresv1alpha1.ShardSplitJob{}).
+		Owns(&batchv1.Job{}). // InitialCopy 복사 Job 완료 시 재조정.
 		Named("shardsplitjob").
 		Complete(r)
 }

@@ -6,6 +6,13 @@ This project follows SemVer.
 
 ### Added
 
+- *(router,sharding)* **Distributed SQL query router** (`cmd/pg-router`, RFC-0004).
+  Query-aware routing (`PGROUTER_MODE=query`): PG wire framing + tokenizer routing-key
+  extraction + vindex (hash/range/consistent-hash) → shard backend. Pluggable topology
+  (static / ShardRange CRD watch), failover-aware backends (`status.primary`), read→replica,
+  reference tables, circuit breaker. **scram-sha-256 / cleartext backend auth delegation**
+  → works against real production PostgreSQL. Deployable (`Dockerfile.router`,
+  `config/router/`). Live-validated against scram PostgreSQL (id-based routing to correct shard).
 - *(helm,security)* Added opt-in `externalSecrets` chart rendering for
   PostgresUser password Secrets, PgBouncer `userlist.txt`, and external
   replica-source passwords backed by External Secrets Operator / Infisical.

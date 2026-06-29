@@ -216,6 +216,36 @@ func TestPoolerReconcileRejectsUnsupportedPgBouncerParameter(t *testing.T) {
 	}
 }
 
+func TestPoolerReconcileAllowsStatsUsersPgBouncerParameter(t *testing.T) {
+	t.Parallel()
+	scheme := newScheme(t)
+	cluster := newPoolerCluster()
+	pooler := newPooler()
+	pooler.Spec.PgBouncer.Parameters["stats_users"] = "keiailab_pooler_pgbouncer"
+	authSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "demo-pooler-auth",
+		Namespace: "default",
+	}, Data: map[string][]byte{"userlist.txt": []byte(`"keiailab_pooler_pgbouncer" "md5hash"`)}}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(cluster, pooler, authSecret).
+		WithStatusSubresource(&postgresv1alpha1.Pooler{}).
+		Build()
+
+	r := &PoolerReconciler{Client: c, Scheme: scheme}
+	got := reconcilePoolerOnce(t, r, c, pooler)
+
+	if got.Status.Phase == postgresv1alpha1.PoolerFailed {
+		t.Fatalf("phase = %q, want stats_users accepted", got.Status.Phase)
+	}
+	var cm corev1.ConfigMap
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: PoolerConfigMapName(pooler.Name)}, &cm); err != nil {
+		t.Fatalf("ConfigMap get: %v", err)
+	}
+	if !strings.Contains(cm.Data["pgbouncer.ini"], "stats_users = keiailab_pooler_pgbouncer") {
+		t.Fatalf("pgbouncer.ini missing stats_users:\n%s", cm.Data["pgbouncer.ini"])
+	}
+}
+
 func TestPoolerReconcileRejectsOperatorOwnedPgBouncerParameter(t *testing.T) {
 	t.Parallel()
 	scheme := newScheme(t)

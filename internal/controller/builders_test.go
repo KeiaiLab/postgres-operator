@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,6 +89,111 @@ func TestBuildPGStatefulSet_AppliesSecurityContextAndEphemeralMounts(t *testing.
 	)
 
 	assertDataplaneSecurityContext(t, &sts.Spec.Template.Spec, "PG StatefulSet")
+}
+
+// TestBuildPGStatefulSet_ShardIDLabel 은 ADR-0029 P-A: ordinal shard pod 에 명명 식별 label
+// `shard-id=shard-<ord>` 가 *부가* 되되, STS selector(불변)에는 들어가지 않음을 검증한다
+// (셀렉터에 넣으면 업그레이드 중 구 pod 누락 → #220-class race).
+func TestBuildPGStatefulSet_ShardIDLabel(t *testing.T) {
+	t.Parallel()
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster, "demo-shard-2", "demo-shard-2-headless", 2,
+		"example.com/postgres:18", "demo-shard-2-config", "18", 1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{}, "", "test-config-hash", "",
+	)
+	// pod template 에 shard-id 부가.
+	if got := sts.Spec.Template.Labels[ShardIDLabelKey]; got != "shard-2" {
+		t.Fatalf("pod shard-id label = %q, want %q", got, "shard-2")
+	}
+	// 셀렉터에는 shard-id 미포함(불변 보장).
+	if _, ok := sts.Spec.Selector.MatchLabels[ShardIDLabelKey]; ok {
+		t.Fatalf("STS selector 에 shard-id 가 포함됨 (불변 위반 위험): %v", sts.Spec.Selector.MatchLabels)
+	}
+	// 기존 ordinal label 은 셀렉터·pod 양쪽에 유지.
+	if sts.Spec.Selector.MatchLabels["postgres.keiailab.io/shard"] != "2" {
+		t.Fatalf("ordinal shard label 누락: %v", sts.Spec.Selector.MatchLabels)
+	}
+
+	// reshard target 은 격리 유지 — shard-id 부가 안 함.
+	tgt := buildPGStatefulSet(
+		cluster, "demo-rsd-t0", "demo-rsd-t0-headless", 0,
+		"example.com/postgres:18", "demo-rsd-t0-config", "18", 1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{}, "", "test-config-hash", "t0",
+	)
+	if _, ok := tgt.Spec.Template.Labels[ShardIDLabelKey]; ok {
+		t.Fatalf("reshard target 에 shard-id 가 부가됨(격리 위반): %v", tgt.Spec.Template.Labels)
+	}
+	if tgt.Spec.Template.Labels[ReshardTargetLabelKey] != "t0" {
+		t.Fatalf("reshard target label 누락: %v", tgt.Spec.Template.Labels)
+	}
+}
+
+func TestBuildPGStatefulSet_VolumeClaimTemplateHasClusterLabel(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+
+	if got, want := len(sts.Spec.VolumeClaimTemplates), 1; got != want {
+		t.Fatalf("volumeClaimTemplates = %d, want %d", got, want)
+	}
+	labels := sts.Spec.VolumeClaimTemplates[0].Labels
+	if got := labels["postgres.keiailab.io/cluster"]; got != "demo" {
+		t.Fatalf("PVC cluster label = %q, want %q (labels=%v)", got, "demo", labels)
+	}
+}
+
+func TestBuildPGStatefulSet_PgBackRestRepoUsesDataPVCPath(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	sts := buildPGStatefulSet(
+		cluster,
+		"demo-shard-0", "demo-shard-0-headless",
+		0,
+		"example.com/postgres:18", "demo-shard-0-config", "18",
+		1,
+		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+		corev1.ResourceRequirements{},
+		"",
+		"test-config-hash",
+		"",
+	)
+
+	if !strings.HasPrefix(backupRepoMountPath, pgDataMountPath+"/") {
+		t.Fatalf("backupRepoMountPath = %q, want path inside data PVC mount %q", backupRepoMountPath, pgDataMountPath)
+	}
+	container := sts.Spec.Template.Spec.Containers[0]
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == "pgbackrest-repo" {
+			t.Fatalf("pgBackRest repo must not use EmptyDir volume: %+v", volume)
+		}
+	}
+	for _, mount := range container.VolumeMounts {
+		if mount.MountPath == backupRepoMountPath {
+			t.Fatalf("pgBackRest repo must not use a separate subPath mount; got %+v", mount)
+		}
+	}
 }
 
 func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
@@ -591,6 +697,123 @@ func TestBuildRouterDeployment_AppliesSecurityContextAndEphemeralMounts(t *testi
 	assertDataplaneSecurityContext(t, &dep.Spec.Template.Spec, "Router Deployment")
 }
 
+func TestBuildRouterHPA_CPUDefaultsAndTarget(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MaxReplicas: 8,
+				},
+			},
+		},
+	}
+
+	hpa := buildRouterHPA(cluster, RouterDeploymentName("orders"))
+
+	if hpa.Name != "orders-router" {
+		t.Fatalf("hpa name = %q, want orders-router", hpa.Name)
+	}
+	if hpa.Namespace != "default" {
+		t.Fatalf("namespace = %q, want default", hpa.Namespace)
+	}
+	if hpa.Spec.ScaleTargetRef.APIVersion != "apps/v1" ||
+		hpa.Spec.ScaleTargetRef.Kind != "Deployment" ||
+		hpa.Spec.ScaleTargetRef.Name != "orders-router" {
+		t.Fatalf("scaleTargetRef = %+v", hpa.Spec.ScaleTargetRef)
+	}
+	if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 2 {
+		t.Fatalf("minReplicas = %v, want 2", hpa.Spec.MinReplicas)
+	}
+	if hpa.Spec.MaxReplicas != 8 {
+		t.Fatalf("maxReplicas = %d, want 8", hpa.Spec.MaxReplicas)
+	}
+	if len(hpa.Spec.Metrics) != 1 {
+		t.Fatalf("metrics len = %d, want 1", len(hpa.Spec.Metrics))
+	}
+	metric := hpa.Spec.Metrics[0]
+	if metric.Type != autoscalingv2.ResourceMetricSourceType {
+		t.Fatalf("metric type = %q, want Resource", metric.Type)
+	}
+	if metric.Resource == nil || metric.Resource.Name != corev1.ResourceCPU {
+		t.Fatalf("resource metric = %+v, want cpu", metric.Resource)
+	}
+	if metric.Resource.Target.Type != autoscalingv2.UtilizationMetricType ||
+		metric.Resource.Target.AverageUtilization == nil ||
+		*metric.Resource.Target.AverageUtilization != 70 {
+		t.Fatalf("target = %+v, want 70%% utilization", metric.Resource.Target)
+	}
+}
+
+func TestBuildRouterHPA_ExplicitMinAndCPU(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MinReplicas: 3,
+					MaxReplicas: 9,
+					TargetCPU:   55,
+				},
+			},
+		},
+	}
+
+	hpa := buildRouterHPA(cluster, RouterDeploymentName("orders"))
+
+	if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 3 {
+		t.Fatalf("minReplicas = %v, want 3", hpa.Spec.MinReplicas)
+	}
+	if hpa.Spec.MaxReplicas != 9 {
+		t.Fatalf("maxReplicas = %d, want 9", hpa.Spec.MaxReplicas)
+	}
+	gotCPU := hpa.Spec.Metrics[0].Resource.Target.AverageUtilization
+	if gotCPU == nil || *gotCPU != 55 {
+		t.Fatalf("targetCPU = %v, want 55", gotCPU)
+	}
+}
+
+func TestBuildRouterDeployment_LabelsAutoscaleManagedReplicas(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default"},
+		Spec: postgresv1alpha1.PostgresClusterSpec{
+			Router: &postgresv1alpha1.RouterSpec{
+				Replicas: 2,
+				Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+					Enabled:     true,
+					MinReplicas: 3,
+					MaxReplicas: 8,
+				},
+			},
+		},
+	}
+
+	dep := buildRouterDeployment(cluster, "orders-router", "orders-router-config", "example.com/router:dev", routerMinReplicas(cluster), corev1.ResourceRequirements{})
+
+	if dep.Labels[RouterAutoscaleLabelKey] != "true" {
+		t.Fatalf("deployment label %s = %q, want true", RouterAutoscaleLabelKey, dep.Labels[RouterAutoscaleLabelKey])
+	}
+	if dep.Spec.Template.Labels[RouterAutoscaleLabelKey] != "true" {
+		t.Fatalf("pod template label %s = %q, want true", RouterAutoscaleLabelKey, dep.Spec.Template.Labels[RouterAutoscaleLabelKey])
+	}
+	if dep.Spec.Selector.MatchLabels[RouterAutoscaleLabelKey] != "" {
+		t.Fatalf("selector must not include mutable autoscale label %s", RouterAutoscaleLabelKey)
+	}
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 3 {
+		t.Fatalf("initial replicas = %v, want minReplicas 3", dep.Spec.Replicas)
+	}
+}
+
 // assertDataplaneSecurityContext는 PG StatefulSet과 Router Deployment 모두에서
 // 동일한 검증을 수행한다. PodSecurityContext + Container.SecurityContext +
 // emptyDir mount 3개(/tmp, /run, /var/run/postgresql) 모두 존재해야 한다.
@@ -619,9 +842,10 @@ func assertDataplaneSecurityContext(t *testing.T, podSpec *corev1.PodSpec, label
 
 	// 3. emptyDir mount 3개 (readOnlyRootFilesystem 동반)
 	wantMounts := map[string]string{
-		"ephemeral-tmp":    "/tmp",
-		"ephemeral-run":    "/run",
-		"ephemeral-pg-run": "/var/run/postgresql",
+		"ephemeral-tmp":              "/tmp",
+		"ephemeral-run":              "/run",
+		"ephemeral-pg-run":           "/var/run/postgresql",
+		"ephemeral-pgbackrest-spool": "/var/spool/pgbackrest",
 	}
 	mountsByName := make(map[string]string, len(cnt.VolumeMounts))
 	for _, vm := range cnt.VolumeMounts {
@@ -795,7 +1019,7 @@ func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
 		Spec: postgresv1alpha1.PostgresClusterSpec{
 			Backup: &postgresv1alpha1.ClusterBackupSpec{
 				Enabled: true,
-				Repo:    &postgresv1alpha1.ClusterBackupRepoSpec{Type: "filesystem", Path: "/var/lib/pgbackrest"},
+				Repo:    &postgresv1alpha1.ClusterBackupRepoSpec{Type: "filesystem", Path: "/var/lib/postgresql/data/pgbackrest"},
 			},
 		},
 	}
@@ -806,8 +1030,27 @@ func TestArchiveConfig_NoSingleQuote_ConfSafe(t *testing.T) {
 	if strings.Contains(cfg.Command, "'") {
 		t.Errorf("archive_command must not contain single quote (breaks postgresql.conf): %q", cfg.Command)
 	}
-	if !strings.Contains(cfg.Command, "PGBACKREST_REPO1_PATH=/var/lib/pgbackrest") {
+	if !strings.Contains(cfg.Command, "PGBACKREST_REPO1_PATH=/var/lib/postgresql/data/pgbackrest") {
 		t.Errorf("archive_command must carry repo env: %q", cfg.Command)
+	}
+	if strings.Contains(cfg.Command, "--spool-path=") {
+		t.Errorf("archive_command must not include restore-only pgBackRest spool path: %q", cfg.Command)
+	}
+	if !strings.Contains(cfg.Command, `archive-push \"%p\"`) {
+		t.Errorf("archive_command must pass PostgreSQL %%p WAL path directly: %q", cfg.Command)
+	}
+	if strings.Contains(cfg.Command, "$1") {
+		t.Errorf("archive_command must not rely on shell positional args for WAL path: %q", cfg.Command)
+	}
+	pushStart := strings.LastIndex(cfg.Command, "exec env ")
+	if pushStart < 0 {
+		t.Fatalf("archive_command missing archive-push exec segment: %q", cfg.Command)
+	}
+	pushCommand := cfg.Command[pushStart:]
+	for _, invalid := range []string{"--pg1-user=", "--pg1-database="} {
+		if strings.Contains(pushCommand, invalid) {
+			t.Errorf("archive-push command must not include backup-only option %q: %q", invalid, pushCommand)
+		}
 	}
 	// `exec VAR=val` 은 not-found → `exec env VAR=val` 이어야 (live 127 회귀 가드).
 	if !strings.Contains(cfg.Command, "exec env ") {
@@ -862,6 +1105,9 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 	}
 	if envByName["PRIMARY_ENDPOINT"] != "" {
 		t.Errorf("PRIMARY_ENDPOINT = %q, want \"\" (빈 값 → pod-0 initdb fresh primary)", envByName["PRIMARY_ENDPOINT"])
+	}
+	if got := envByName["POSTGRES_SERVICE_NAME"]; got != "orders-rsd-shard-0a-headless" {
+		t.Errorf("POSTGRES_SERVICE_NAME = %q, want target headless service", got)
 	}
 
 	// (4) POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용.

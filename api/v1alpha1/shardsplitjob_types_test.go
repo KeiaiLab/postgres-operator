@@ -13,17 +13,17 @@ import (
 )
 
 func TestShardSplitJob(t *testing.T) {
-	t.Run("Phase 전체 11 값 stringify", func(t *testing.T) {
+	t.Run("Phase 전체 12 값 stringify", func(t *testing.T) {
 		phases := []ShardSplitJobPhase{
 			ShardSplitPhasePending, ShardSplitPhaseSnapshotWAL,
 			ShardSplitPhaseBootstrap, ShardSplitPhaseInitialCopy,
 			ShardSplitPhaseCDCCatchup, ShardSplitPhaseCutover,
 			ShardSplitPhaseRoutingUpdate, ShardSplitPhaseCleanup,
-			ShardSplitPhaseCompleted, ShardSplitPhaseFailed,
+			ShardSplitPhasePromote, ShardSplitPhaseCompleted, ShardSplitPhaseFailed,
 			ShardSplitPhaseAborted,
 		}
-		if len(phases) != 11 {
-			t.Fatalf("phase count want=11 got=%d", len(phases))
+		if len(phases) != 12 {
+			t.Fatalf("phase count want=12 got=%d", len(phases))
 		}
 		for _, p := range phases {
 			if string(p) == "" {

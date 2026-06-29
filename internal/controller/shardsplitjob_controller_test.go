@@ -47,7 +47,8 @@ func TestShardSplitJob_nextPhase(t *testing.T) {
 		{"initialcopy → CDCCatchup", ssjWith(postgresv1alpha1.ShardSplitPhaseInitialCopy, false, twoTargets()), postgresv1alpha1.ShardSplitPhaseCDCCatchup},
 		{"cutover reversible → RoutingUpdate", ssjWith(postgresv1alpha1.ShardSplitPhaseCutover, false, twoTargets()), postgresv1alpha1.ShardSplitPhaseRoutingUpdate},
 		{"cutover forward-only → Failed (비가역 거부)", ssjWith(postgresv1alpha1.ShardSplitPhaseCutover, true, twoTargets()), postgresv1alpha1.ShardSplitPhaseFailed},
-		{"cleanup → Completed", ssjWith(postgresv1alpha1.ShardSplitPhaseCleanup, false, twoTargets()), postgresv1alpha1.ShardSplitPhaseCompleted},
+		{"cleanup → Promote", ssjWith(postgresv1alpha1.ShardSplitPhaseCleanup, false, twoTargets()), postgresv1alpha1.ShardSplitPhasePromote},
+		{"promote → Completed", ssjWith(postgresv1alpha1.ShardSplitPhasePromote, false, twoTargets()), postgresv1alpha1.ShardSplitPhaseCompleted},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

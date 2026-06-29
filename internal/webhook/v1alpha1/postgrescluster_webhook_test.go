@@ -123,6 +123,70 @@ func TestValidate_AutoSplitDisabled_NoTriggerOk(t *testing.T) {
 	}
 }
 
+func TestValidate_RouterAutoscaleEnabled_RequiresMaxReplicas(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.ShardingMode = postgresv1alpha1.ShardingModeNative
+	c.Spec.Router = &postgresv1alpha1.RouterSpec{
+		Enabled:  true,
+		Replicas: 2,
+		Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+			Enabled: true,
+		},
+	}
+
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected rejection for router.autoscale.enabled=true without maxReplicas")
+	}
+	if !strings.Contains(err.Error(), "maxReplicas") {
+		t.Errorf("error message lacks 'maxReplicas': %v", err)
+	}
+}
+
+func TestValidate_RouterAutoscaleEnabled_MaxMustBeAtLeastMin(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.ShardingMode = postgresv1alpha1.ShardingModeNative
+	c.Spec.Router = &postgresv1alpha1.RouterSpec{
+		Enabled:  true,
+		Replicas: 2,
+		Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+			Enabled:     true,
+			MinReplicas: 4,
+			MaxReplicas: 3,
+		},
+	}
+
+	_, err := w.ValidateCreate(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected rejection for maxReplicas < minReplicas")
+	}
+	if !strings.Contains(err.Error(), "maxReplicas") {
+		t.Errorf("error message lacks 'maxReplicas': %v", err)
+	}
+}
+
+func TestValidate_RouterAutoscaleEnabled_WithMaxAccepted(t *testing.T) {
+	w := newWebhook(t)
+	c := validBaseCluster()
+	c.Spec.ShardingMode = postgresv1alpha1.ShardingModeNative
+	c.Spec.Router = &postgresv1alpha1.RouterSpec{
+		Enabled:  true,
+		Replicas: 2,
+		Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+			Enabled:     true,
+			MinReplicas: 2,
+			MaxReplicas: 6,
+			TargetCPU:   70,
+		},
+	}
+
+	if _, err := w.ValidateCreate(context.Background(), c); err != nil {
+		t.Fatalf("valid router autoscale should be accepted: %v", err)
+	}
+}
+
 func TestValidate_BackupEnabled_RequiresSchedule(t *testing.T) {
 	w := newWebhook(t)
 	c := validBaseCluster()

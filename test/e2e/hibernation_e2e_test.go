@@ -63,7 +63,7 @@ spec:
 		// Marker row 삽입 (재기동 후 보존 검증용).
 		_, _ = utils.Run(exec.Command("kubectl", "exec",
 			fmt.Sprintf("%s-shard-0-0", pgHibernationCRName), "-n", pgHibernationNamespace,
-			"--", "psql", "-U", "postgres", "-c",
+			"-c", "postgres", "--", "psql", "-U", "postgres", "-c",
 			"CREATE TABLE hibernation_marker(v text); INSERT INTO hibernation_marker VALUES ('keep-me');"))
 	})
 
@@ -124,7 +124,7 @@ spec:
 				out, _ := utils.Run(exec.Command("kubectl", "exec",
 					fmt.Sprintf("%s-shard-0-0", pgHibernationCRName),
 					"-n", pgHibernationNamespace,
-					"--", "psql", "-U", "postgres", "-t", "-A", "-c",
+					"-c", "postgres", "--", "psql", "-U", "postgres", "-t", "-A", "-c",
 					"SELECT v FROM hibernation_marker LIMIT 1"))
 				return strings.TrimSpace(out)
 			}, 2*time.Minute, 5*time.Second).Should(Equal("keep-me"),

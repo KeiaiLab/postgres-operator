@@ -120,8 +120,17 @@ Recovering a fenced Pod is a manual operator task:
 - [x] Lease-based leader election (`internal/instance/election/`)
 - [x] PVC fencing (`internal/instance/fencing/`, P2-T2 active 2026-04-28)
 - [x] `--fencing-disabled` development knob
+- [x] Failover **detection + promotion** (`internal/controller/failover` pure-decision
+  functions + `executeClusterPromotion`), executed inside the PostgresCluster reconcile
+  loop and single-active-gated by the **controller-runtime manager lease** (`--leader-elect`,
+  default true). Includes PVC pre-fencing, split-brain reseed (#220), promotion-candidate
+  readiness guards, and debounce.
 - [ ] `kubectl postgres failover` CLI command (Phase 13)
-- [ ] failover controller (P2-T3)
+- [ ] **Dedicated failover-controller lease (P2-T3)** — `internal/controller/failover/lease.go`
+  exists and is unit-tested (leader single-ness + handoff) but is **not yet wired into
+  production**. It must NOT naively gate the reconcile-loop failover (that holder may differ
+  from the manager-lease holder → deadlock). A proper P2-T3 first extracts failover into a
+  leader-election-agnostic runnable, then gates that runnable on this lease.
 - [ ] `pg_rewind` integration (P2-T4)
 
 ## 8. References

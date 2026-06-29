@@ -115,6 +115,27 @@ func (w *PostgresClusterWebhook) validate(c *postgresv1alpha1.PostgresCluster) (
 		}
 	}
 
+	if c.Spec.Router != nil && c.Spec.Router.Autoscale != nil && c.Spec.Router.Autoscale.Enabled {
+		as := c.Spec.Router.Autoscale
+		if as.MaxReplicas <= 0 {
+			errs = append(errs, field.Invalid(
+				field.NewPath("spec", "router", "autoscale", "maxReplicas"), as.MaxReplicas,
+				"maxReplicas must be > 0 when router.autoscale.enabled=true"))
+		}
+		minReplicas := as.MinReplicas
+		if minReplicas == 0 && c.Spec.Router.Replicas > 0 {
+			minReplicas = c.Spec.Router.Replicas
+		}
+		if minReplicas == 0 {
+			minReplicas = 1
+		}
+		if as.MaxReplicas > 0 && as.MaxReplicas < minReplicas {
+			errs = append(errs, field.Invalid(
+				field.NewPath("spec", "router", "autoscale", "maxReplicas"), as.MaxReplicas,
+				fmt.Sprintf("maxReplicas must be >= effective minReplicas (%d)", minReplicas)))
+		}
+	}
+
 	if b := c.Spec.Backup; b != nil && b.Enabled && b.Schedule == "" {
 		errs = append(errs, field.Invalid(
 			field.NewPath("spec", "backup", "schedule"), nil,
