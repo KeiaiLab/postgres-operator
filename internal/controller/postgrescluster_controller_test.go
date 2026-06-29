@@ -16,6 +16,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -208,6 +209,138 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				g.Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 				g.Expect(svc.Spec.ClusterIP).NotTo(Equal(corev1.ClusterIPNone))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("router autoscale creates router HPA when enabled", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 5,
+							TargetCPU:   60,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale"),
+				}, &hpa)).To(Succeed())
+				g.Expect(hpa.Spec.ScaleTargetRef.Kind).To(Equal("Deployment"))
+				g.Expect(hpa.Spec.ScaleTargetRef.Name).To(Equal(RouterDeploymentName("autoscale")))
+				g.Expect(hpa.Spec.MinReplicas).NotTo(BeNil())
+				g.Expect(*hpa.Spec.MinReplicas).To(Equal(int32(2)))
+				g.Expect(hpa.Spec.MaxReplicas).To(Equal(int32(5)))
+				g.Expect(hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).NotTo(BeNil())
+				g.Expect(*hpa.Spec.Metrics[0].Resource.Target.AverageUtilization).To(Equal(int32(60)))
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("router autoscale deletes router HPA when disabled", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale-off", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 5,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale-off"),
+				}, &hpa)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				var got postgresv1alpha1.PostgresCluster
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "autoscale-off"}, &got)).To(Succeed())
+				got.Spec.Router.Autoscale.Enabled = false
+				g.Expect(k8sClient.Update(ctx, &got)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				var hpa autoscalingv2.HorizontalPodAutoscaler
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterHPAName("autoscale-off"),
+				}, &hpa)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+		})
+
+		It("router autoscale preserves existing router Deployment replicas", func() {
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "autoscale-preserve", Namespace: namespace},
+				Spec: postgresv1alpha1.PostgresClusterSpec{
+					PostgresVersion: "18",
+					ShardingMode:    postgresv1alpha1.ShardingModeNative,
+					Shards: postgresv1alpha1.ShardsSpec{
+						InitialCount: 1,
+						Replicas:     1,
+						Storage:      postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+					},
+					Router: &postgresv1alpha1.RouterSpec{
+						Enabled:  true,
+						Replicas: 2,
+						Autoscale: &postgresv1alpha1.RouterAutoscaleSpec{
+							Enabled:     true,
+							MinReplicas: 2,
+							MaxReplicas: 6,
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var dep appsv1.Deployment
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterDeploymentName("autoscale-preserve"),
+				}, &dep)).To(Succeed())
+				replicas := int32(4)
+				dep.Spec.Replicas = &replicas
+				g.Expect(k8sClient.Update(ctx, &dep)).To(Succeed())
+			}, envtestTimeout, envtestInterval).Should(Succeed())
+
+			bumpAnnotation(ctx, cluster)
+
+			Consistently(func(g Gomega) {
+				var dep appsv1.Deployment
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: namespace, Name: RouterDeploymentName("autoscale-preserve"),
+				}, &dep)).To(Succeed())
+				g.Expect(dep.Spec.Replicas).NotTo(BeNil())
+				g.Expect(*dep.Spec.Replicas).To(Equal(int32(4)))
+			}, 2*time.Second, envtestInterval).Should(Succeed())
 		})
 
 		It("adds active named reshard targets to cluster shard status", func() {

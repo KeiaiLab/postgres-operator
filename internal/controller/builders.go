@@ -1343,7 +1343,8 @@ func buildRouterDeployment(
 	replicas int32,
 	resources corev1.ResourceRequirements,
 ) *appsv1.Deployment {
-	labels := SelectorLabels(cluster.Name, "router", -1)
+	selectorLabels := SelectorLabels(cluster.Name, "router", -1)
+	labels := maps.Clone(selectorLabels)
 	if routerAutoscaleEnabled(cluster) {
 		labels[RouterAutoscaleLabelKey] = "true"
 	}
@@ -1356,7 +1357,7 @@ func buildRouterDeployment(
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{

@@ -806,6 +806,9 @@ func TestBuildRouterDeployment_LabelsAutoscaleManagedReplicas(t *testing.T) {
 	if dep.Spec.Template.Labels[RouterAutoscaleLabelKey] != "true" {
 		t.Fatalf("pod template label %s = %q, want true", RouterAutoscaleLabelKey, dep.Spec.Template.Labels[RouterAutoscaleLabelKey])
 	}
+	if dep.Spec.Selector.MatchLabels[RouterAutoscaleLabelKey] != "" {
+		t.Fatalf("selector must not include mutable autoscale label %s", RouterAutoscaleLabelKey)
+	}
 	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 3 {
 		t.Fatalf("initial replicas = %v, want minReplicas 3", dep.Spec.Replicas)
 	}

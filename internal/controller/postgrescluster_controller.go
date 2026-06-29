@@ -32,6 +32,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -115,6 +116,7 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=imagecatalogs;clusterimagecatalogs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresusers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets;deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;configmaps;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch;delete
@@ -401,6 +403,14 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.upsert(ctx, &cluster, desiredDep); err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "router Deployment", logger)
 		}
+		if routerAutoscaleEnabled(&cluster) && !databasePodsStopped {
+			if err := r.upsert(ctx, &cluster, buildRouterHPA(&cluster, depName)); err != nil {
+				return r.handleUpsertErr(ctx, &cluster, err, "router HPA", logger)
+			}
+		} else if err := r.deleteRouterHPA(ctx, &cluster); err != nil {
+			logger.Error(err, "Failed to delete router HPA", "name", RouterHPAName(cluster.Name))
+			return ctrl.Result{}, err
+		}
 
 		// router Deployment 도 cache propagation 지연을 graceful 처리.
 		var observed appsv1.Deployment
@@ -418,6 +428,9 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			ReadyReplicas: observedReady,
 			Endpoint:      fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName, cluster.Namespace, pgPort),
 		}
+	} else if err := r.deleteRouterHPA(ctx, &cluster); err != nil {
+		logger.Error(err, "Failed to delete inactive router HPA", "name", RouterHPAName(cluster.Name))
+		return ctrl.Result{}, err
 	}
 
 	// 2.5. PVC online expansion (PR #33): Spec.Shards.Storage.Size 증가 시
@@ -783,6 +796,19 @@ func (r *PostgresClusterReconciler) managedRolesStatus(
 	return &status, nil
 }
 
+func (r *PostgresClusterReconciler) deleteRouterHPA(ctx context.Context, cluster *postgresv1alpha1.PostgresCluster) error {
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RouterHPAName(cluster.Name),
+			Namespace: cluster.Namespace,
+		},
+	}
+	if err := r.Delete(ctx, hpa); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
 func managedRolesStatusForUsers(
 	cluster *postgresv1alpha1.PostgresCluster,
 	users []postgresv1alpha1.PostgresUser,
@@ -920,8 +946,7 @@ func (r *PostgresClusterReconciler) upsert(ctx context.Context, owner *postgresv
 }
 
 // copySpec 은 src 의 Spec 필드를 dst 로 복사한다 (현재 지원: ConfigMap/Service/
-// StatefulSet/Deployment). 다른 타입이 들어오면 panic — F01b 에서 호출 가능한
-// 타입은 4 종 뿐이므로 명시적으로 타입을 좁혀 잘못된 사용을 빠르게 발견한다.
+// StatefulSet/Deployment/HPA 등). 다른 타입이 들어오면 로그로 빠르게 발견한다.
 func copySpec(dst, src client.Object) {
 	switch d := dst.(type) {
 	case *corev1.ConfigMap:
@@ -952,11 +977,17 @@ func copySpec(dst, src client.Object) {
 		d.Labels = s.Labels
 	case *appsv1.Deployment:
 		s := src.(*appsv1.Deployment)
-		d.Spec.Replicas = s.Spec.Replicas
+		if !(s.Labels[RouterAutoscaleLabelKey] == "true" && d.GetResourceVersion() != "") {
+			d.Spec.Replicas = s.Spec.Replicas
+		}
 		d.Spec.Template = s.Spec.Template
 		if d.Spec.Selector == nil {
 			d.Spec.Selector = s.Spec.Selector
 		}
+		d.Labels = s.Labels
+	case *autoscalingv2.HorizontalPodAutoscaler:
+		s := src.(*autoscalingv2.HorizontalPodAutoscaler)
+		d.Spec = s.Spec
 		d.Labels = s.Labels
 	case *corev1.ServiceAccount:
 		s := src.(*corev1.ServiceAccount)
@@ -1054,6 +1085,7 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Named("postgrescluster").
