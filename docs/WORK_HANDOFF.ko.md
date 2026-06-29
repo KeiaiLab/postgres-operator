@@ -392,6 +392,14 @@ kubectl -n postgres-operator-system set env deploy/postgres-operator-controller-
   `go test -count=1 ./internal/controller --ginkgo.focus="source active"`,
   `go test -count=1 ./internal/controller`,
   `go test -count=1 ./cmd/instance ./internal/router ./cmd/pg-router ./cmd/reshard-copy-poc ./api/v1alpha1 ./internal/controller`.
+- Windows 로컬 테스트는 `scripts/test-windows.ps1` 를 우선 사용한다. 기본은 Go test cache 를 살리고,
+  `-Fresh` 를 줄 때만 `-count=1` 을 붙인다. `GOTMPDIR` / `GOCACHE` 는 repo 밖
+  `%LOCALAPPDATA%\keiailab\postgres-operator\...` 로 고정해 `*.test.exe` 가 workspace 에 남지 않게 한다.
+  예:
+
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-windows.ps1 -Preset controller -GinkgoFocus "Promote phase"
+  ```
 
 ---
 
