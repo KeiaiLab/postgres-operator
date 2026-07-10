@@ -1,7 +1,9 @@
 # INC-0002: 죽은 노드의 구 primary Pod가 role=primary 라벨을 계속 보유해 rw 라우팅 8h+ 장애
 
 - Detected: 2026-07-11
-- Resolved: Open — 근본 원인 식별 + fix 코드 작성·검증·push 완료(PR 생성 대기), 클러스터 측 이미지 롤아웃/수동 복구는 별도 트랙에서 진행
+- Resolved: Open — 근본 원인 **확정**(§Root Cause Final Confirmation) + fix 코드
+  작성·검증·push 완료(PR 생성만 사용자 직접 승인 대기), 클러스터 측 이미지
+  롤아웃/수동 복구는 별도 트랙에서 진행
 - Severity: SEV-1 (production, 소비 서비스 8h+ 전면 장애)
 - Owners: @phil (라이브 인시던트 실측 + 클러스터 측 복구), keiailab/postgres-operator (코드 fix)
 - Tags: [failover, rw-routing, instance-role-label, stuck-terminating, dead-node, ha]
@@ -88,8 +90,9 @@
       빌드 시각 `2026-06-22T22:36:36Z`를 명시한다. 이 정확한 커밋(현재 HEAD의
       조상, `git merge-base --is-ancestor` 확인)에서도 동일하게 `role`/`-rw`
       코드가 0건이다 — "배포 이미지가 HEAD보다 구버전이라 그때는 있었다" 가설도
-      이 특정 배포에 한해서는 반증됨(다만 이 이미지가 정말 실측 대상 파드의
-      이미지인지는 클러스터 측에서 별도 확인 필요, AI-0005).
+      이 특정 배포에 한해서는 반증됨(이 이미지가 실측 대상 파드의 이미지인지는
+      이후 AI-0006으로 클러스터 측 재확인 완료 — §Root Cause Final
+      Confirmation 참조).
 
    즉 rw Service와 그 selector가 의존하는 `role` 라벨은 이 repo *밖*에서
    관리되고 있다 — 가장 유력한 가설은 RFC-0004(`docs/rfcs/0004-pg-router-architecture.md`)가
@@ -137,6 +140,51 @@
 - reconcile 순서상 "라벨 동기화" 단계 자체가 없어, 재시딩(delete) 로직과의
   실행 순서 충돌이라는 개념조차 존재하지 않았다(순서 버그가 아니라 완전 부재).
 
+### Root Cause Final Confirmation (팀 리드 라이브 재실측, 2026-07-11)
+
+repo/registry 조사(위 4개 소스)에 더해, 팀 리드가 라이브 클러스터·GitOps repo를
+직접 재실측해 "repo 밖 레이어" 가설을 확정으로 승격시켰다:
+
+1. **platform/data(GitOps) repo 음성 확정** — 차트 템플릿 전수 검사에
+   Service/role 매니페스트가 0건. `Chart.yaml`에 "shard-0-rw" 문자열 히트가
+   있었으나 이는 코드가 아니라 **체인지로그 산문**(과거 다른 NP 관련 사고를
+   서술한 텍스트)이었다 — GitOps 쪽에도 이 Service를 선언적으로 관리하는
+   코드가 없다는 뜻.
+2. **라이브 CR spec 키 확인** — `postgrescluster/postgres-prod`의 실제 spec
+   최상위 키는 `[imageCatalogRef, postgresVersion, shardingMode, shards]`
+   뿐이다. rw Service 생성이나 role 라벨 부여를 지시할 수 있는 spec 필드가
+   없다 — "배포된 operator 바이너리가 이 CR의 특정 spec 필드를 보고 조건부로
+   rw Service를 만든다"는 가설도 반증.
+3. **rw Service `creationTimestamp = 2026-06-15T09:18:05Z`** — commit
+   `65d5819`(라벨 gap을 처음 발견하고 e2e를 CR-status 기반으로 우회시킨 커밋,
+   Author 시각 2026-06-15 21:26:30 +09:00 = 2026-06-15T12:26:30Z)와 **같은
+   날**. Service 생성이 그 커밋보다 ~3시간 앞선다 — 그날 failover/e2e 작업
+   도중 rw 라우팅을 손으로 먼저 구축하고, 나중에 그 작업에서 라벨이 Pod에
+   안 붙는 걸 발견해 e2e만 우회 fix했다는 시간순과 정합.
+
+**종합 서사**: 2026-06-15 failover/e2e 작업 중 누군가 rw 라우팅을 **수동
+스톱갭**으로 구축했다 — Service를 수동 생성 + `ownerReferences`를 손으로
+`postgres-prod` CR을 가리키게 배선(가비지 컬렉션 목적) + 파드에
+`postgres.keiailab.io/role` 라벨을 수동 부착. 사실상 RFC-0004 §"P5+ bypass
+mode"(shard의 primary Service를 직접 노출하는 미래 기능)를 **손으로 먼저
+구현**한 것이다. 이 수동 구성을 이후 갱신(failover 시 라벨 재부착)하는 주체가
+아무도 없었고, 26일 후 첫 실제 failover(e122 다운, 2026-07-11)에서 그 gap이
+노출됐다.
+
+**AI-0005 = 닫힘** — GitOps 음성 확정 + CR spec 필드 부재 + creationTimestamp
+정합으로 "수동 스톱갭" 결론 확정.
+**AI-0006 = 닫힘** — 팀 리드가 operator Deployment 이미지가
+`0.4.0-beta.5-reseed`이고 그 operator가 `postgres-prod`를 소유하고 있음을
+직접 실측 확인.
+
+**잔여 위험(영구 아님)**: 수동 Service의 `ownerReferences`가 `postgres-prod`
+CR의 UID에 배선돼 있으므로, 그 CR이 삭제 후 재생성되면(UID 변경)
+Kubernetes garbage collection이 이 Service를 **자동 삭제**한다 — 이 fix(Pod
+label 유지)로 rw 라우팅 자체는 복구되지만, CR 재생성 시나리오에서는 Service
+자체가 사라져 재차 장애가 난다. 영구 해법은 operator가 RFC-0004 §"P5+ bypass
+mode" Service 생성을 **정식 구현**하는 것 — 후속 이슈로 제안한다(별도
+feature request, 본 fix 범위 밖).
+
 ## Resolution
 
 `fix/primary-instance-role-label-sync` 브랜치(commit
@@ -178,15 +226,13 @@ envtest 스위트 `Ran 33 of 33 Specs ... SUCCESS! 33 Passed | 0 Failed`. 신규
 명령 2건은 본 fix 작업과 별도 트랙에서 에스컬레이션 중(클러스터 접근 권한 없이
 코드만으로 작업했다는 제약상 본 INC 작성자 범위 밖).
 
-**잔여 위험(repo 밖 레이어 확인 필요)**: `postgres.keiailab.io/role`을 소비하는
-rw Service + 그 배포 매니페스트가 이 repo 밖(운영/GitOps 레이어, 혹은 수동
-생성)에 있다는 것은 4중 소스(현재 HEAD 전수 조사 + git 전체 히스토리 pickaxe +
-`ShardServiceName` 전체 이력 + 라이브 배포 이미지의 정확한 소스 커밋 SLSA
-provenance 확인)로 강하게 뒷받침되지만, 그 레이어에 **이 라벨을 별도로
-patch/reconcile하는 다른 컨트롤러나 웹훅이 있는지, 혹은 완전히 정적으로(1회성
-수동) 생성된 것인지는 repo/registry 조사만으로는 확인 불가**하다. 만약 그런
-외부 자동화가 존재하고 그것이 stale한 값으로 덮어쓴다면 본 fix와 충돌할 수
-있다 — 클러스터/GitOps repo 측 조사(AI-0005) 필요.
+**잔여 위험 — 해소됨(§Root Cause Final Confirmation)**: `postgres.keiailab.io/role`을
+소비하는 rw Service는 GitOps 코드나 별도 컨트롤러/웹훅이 아니라 **2026-06-15
+1회성 수동 생성**임이 확정됐다(GitOps 매니페스트 음성 + CR spec 필드 부재 +
+creationTimestamp 정합). 즉 본 fix(Pod label 유지)와 충돌할 외부 자동화는
+없다 — 다만 그 Service의 `ownerReferences`가 CR UID에 배선돼 있어 CR
+재생성 시 GC로 삭제된다는 **별개의, 영구 아닌 잔여 위험**이 있다(§Root Cause
+Final Confirmation 잔여 위험 단락 + 후속 이슈 제안 참조).
 
 ## Prevention
 
@@ -212,20 +258,22 @@ patch/reconcile하는 다른 컨트롤러나 웹훅이 있는지, 혹은 완전�
       중 — 본 INC 작성자 범위 밖)
 - [ ] AI-0004: `test/e2e/failover_chaos_test.go`에 라벨 selector 기반 검증
       재도입 검토 (Owner: TBD)
-- [ ] AI-0005: `postgres-prod-shard-0-rw` Service + `postgres.keiailab.io/role`
-      라벨을 관리하는 운영/GitOps repo(또는 수동 생성 이력)를 찾아 그 안에
-      별도 patch/reconcile 로직(컨트롤러·웹훅·cron 등)이 있는지 확인 — 있다면
-      본 fix와의 충돌 여부 검토. RFC-0004 §"P5+ bypass mode" 미구현 gap을
-      메우려 수동 생성됐을 가능성이 유력 가설 — 그렇다면 이 fix(Pod label 유지)
-      만으로 rw 라우팅이 완전히 복구된다 (Owner: @phil, 클러스터/GitOps repo
-      접근 필요 — 본 INC 작성자 범위 밖)
-- [ ] AI-0006: `ghcr.io/keiailab/postgres-operator:0.4.0-beta.5-reseed`
+- [x] AI-0005: `postgres-prod-shard-0-rw` Service + `postgres.keiailab.io/role`
+      라벨의 관리 주체 확인 — **닫힘**: GitOps repo(platform/data) 차트 템플릿
+      전수 검사 음성(매니페스트 0건, "shard-0-rw" 문자열은 체인지로그 산문) +
+      라이브 CR spec 필드에 관련 키 부재 + Service `creationTimestamp`가
+      commit `65d5819`(라벨 gap 발견 커밋)와 같은 날 · 그보다 ~3시간 이름 —
+      **2026-06-15 1회성 수동 생성**으로 확정(팀 리드 실측, §Root Cause Final
+      Confirmation). 별도 자동화 없음 → 본 fix와 충돌 위험 없음.
+- [x] AI-0006: 배포 이미지가 실제 postgres-prod 운영 이미지인지 확인 — **닫힘**:
+      팀 리드가 operator Deployment 이미지 = `ghcr.io/keiailab/postgres-operator:0.4.0-beta.5-reseed`
       (SLSA provenance 확인 소스 = commit `cd7c4f800cad3230fdbde0ff96182f2ff456d890`,
-      2026-06-22 빌드)가 실제로 postgres-prod에서 실행 중인 이미지인지 클러스터
-      측에서 재확인(`kubectl get pod ... -o jsonpath='{.spec.containers[*].image}'`) —
-      맞다면 fix 머지 후 최소 `main` HEAD(2026-06-29, PR #280)까지의 누적 변경
-      전체가 이번 릴리스로 함께 반영된다는 뜻이므로 롤아웃 회귀 범위 인지
-      필요 (Owner: @phil, 클러스터 접근 필요 — 본 INC 작성자 범위 밖)
+      2026-06-22 빌드)이고 그 operator가 `postgres-prod`를 소유함을 직접 실측.
+- [ ] AI-0007 (신규): RFC-0004 §"P5+ bypass mode"(shard의 primary Service를
+      operator가 직접 노출)를 **정식 구현** — 현재의 rw Service는 수동 생성물이라
+      `ownerReferences`가 CR UID에 배선돼 있어 CR 재생성 시 GC로 삭제되는
+      잔여 위험이 있다(영구 아님, 본 fix 범위 밖). 별도 feature request로 제안
+      (Owner: TBD).
 
 ## Refs
 
@@ -254,3 +302,8 @@ patch/reconcile하는 다른 컨트롤러나 웹훅이 있는지, 혹은 완전�
 - RFC-0004 (`docs/rfcs/0004-pg-router-architecture.md`) — "P5+ bypass mode:
   shard의 primary Service를 직접 노출" 미구현 gap, rw Service 수동 생성 가설의
   근거
+- 최종 확정 실측(팀 리드, 2026-07-11): platform/data(GitOps) 차트 템플릿 전수
+  검사 음성(Service/role 매니페스트 0건) + 라이브 CR spec 최상위 키
+  `[imageCatalogRef, postgresVersion, shardingMode, shards]`(rw 생성 지시
+  필드 없음) + rw Service `creationTimestamp=2026-06-15T09:18:05Z`(commit
+  `65d5819` Author 시각 2026-06-15T12:26:30Z보다 ~3시간 이름, 같은 날)
