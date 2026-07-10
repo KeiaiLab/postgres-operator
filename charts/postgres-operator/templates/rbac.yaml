@@ -36,6 +36,12 @@ rules:
   - apiGroups: [""]
     resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]
+  # nodes: reseedStandby(#226)가 stuck-Terminating standby pod 를 force-delete로
+  # 승격하기 전, 대상 node 의 Ready condition 을 확인해 "정말 죽은 노드"에서만
+  # 승격하도록 하는 안전 게이트(stuckTerminatingOnDeadNode/nodeNotReady) 에 필요.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [get, list, watch, patch, update]

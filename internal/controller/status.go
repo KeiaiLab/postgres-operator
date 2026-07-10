@@ -46,6 +46,7 @@ const (
 	ConditionShardsReady       = "ShardsReady"
 	ConditionRouterReady       = "RouterReady"
 	ConditionFailoverReady     = "FailoverReady"
+	ConditionPrimaryRoleSynced = "PrimaryRoleSynced"
 	ConditionHibernation       = "cnpg.io/hibernation"
 	ConditionBackupHealthy     = "BackupHealthy"
 	ConditionAutoSplitEligible = "AutoSplitEligible"
@@ -71,6 +72,12 @@ const (
 	ReasonDemoting     = "Demoting"
 	ReasonElectionWon  = "ElectionWon"
 	ReasonElectionLost = "ElectionLost"
+
+	// ReasonRoleLabelPending — primary Pod은 Ready이지만 instance-role=primary
+	// label이 아직 그 Pod로 수렴하지 않은 상태 (#226). CR status/lease는 정상인데
+	// 그 label에 의존하는 Service selector(rw 라우팅)는 여전히 구 primary를
+	// 가리키거나 endpoints가 0개일 수 있다는 모순을 노출한다.
+	ReasonRoleLabelPending = "RoleLabelPending"
 
 	// Reasons — 분산 SQL topology (P3+ 활성)
 	ReasonTopologyDrift = "TopologyDrift"
