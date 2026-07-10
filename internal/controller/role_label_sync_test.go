@@ -22,8 +22,15 @@ import (
 )
 
 // TestReconcilePrimaryRoleLabels_LabelsPrimaryAndReplica pins #226 F1: a
-// freshly-observed shard (no instance-role label on either pod yet) converges
-// both pods to the correct label in one call.
+// freshly-observed shard (no role labels on either pod yet) converges both
+// pods to the correct label in one call — on *both* primaryRoleLabelKeys.
+// RwRoutingRoleLabelKey (postgres.keiailab.io/role) is the key the live
+// postgres-prod rw Service selector was measured to actually use
+// (team-lead kubectl measurement, 2026-07-11); InstanceRoleLabelKey
+// (postgres.keiailab.io/instance-role) is the key this repo's own fencing
+// decision logic/runbook already document. Neither key's Service builder
+// lives in this repo (confirmed via full grep + `git log -S` across all
+// history), so both are synced defensively.
 func TestReconcilePrimaryRoleLabels_LabelsPrimaryAndReplica(t *testing.T) {
 	t.Parallel()
 	const ns = "default"
@@ -55,25 +62,32 @@ func TestReconcilePrimaryRoleLabels_LabelsPrimaryAndReplica(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-1"}, &gotPrimary); err != nil {
 		t.Fatalf("get primary pod: %v", err)
 	}
-	if gotPrimary.Labels[InstanceRoleLabelKey] != InstanceRoleLabelPrimary {
-		t.Fatalf("primary pod instance-role label = %q, want %q", gotPrimary.Labels[InstanceRoleLabelKey], InstanceRoleLabelPrimary)
+	for _, key := range []string{InstanceRoleLabelKey, RwRoutingRoleLabelKey} {
+		if gotPrimary.Labels[key] != InstanceRoleLabelPrimary {
+			t.Fatalf("primary pod label[%s] = %q, want %q", key, gotPrimary.Labels[key], InstanceRoleLabelPrimary)
+		}
 	}
 
 	var gotReplica corev1.Pod
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-0"}, &gotReplica); err != nil {
 		t.Fatalf("get replica pod: %v", err)
 	}
-	if gotReplica.Labels[InstanceRoleLabelKey] != InstanceRoleLabelReplica {
-		t.Fatalf("replica pod instance-role label = %q, want %q", gotReplica.Labels[InstanceRoleLabelKey], InstanceRoleLabelReplica)
+	for _, key := range []string{InstanceRoleLabelKey, RwRoutingRoleLabelKey} {
+		if gotReplica.Labels[key] != InstanceRoleLabelReplica {
+			t.Fatalf("replica pod label[%s] = %q, want %q", key, gotReplica.Labels[key], InstanceRoleLabelReplica)
+		}
 	}
 }
 
 // TestReconcilePrimaryRoleLabels_FlipsEvenWhenDemotedPrimaryIsStuckTerminating
-// reproduces the INC 2026-07-11 core mechanism: the old primary carries a
-// stale instance-role=primary label and is wedged Terminating (dead node,
-// finalizer never clears), while the newly-promoted primary carries no label
-// yet. F1 requires the label state to converge to what the CR status/lease
-// already say regardless of whether the stuck pod's deletion ever completes.
+// reproduces the INC 2026-07-11 core mechanism exactly as measured live
+// (team-lead kubectl on postgres-prod): the old primary carries a stale
+// postgres.keiailab.io/role=primary label — the key the rw Service selector
+// actually consumes — and is wedged Terminating (dead node, finalizer never
+// clears), while the newly-promoted primary carries no role labels yet. F1
+// requires *both* primaryRoleLabelKeys to converge to what the CR
+// status/lease already say, regardless of whether the stuck pod's deletion
+// ever completes.
 func TestReconcilePrimaryRoleLabels_FlipsEvenWhenDemotedPrimaryIsStuckTerminating(t *testing.T) {
 	t.Parallel()
 	const ns = "default"
@@ -82,7 +96,10 @@ func TestReconcilePrimaryRoleLabels_FlipsEvenWhenDemotedPrimaryIsStuckTerminatin
 
 	oldPrimary := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Name: "demo-shard-0-0", Namespace: ns,
-		Labels:     map[string]string{InstanceRoleLabelKey: InstanceRoleLabelPrimary},
+		Labels: map[string]string{
+			InstanceRoleLabelKey:  InstanceRoleLabelPrimary,
+			RwRoutingRoleLabelKey: InstanceRoleLabelPrimary,
+		},
 		Finalizers: []string{"keiailab.io/test-stuck"}, // keeps the pod around after Delete()
 	}}
 	newPrimary := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-shard-0-1", Namespace: ns}}
@@ -124,18 +141,22 @@ func TestReconcilePrimaryRoleLabels_FlipsEvenWhenDemotedPrimaryIsStuckTerminatin
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-1"}, &gotNewPrimary); err != nil {
 		t.Fatalf("get new primary: %v", err)
 	}
-	if gotNewPrimary.Labels[InstanceRoleLabelKey] != InstanceRoleLabelPrimary {
-		t.Fatalf("new primary instance-role label = %q, want %q (must not be blocked by the stuck old primary)",
-			gotNewPrimary.Labels[InstanceRoleLabelKey], InstanceRoleLabelPrimary)
+	for _, key := range []string{InstanceRoleLabelKey, RwRoutingRoleLabelKey} {
+		if gotNewPrimary.Labels[key] != InstanceRoleLabelPrimary {
+			t.Fatalf("new primary label[%s] = %q, want %q (must not be blocked by the stuck old primary)",
+				key, gotNewPrimary.Labels[key], InstanceRoleLabelPrimary)
+		}
 	}
 
 	var gotOldPrimary corev1.Pod
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-0"}, &gotOldPrimary); err != nil {
 		t.Fatalf("get old (stuck terminating) primary: %v", err)
 	}
-	if gotOldPrimary.Labels[InstanceRoleLabelKey] != InstanceRoleLabelReplica {
-		t.Fatalf("demoted pod instance-role label = %q, want %q even though it is stuck Terminating",
-			gotOldPrimary.Labels[InstanceRoleLabelKey], InstanceRoleLabelReplica)
+	for _, key := range []string{InstanceRoleLabelKey, RwRoutingRoleLabelKey} {
+		if gotOldPrimary.Labels[key] != InstanceRoleLabelReplica {
+			t.Fatalf("demoted pod label[%s] = %q, want %q even though it is stuck Terminating — this is exactly the label (postgres.keiailab.io/role) the live rw Service selector consumes",
+				key, gotOldPrimary.Labels[key], InstanceRoleLabelReplica)
+		}
 	}
 }
 
