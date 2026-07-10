@@ -64,20 +64,49 @@
    의존하는 `postgres.keiailab.io/role=primary` 라벨이 shard-0-0에 그대로
    남아 있고 shard-0-1에는 부착되지 않았다.
 2. **왜 그 라벨이 shard-0-1로 이전되지 않았는가?** `postgres.keiailab.io/role`을
-   primary/replica 값으로 patch하는 코드가 이 repo에 **존재하지 않는다** —
-   현재 `main` 코드 전체(`grep -rn 'postgres.keiailab.io/role'`)와 git 전체
-   히스토리(`git log -S 'postgres.keiailab.io/role"' --all`)를 조사했으나,
-   이 키가 등장하는 곳은 `internal/controller/tls.go`의 무관한 TLS 인증서
-   레이블(`"server-tls"` 값) 단 한 곳뿐이었다. 즉 rw Service와 그 selector가
-   의존하는 `role` 라벨은 이 repo *밖*(운영/GitOps 배포 레이어)에서 관리되고
-   있고, 그 레이어 역시 failover 이벤트에 반응해 라벨을 갱신하는 로직이 없다
-   — 이 repo만 고쳐서는 근본 해결이 안 되는 부분이 있다는 뜻이다(§Resolution
-   잔여 참조).
+   primary/replica 값으로 patch하는 코드가 이 repo에 **존재하지 않는다**. 다음
+   4개 독립 소스를 모두 조사했고 전부 음성이었다:
+   1. 현재 `main` HEAD(`25476e1`) 전체 grep + `internal/controller/builders.go`의
+      Service 생성 5개 지점(`buildHeadlessService`/`buildClientService`/
+      `buildTargetHeadlessService`/pooler 관련 2건) 전수 확인 — `role` 인자는
+      항상 리터럴 `"shard"`/`"router"` 고정, `SelectorLabels()`가 위임하는
+      `keiailab-commons@v0.12.0` `Set.All()` 구현( `$GOMODCACHE/github.com/keiailab/keiailab-commons@v0.12.0/pkg/labels/labels.go`)도
+      `app.kubernetes.io/component`만 만들고 `postgres.keiailab.io/role`은
+      만들지 않는다.
+   2. git 전체 히스토리 pickaxe(`git log -S 'postgres.keiailab.io/role"' --all`,
+      `-S '"-rw"'`, `-S 'RoleLabelKey'`) — 등장은 `internal/controller/tls.go`의
+      무관한 TLS 인증서 라벨(`"server-tls"` 값) 단 한 곳뿐.
+   3. `internal/controller/names.go`의 `ShardServiceName` **전체 tracked 이력**
+      (`git log --all -p -- internal/controller/names.go`) — 이 함수가
+      **처음 도입된 시점부터 지금까지 단 한 번도 `-rw`였던 적이 없다**
+      (`-headless` 고정) — "예전엔 `-rw`였다가 리네임됐다" 가설도 반증됨.
+   4. **라이브 배포 이미지의 정확한 소스 커밋 확인**(registry 조회만 — 클러스터
+      접근 없음): `ghcr.io/keiailab/postgres-operator:0.4.0-beta.5-reseed`의
+      SLSA provenance attestation(`crane manifest`/`crane blob`로 직접 fetch)이
+      `vcs:revision=cd7c4f800cad3230fdbde0ff96182f2ff456d890`,
+      `vcs:source=https://github.com/KeiaiLab/postgres-operator.git`,
+      빌드 시각 `2026-06-22T22:36:36Z`를 명시한다. 이 정확한 커밋(현재 HEAD의
+      조상, `git merge-base --is-ancestor` 확인)에서도 동일하게 `role`/`-rw`
+      코드가 0건이다 — "배포 이미지가 HEAD보다 구버전이라 그때는 있었다" 가설도
+      이 특정 배포에 한해서는 반증됨(다만 이 이미지가 정말 실측 대상 파드의
+      이미지인지는 클러스터 측에서 별도 확인 필요, AI-0005).
+
+   즉 rw Service와 그 selector가 의존하는 `role` 라벨은 이 repo *밖*에서
+   관리되고 있다 — 가장 유력한 가설은 RFC-0004(`docs/rfcs/0004-pg-router-architecture.md`)가
+   "P5+ 미래 기능"으로 명시한 "shard의 primary Service를 직접 노출하는 bypass
+   mode"가 아직 구현되지 않아, 운영팀이 그 gap을 메우려고 Service를 수동
+   생성(+ GC를 위해 `ownerReferences`도 수동으로 PostgresCluster CR을 가리키게
+   설정)했다는 것이다. 그 레이어는 이 repo가 알지 못하므로 failover 이벤트에도
+   반응하지 않는다 — 이 repo만 고쳐서는 근본 해결이 안 되는 부분이 남는다는
+   뜻이다(§Resolution 잔여 참조).
    - 별개로, repo 자체의 fencing 결정 로직(`internal/controller/failover/pvc_fence_runbook.go`의
      `PVCFenceMountedPod.InstanceRole`)과 운영 runbook(`docs/runbooks/pvc-fence.md`
      §5.2)은 `postgres.keiailab.io/instance-role`이라는 *다른* 키를 참조해 왔지만,
      이 키 역시 실제로 Pod에 patch하는 코드가 없었다(순수 우연히 사고 원인과
      증상이 유사한 별개의 gap).
+   - 참고: `postgres-prod-shard-0-ro`(replica 라우팅) Service는 라이브에
+     **존재하지 않는다**(팀 리드 재조회 NotFound) — repo에 "-rw"/"-ro" Service
+     builder가 둘 다 없다는 것과 정합(있었다면 보통 쌍으로 만들었을 것).
 3. **왜 이 gap이 지금까지 발견되지 않았는가?** `test/e2e/failover_chaos_test.go`가
    한때 `postgres.keiailab.io/instance-role=primary`로 primary를 selector했다
    (그 키에 대한 원래 설계 의도의 증거 — 라이브에서 실제로 쓰이는 `role` 키와는
@@ -150,11 +179,14 @@ envtest 스위트 `Ran 33 of 33 Specs ... SUCCESS! 33 Passed | 0 Failed`. 신규
 코드만으로 작업했다는 제약상 본 INC 작성자 범위 밖).
 
 **잔여 위험(repo 밖 레이어 확인 필요)**: `postgres.keiailab.io/role`을 소비하는
-rw Service + 그 배포 매니페스트가 이 repo 밖(운영/GitOps 레이어)에 있다는 것만
-확인했을 뿐, 그 레이어에 **이 라벨을 별도로 patch/reconcile하는 다른 컨트롤러나
-웹훅이 있는지는 repo 조사만으로는 확인 불가**하다. 만약 그런 외부 메커니즘이
-존재하고 그것이 stale한 값으로 덮어쓴다면 본 fix와 충돌할 수 있다 — 클러스터
-측 조사(AI-0005) 필요.
+rw Service + 그 배포 매니페스트가 이 repo 밖(운영/GitOps 레이어, 혹은 수동
+생성)에 있다는 것은 4중 소스(현재 HEAD 전수 조사 + git 전체 히스토리 pickaxe +
+`ShardServiceName` 전체 이력 + 라이브 배포 이미지의 정확한 소스 커밋 SLSA
+provenance 확인)로 강하게 뒷받침되지만, 그 레이어에 **이 라벨을 별도로
+patch/reconcile하는 다른 컨트롤러나 웹훅이 있는지, 혹은 완전히 정적으로(1회성
+수동) 생성된 것인지는 repo/registry 조사만으로는 확인 불가**하다. 만약 그런
+외부 자동화가 존재하고 그것이 stale한 값으로 덮어쓴다면 본 fix와 충돌할 수
+있다 — 클러스터/GitOps repo 측 조사(AI-0005) 필요.
 
 ## Prevention
 
@@ -181,10 +213,19 @@ rw Service + 그 배포 매니페스트가 이 repo 밖(운영/GitOps 레이어)
 - [ ] AI-0004: `test/e2e/failover_chaos_test.go`에 라벨 selector 기반 검증
       재도입 검토 (Owner: TBD)
 - [ ] AI-0005: `postgres-prod-shard-0-rw` Service + `postgres.keiailab.io/role`
-      라벨을 관리하는 운영/GitOps repo를 찾아 그 안에 별도 patch/reconcile
-      로직(컨트롤러·웹훅·cron 등)이 있는지 확인 — 있다면 본 fix와의 충돌 여부
-      검토 (Owner: @phil, 클러스터/GitOps repo 접근 필요 — 본 INC 작성자
-      범위 밖)
+      라벨을 관리하는 운영/GitOps repo(또는 수동 생성 이력)를 찾아 그 안에
+      별도 patch/reconcile 로직(컨트롤러·웹훅·cron 등)이 있는지 확인 — 있다면
+      본 fix와의 충돌 여부 검토. RFC-0004 §"P5+ bypass mode" 미구현 gap을
+      메우려 수동 생성됐을 가능성이 유력 가설 — 그렇다면 이 fix(Pod label 유지)
+      만으로 rw 라우팅이 완전히 복구된다 (Owner: @phil, 클러스터/GitOps repo
+      접근 필요 — 본 INC 작성자 범위 밖)
+- [ ] AI-0006: `ghcr.io/keiailab/postgres-operator:0.4.0-beta.5-reseed`
+      (SLSA provenance 확인 소스 = commit `cd7c4f800cad3230fdbde0ff96182f2ff456d890`,
+      2026-06-22 빌드)가 실제로 postgres-prod에서 실행 중인 이미지인지 클러스터
+      측에서 재확인(`kubectl get pod ... -o jsonpath='{.spec.containers[*].image}'`) —
+      맞다면 fix 머지 후 최소 `main` HEAD(2026-06-29, PR #280)까지의 누적 변경
+      전체가 이번 릴리스로 함께 반영된다는 뜻이므로 롤아웃 회귀 범위 인지
+      필요 (Owner: @phil, 클러스터 접근 필요 — 본 INC 작성자 범위 밖)
 
 ## Refs
 
@@ -200,4 +241,16 @@ rw Service + 그 배포 매니페스트가 이 repo 밖(운영/GitOps 레이어)
   lease `postgres-prod-shard-0-primary`,
   `postgres.keiailab.io/role` 라벨(팀 리드 2026-07-11 kubectl 직접 재실측 —
   rw Service selector + 죽은 shard-0-0 pod 양쪽에서 확인, 최초 초안의
-  `instance-role` 키 추정을 정정)
+  `instance-role` 키 추정을 정정), `postgres-prod-shard-0-rw` Service
+  `ownerReferences={kind: PostgresCluster, name: postgres-prod,
+  controller: true}`(팀 리드 재실측), `postgres-prod-shard-0-ro` Service
+  NotFound(팀 리드 재조회)
+- 배포 이미지 소스 커밋 확인(registry 조회, 클러스터 접근 없음):
+  `ghcr.io/keiailab/postgres-operator:0.4.0-beta.5-reseed` →
+  `crane manifest`/`crane blob`로 SLSA provenance attestation fetch →
+  `vcs:revision=cd7c4f800cad3230fdbde0ff96182f2ff456d890`
+  (`fix(rbac): operator ClusterRole pods delete 권한 추가 (reseedStandby 작동) (#277)`,
+  2026-06-23, 현재 HEAD의 조상 — `git merge-base --is-ancestor` 확인)
+- RFC-0004 (`docs/rfcs/0004-pg-router-architecture.md`) — "P5+ bypass mode:
+  shard의 primary Service를 직접 노출" 미구현 gap, rw Service 수동 생성 가설의
+  근거
