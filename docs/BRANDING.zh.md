@@ -87,7 +87,10 @@ GitHub README 的 shield.io 徽章推荐采用以上 hex。
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/<license placeholder>-green.svg" alt="License"/></a>
+  <!-- <license placeholder> = 替换为实际的 SPDX 徽章片段 (例如: MIT repo → License-MIT; 本 repo = MIT)。
+       禁止硬编码 —— 防止其他许可证 repo 复制本模板时产生错误徽章
+       (commons docs/BRANDING.md §6 SSOT: 统一 placeholder 表示法) -->
   <!-- 保留并对齐现有 shield.io 徽章 -->
 </p>
 
