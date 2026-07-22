@@ -88,7 +88,10 @@ GitHub README 의 shield.io badge 는 위 hex 사용 권장.
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/<license placeholder>-green.svg" alt="License"/></a>
+  <!-- <license placeholder> = 실제 SPDX 배지 세그먼트로 치환 (예: MIT repo → License-MIT; 본 repo = MIT).
+       하드코딩 금지 — 다른 라이선스 repo 가 본 템플릿을 복사할 때 오배지 재생산 방지
+       (commons docs/BRANDING.md §6 SSOT: placeholder 표기 통일) -->
   <!-- 기존 shield.io badges 유지 + 정합 -->
 </p>
 

@@ -1,7 +1,7 @@
 # Permissive SPDX identifiers compatible with this project's
-# Apache-2.0 grant. Every transitive Go dependency's license must
-# resolve to one of these — anything else fails the
-# `go-licenses scan` workflow (see .github/workflows/go-licenses.yml).
+# MIT grant. Every transitive Go dependency's license must
+# resolve to one of these — anything else fails the local
+# `go-licenses` gate (lefthook/Makefile — ADR-0018/ADR-0022).
 #
 # Copyleft families (GPL / AGPL / LGPL / SSPL / EPL with copyleft
 # clauses) are deliberately omitted. If a dependency requires one of

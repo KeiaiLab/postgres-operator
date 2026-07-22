@@ -87,7 +87,10 @@ GitHub README の shield.io バッジは上記 hex の使用を推奨。
 > **MIT-licensed PostgreSQL Operator for Kubernetes — vanilla PG18+, license-clean, K8s-native auto-sharding roadmap**
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/<license placeholder>-green.svg" alt="License"/></a>
+  <!-- <license placeholder> = 実際の SPDX バッジセグメントに置換 (例: MIT repo → License-MIT; 本 repo = MIT)。
+       ハードコーディング禁止 — 別ライセンスの repo が本テンプレートを複製する際の誤バッジ再生産を防止
+       (commons docs/BRANDING.md §6 SSOT: placeholder 表記の統一) -->
   <!-- 既存の shield.io バッジを維持 + 整合 -->
 </p>
 
