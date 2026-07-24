@@ -1101,8 +1101,8 @@ func TestRestorePrimaryPodHealth(t *testing.T) {
 	}}}
 
 	cases := []struct {
-		name              string
-		pods              []corev1.Pod
+		name                 string
+		pods                 []corev1.Pod
 		wantReady, wantCrash bool
 	}{
 		{"empty (STS scale-up 전)", nil, false, false},

@@ -4,6 +4,14 @@ This project follows SemVer.
 
 ## [Unreleased]
 
+## [0.4.0-beta.10] - 2026-07-24
+
+### Fixed (failover safety — postgres-prod 2026-07-24 SEV-1 root fix, #287)
+
+- *(failover)* #220 failback guard now compares WAL freshness: a fenced candidate leading the freshest serving member by >=1GiB overrides the guard, preventing stale-replica promotion from destroying fresh data. Fail-safe: unknown positions keep the guard.
+- *(controller)* New `ReplicationHealthy` condition + Warning event surfaces frozen/disconnected standbys (the incident ran 7 days undetected).
+- *(controller)* Rogue-primary/stale-standby reseed paths gained per-pod cooldown + audit Warning events (no more silent PVC delete storms).
+
 ### Resharding reliability
 
 - *(reshard)* B-17 batches `InitialCopy` in a transaction with prepared statements and passes through the copy timeout.

@@ -13,6 +13,14 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.10] - 2026-07-24
+
+### 수정 (failover 안전성 — postgres-prod 2026-07-24 SEV-1 근본수정, #287)
+
+- *(failover)* #220 failback guard 에 WAL 신선도 비교 추가: fenced 후보가 서빙 멤버보다 1GiB 이상 앞서면 가드를 뒤집어 stale 승격에 의한 fresh 데이터 파괴를 차단. 위치 미상 시 가드 유지(fail-safe).
+- *(controller)* `ReplicationHealthy` condition + Warning 이벤트로 동결/단절 standby 표면화(사고는 7일 무감지였음).
+- *(controller)* rogue-primary/stale-standby 재시드 경로에 파드별 cooldown + 감사 이벤트(무음 PVC 삭제 폭풍 차단).
+
 ### Added (추가됨)
 
 - *(router,sharding)* **분산 SQL 쿼리 라우터** (`cmd/pg-router`, RFC-0004). 쿼리 인지

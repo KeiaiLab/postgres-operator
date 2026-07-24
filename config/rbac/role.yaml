@@ -80,13 +80,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - metrics.k8s.io
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-- apiGroups:
   - batch
   resources:
   - jobs
@@ -123,6 +116,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
   - policy
   resources:
   - poddisruptionbudgets
@@ -143,6 +143,7 @@ rules:
   - postgresdatabases
   - postgresusers
   - scheduledbackups
+  - shardsplitjobs
   verbs:
   - create
   - delete
@@ -190,18 +191,6 @@ rules:
   resources:
   - shardranges
   verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - postgres.keiailab.io
-  resources:
-  - shardsplitjobs
-  verbs:
-  - create
-  - delete
   - get
   - list
   - patch

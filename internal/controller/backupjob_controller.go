@@ -691,9 +691,10 @@ func (r *BackupJobReconciler) reconcileSidecarRestore(
 // finalizeSidecarRestore 는 restore runner Job(pgbackrest 파일복원) 완료 후, STS 가 다시
 // 올라와 PostgreSQL 이 recovery 를 수행한 결과를 검증한다(#B-26). pgbackrest 성공만으로는
 // 부족하다 — 도달불가 recovery target 등으로 PG 가 CrashLoop 하면 restore 는 실패다.
-//   ready   → Succeeded
-//   crashed → Failed(RestorePostgresFailed)
-//   기동 중 → requeue, backupRestoreHealthTimeout 초과 시 Failed
+//
+//	ready   → Succeeded
+//	crashed → Failed(RestorePostgresFailed)
+//	기동 중 → requeue, backupRestoreHealthTimeout 초과 시 Failed
 func (r *BackupJobReconciler) finalizeSidecarRestore(
 	ctx context.Context,
 	bj *postgresv1alpha1.BackupJob,

@@ -294,7 +294,9 @@ spec:
                 - Aborted
                 type: string
               snapshotLSN:
-                description: SnapshotLSN 은 향후 snapshot 기준점 기록을 위한 예약 필드이다. 현재 SnapshotWAL 은 no-op 이므로 컨트롤러가 이 값을 채우지 않는다.
+                description: |-
+                  SnapshotLSN 은 향후 snapshot 기준점 기록을 위한 예약 필드이다.
+                  현재 SnapshotWAL 은 no-op 이므로 컨트롤러가 이 값을 채우지 않는다.
                 type: string
               startedAt:
                 description: StartedAt 은 본 작업이 Pending → SnapshotWAL 으로 진입한 시각.
