@@ -13,6 +13,14 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.10] - 2026-07-24
+
+### 修正 (failover 安全性 — postgres-prod 2026-07-24 SEV-1 根本修正, #287)
+
+- *(failover)* #220 failback guard に WAL 鮮度比較を追加: fenced 候補が serving メンバーを 1GiB 以上リードする場合ガードを覆し、stale 昇格による新鮮データ破壊を防止。位置不明時はガード維持(fail-safe)。
+- *(controller)* `ReplicationHealthy` condition + Warning イベントで凍結/切断 standby を可視化。
+- *(controller)* rogue-primary/stale-standby reseed 経路に pod 別 cooldown + 監査イベント。
+
 ### Added (追加)
 
 - *(olm,docs)* `docs/operator-guide/community-operators-onboarding.md` —

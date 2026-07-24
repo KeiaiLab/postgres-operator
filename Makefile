@@ -192,7 +192,7 @@ go-licenses: ## Go 의존성 라이선스 검사 — forbidden/restricted 라이
 md-link-check: ## 마크다운 문서 깨진 링크 검사 (구 GHA markdown-link-check.yml 대체).
 	@command -v markdown-link-check >/dev/null 2>&1 || { echo "[error] markdown-link-check not installed: npm install -g markdown-link-check"; exit 1; }
 	@echo "=== markdown-link-check (README/CHANGELOG/docs) ==="
-	@fail=0; for f in README.md CHANGELOG.md $$(find docs -name '*.md' 2>/dev/null); do \
+	@fail=0; for f in README.md docs/CHANGELOG.md $$(find docs -name '*.md' 2>/dev/null); do \
 		[ -f "$$f" ] || continue; \
 		markdown-link-check -q "$$f" || fail=1; \
 	done; \
@@ -338,8 +338,8 @@ release-preflight: require-version gate ## push 없이 릴리스 메타데이터
 	TARGET_VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
 	if [ "$$CHART_VER" != "$$TARGET_VER" ]; then echo "ERROR: Chart.yaml version=$$CHART_VER, VERSION=$$TARGET_VER"; exit 1; fi; \
 	if [ "$$APP_VER" != "$$TARGET_VER" ]; then echo "ERROR: Chart.yaml appVersion=$$APP_VER, VERSION=$$TARGET_VER"; exit 1; fi
-	@test -f CHANGELOG.md
-	@grep -q "\[$$(echo "$(VERSION)" | sed 's/^v//')\]" CHANGELOG.md || { echo "ERROR: CHANGELOG.md에 $(VERSION) 항목이 없음"; exit 1; }
+	@test -f docs/CHANGELOG.md
+	@grep -q "\[$$(echo "$(VERSION)" | sed 's/^v//')\]" docs/CHANGELOG.md || { echo "ERROR: docs/CHANGELOG.md에 $(VERSION) 항목이 없음"; exit 1; }
 	@git rev-parse -q --verify "refs/tags/$(VERSION)" >/dev/null && { echo "ERROR: tag $(VERSION) 이미 존재"; exit 1; } || true
 	@echo "=== release preflight: helm package ==="
 	@rm -rf "$(RELEASE_TMP)"

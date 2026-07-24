@@ -13,6 +13,14 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.10] - 2026-07-24
+
+### 修复 (failover 安全性 — postgres-prod 2026-07-24 SEV-1 根因修复, #287)
+
+- *(failover)* #220 failback guard 增加 WAL 新鲜度比较: fenced 候选领先 serving 成员 ≥1GiB 时推翻 guard,防止 stale 提升摧毁新鲜数据。位置未知时保持 guard(fail-safe)。
+- *(controller)* 新增 `ReplicationHealthy` condition + Warning 事件,暴露冻结/断开的 standby。
+- *(controller)* rogue-primary/stale-standby reseed 路径增加 per-pod cooldown + 审计事件。
+
 ### Added (新增)
 
 - *(olm,docs)* `docs/operator-guide/community-operators-onboarding.md` —
