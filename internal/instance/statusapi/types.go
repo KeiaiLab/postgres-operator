@@ -74,6 +74,17 @@ type Status struct {
 	// 미관측 (예: pg_stat_replication 권한 부재) 시 -1 — controller 가 N/A 로 표기.
 	LagBytes int64 `json:"lagBytes"`
 
+	// WALLSNBytes 는 이 인스턴스의 *절대* WAL 위치(bytes, '0/0' 기준)다 — primary 는
+	// current write LSN, replica 는 replay LSN. LagBytes(상대 지연)와 달리 멤버 간
+	// *직접 비교*가 가능한 진본 신선도 신호다: 높을수록 커밋된 WAL 이 더 많다.
+	// controller 의 #220 failback guard 가 fenced 후보 vs 서빙 멤버의 데이터 우열을
+	// 판정하고(후보가 명백히 앞서면 guard override), replication-health 가 서빙자 대비
+	// 뒤처짐(단절/동결 replica)을 검출하는 데 쓴다. 미관측(연결/질의 실패 또는 구
+	// 인스턴스 미보고) 시 -1 — 비교 불가로 처리(안전 기본값: guard 유지).
+	// omitempty 미부착 (LagBytes 정합): 구 인스턴스는 필드 부재 → unmarshal 0 → 비교
+	// 상 우열 없음으로 안전 degrade (신규 인스턴스만 실 위치 보고).
+	WALLSNBytes int64 `json:"walLsnBytes"`
+
 	// SizeBytes 는 이 shard 데이터베이스의 크기 (bytes) 다 — primary 만 보고한다
 	// (pg_database_size(current_database())). controller 가 shard 별로 집계해
 	// ShardStatus.SizeBytes 로 노출하며, AutoSplit 의 sizeThresholdGB 트리거가 이를

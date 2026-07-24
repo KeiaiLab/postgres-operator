@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -492,6 +493,13 @@ func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
 // (a known-failed primary that has returned) must be skipped while an unfenced
 // member is still serving, so the operator never unfences+re-promotes it on a
 // stale timeline. The #200 all-members-fenced deadlock recovery must still proceed.
+//
+// It also pins the freshness override (postgres-prod 2026-07-24 RCA): when the
+// fenced candidate's reported WAL position clearly leads the serving member's, the
+// serving member is the stale one and the guard must be overridden (skip=false) so
+// the fresh candidate is promoted instead of losing its committed WAL. The override
+// is fail-safe: unknown WAL positions keep the guard, and a lead below the threshold
+// keeps the guard.
 func TestShouldSkipFencedCandidate(t *testing.T) {
 	t.Parallel()
 	const namespace = "default"
@@ -507,26 +515,53 @@ func TestShouldSkipFencedCandidate(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: l},
 		}
 	}
+	mkPodWithWAL := func(name string, walPos int64) *corev1.Pod {
+		raw, err := json.Marshal(statusapi.Status{Role: statusapi.RoleReplica, WALLSNBytes: walPos})
+		if err != nil {
+			t.Fatalf("marshal status: %v", err)
+		}
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: namespace,
+			Annotations: map[string]string{statusapi.AnnotationKey: string(raw)},
+		}}
+	}
+	i64 := func(v int64) *int64 { return &v }
+	const oneGiB = int64(1) << 30
 
 	cases := []struct {
 		name       string
 		candidate  string
 		pvc0Fenced bool
 		pvc1Fenced bool
+		wal0, wal1 *int64 // nil = no pod/annotation (unknown position)
 		wantSkip   bool
 	}{
-		{"fenced candidate + unfenced member → skip", "demo-shard-0-0", true, false, true},
-		{"unfenced candidate → proceed", "demo-shard-0-1", true, false, false},
-		{"all members fenced → proceed (deadlock recovery)", "demo-shard-0-0", true, true, false},
+		{"fenced candidate + unfenced member, no WAL info → skip (safe default)", "demo-shard-0-0", true, false, nil, nil, true},
+		{"unfenced candidate → proceed", "demo-shard-0-1", true, false, nil, nil, false},
+		{"all members fenced → proceed (deadlock recovery)", "demo-shard-0-0", true, true, nil, nil, false},
+		{"fenced candidate clearly ahead of stale serving member → override (proceed)", "demo-shard-0-0", true, false, i64(5 * oneGiB), i64(oneGiB), false},
+		{"fenced candidate behind serving member → skip", "demo-shard-0-0", true, false, i64(oneGiB), i64(5 * oneGiB), true},
+		{"fenced candidate ahead but under 1GiB threshold → skip", "demo-shard-0-0", true, false, i64(oneGiB + (1 << 20)), i64(oneGiB), true},
+		{"candidate WAL known but serving member unknown → skip (cannot compare)", "demo-shard-0-0", true, false, i64(5 * oneGiB), nil, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+			objs := []client.Object{
 				mkPVC("data-demo-shard-0-0", tc.pvc0Fenced),
 				mkPVC("data-demo-shard-0-1", tc.pvc1Fenced),
-			).Build()
+			}
+			if tc.wal0 != nil {
+				objs = append(objs, mkPodWithWAL("demo-shard-0-0", *tc.wal0))
+			}
+			if tc.wal1 != nil {
+				objs = append(objs, mkPodWithWAL("demo-shard-0-1", *tc.wal1))
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			cluster := &postgresv1alpha1.PostgresCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
+			}
 			r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
-			skip, err := r.shouldSkipFencedCandidate(ctx, namespace, tc.candidate)
+			skip, err := r.shouldSkipFencedCandidate(ctx, cluster, tc.candidate)
 			if err != nil {
 				t.Fatalf("shouldSkipFencedCandidate: %v", err)
 			}

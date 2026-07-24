@@ -498,7 +498,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// primary) while an unfenced member is serving — otherwise the promoter's
 		// unfenceTargetPVC defeats the fence and a returned old primary re-takes on
 		// a stale timeline, rewinding away post-failover writes.
-		skipFenced, ferr := r.shouldSkipFencedCandidate(ctx, cluster.Namespace, failoverDecision.PromotionCandidate.Pod)
+		skipFenced, ferr := r.shouldSkipFencedCandidate(ctx, &cluster, failoverDecision.PromotionCandidate.Pod)
 		if ferr != nil {
 			logger.Error(ferr, "fenced-candidate check failed; proceeding with promotion",
 				"shard", failoverShardName, "candidate", failoverDecision.PromotionCandidate.Pod)
@@ -523,9 +523,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		// #220 clean-rejoin: reseed any rogue old primary (booted empty from a stale
 		// env after failback) into a clean standby of the real promoted primary.
-		if err := r.reconcileRoguePrimaries(ctx, &cluster, shardStatuses); err != nil {
+		if err := r.reconcileRoguePrimaries(ctx, &cluster, shardStatuses, time.Now()); err != nil {
 			logger.Error(err, "rogue primary re-seed failed (best-effort)")
 		}
+		// #220 후속: 복제 단절/동결(stale) replica 를 CR condition + Event 로 표면화한다
+		// (원 사고: 7일 동결 replica 가 어떤 신호에도 안 떠 stale 승격을 유발).
+		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses)
 	}
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)

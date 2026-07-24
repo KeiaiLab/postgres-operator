@@ -191,6 +191,39 @@ func (r *Real) LagBytes(ctx context.Context) int64 {
 	return lag
 }
 
+// WALPositionBytes 는 절대 WAL 위치를 bytes 단위로 측정한다 ('0/0' 기준).
+// primary/replica 분기는 pg_is_in_recovery() 결과로 결정한다.
+//
+// primary: pg_current_wal_lsn() — 현재 write 위치.
+// replica: pg_last_wal_replay_lsn() — 적용 완료 위치.
+//
+// LagBytes(상대 지연)와 달리 멤버 간 직접 비교가 가능한 신선도 신호다. 질의 실패
+// (connection/query 에러) 시 -1 반환 — 호출자가 비교 불가(N/A)로 처리.
+func (r *Real) WALPositionBytes(ctx context.Context) int64 {
+	db, err := r.connect()
+	if err != nil {
+		return -1
+	}
+	var inRecovery bool
+	if err := db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery); err != nil {
+		return -1
+	}
+	var pos int64
+	lsnExpr := "pg_current_wal_lsn()"
+	if inRecovery {
+		// replica: replay 위치. 아직 아무 WAL 도 적용 전이면 NULL → '0/0' 로 COALESCE.
+		lsnExpr = "COALESCE(pg_last_wal_replay_lsn(), '0/0')"
+	}
+	q := fmt.Sprintf("SELECT pg_wal_lsn_diff(%s, '0/0')::bigint", lsnExpr)
+	if err := db.QueryRowContext(ctx, q).Scan(&pos); err != nil {
+		return -1
+	}
+	if pos < 0 {
+		return -1
+	}
+	return pos
+}
+
 // DatabaseSizeBytes 는 current_database() 의 크기를 pg_database_size 로 측정한다
 // (AutoSplit sizeThresholdGB 트리거 관측). connection / query 실패 시 0 반환 —
 // status reporter 가 매 5s 호출하므로 error spam 없이 미관측(0)으로 degrade 한다.
