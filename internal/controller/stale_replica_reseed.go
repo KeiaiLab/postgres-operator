@@ -132,6 +132,7 @@ func (r *PostgresClusterReconciler) reconcileRoguePrimaries(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
 	shards []postgresv1alpha1.ShardStatus,
+	now time.Time,
 ) error {
 	logger := log.FromContext(ctx)
 	for i := range shards {
@@ -145,11 +146,32 @@ func (r *PostgresClusterReconciler) reconcileRoguePrimaries(
 			if rep.Reason != roguePrimaryReason || rep.Pod == "" || rep.Pod == shard.Primary.Pod {
 				continue
 			}
+			// #220 후속: reseed 는 pod+PVC 삭제/재생성이라 파괴적이다. reconcileStaleReplicas
+			// 와 동일한 per-pod backoff 를 적용 — reseedCooldown 내 동일 pod 재reseed 를 막아
+			// pg_basebackup 반복 실패 시 무한 삭제 루프를 차단하고, 매 reseed 를 Warning
+			// Event 로 감사한다(원 사고: rogue reseed 경로에 backoff·감사 부재).
+			cdKey := reseedAnnotationPrefix + rep.Pod
+			if last := cluster.Annotations[cdKey]; last != "" {
+				if t, err := time.Parse(time.RFC3339, last); err == nil && now.Sub(t) < reseedCooldown {
+					continue // reseeded recently; let it settle
+				}
+			}
 			logger.Info("reseeding rogue primary into clean standby",
 				"pod", rep.Pod, "primary", shard.Primary.Pod)
 			if err := r.reseedStandby(ctx, cluster, rep.Pod); err != nil {
 				return fmt.Errorf("reseed rogue primary %q: %w", rep.Pod, err)
 			}
+			before := cluster.DeepCopy()
+			if cluster.Annotations == nil {
+				cluster.Annotations = map[string]string{}
+			}
+			cluster.Annotations[cdKey] = now.UTC().Format(time.RFC3339)
+			if err := r.Patch(ctx, cluster, client.MergeFrom(before)); err != nil {
+				return fmt.Errorf("record rogue-primary reseed cooldown for %q: %w", rep.Pod, err)
+			}
+			commonsevents.EmitWarningf(r.Recorder, cluster, "RoguePrimaryReseeded",
+				"rogue primary %s (no operator-promote marker while %s is the promoted primary) reseeded into a clean standby (delete pod+PVC → fresh pg_basebackup); backoff %s",
+				rep.Pod, shard.Primary.Pod, reseedCooldown)
 		}
 	}
 	return nil

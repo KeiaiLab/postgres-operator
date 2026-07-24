@@ -334,6 +334,12 @@ func statefulSetNameFromPod(pod string) string {
 	return pod[:idx]
 }
 
+// promotionFreshnessLeadBytes 는 fenced 후보가 서빙(unfenced) 멤버보다 이 바이트
+// 이상 앞선 WAL 을 보유할 때 #220 failback guard 를 뒤집는(승격 허용) 임계값이다.
+// 1 GiB — "명백히 앞섬"의 보수적 하한. 원 사고(7일 stale 서빙자가 fresh 후보 복귀를
+// 차단)에서 lead 는 수 GiB~수십 GiB 규모라 이 임계를 크게 상회한다.
+const promotionFreshnessLeadBytes int64 = 1 << 30
+
 // shouldSkipFencedCandidate reports whether automatic promotion of the chosen
 // candidate must be skipped because the candidate's PVC is fenced (a known-failed
 // primary) while another member is still unfenced and serving. This closes the
@@ -343,11 +349,22 @@ func statefulSetNameFromPod(pod string) string {
 // (live-drill: shard-0-0 re-took, shard-0-1 lost row-2). The #200 all-members-
 // fenced deadlock recovery is preserved: when EVERY member is fenced, this returns
 // false so unfenceTargetPVC can still break the deadlock.
-func (r *PostgresClusterReconciler) shouldSkipFencedCandidate(ctx context.Context, namespace, candidatePod string) (bool, error) {
+//
+// Freshness override (postgres-prod 2026-07-24 RCA): the guard is NOT absolute.
+// When the fenced candidate's last-reported WAL position leads the freshest
+// unfenced serving member by >= promotionFreshnessLeadBytes, the serving member is
+// the STALE one — blocking the candidate would keep serving a frozen replica and
+// lose the candidate's committed WAL (the incident: a 7-day-stale replica served
+// while a fresh fenced ex-primary was blocked, destroying keycloak/forgejo data).
+// In that case the guard is overridden (skip=false) and a Warning event records why.
+// The override is fail-safe: it fires ONLY on positive evidence the candidate is
+// ahead; if either side's WAL position is unknown (-1/absent), the guard is kept.
+func (r *PostgresClusterReconciler) shouldSkipFencedCandidate(ctx context.Context, cluster *postgresv1alpha1.PostgresCluster, candidatePod string) (bool, error) {
 	stsName := statefulSetNameFromPod(candidatePod)
 	if stsName == "" {
 		return false, nil
 	}
+	namespace := cluster.Namespace
 	pvcPrefix := "data-" + stsName + "-"
 	candidatePVCName := "data-" + candidatePod
 
@@ -356,7 +373,7 @@ func (r *PostgresClusterReconciler) shouldSkipFencedCandidate(ctx context.Contex
 		return false, err
 	}
 	candidateFenced := false
-	unfencedMemberExists := false
+	unfencedMembers := make([]string, 0, len(pvcs.Items))
 	for i := range pvcs.Items {
 		pvc := &pvcs.Items[i]
 		if !strings.HasPrefix(pvc.Name, pvcPrefix) {
@@ -367,10 +384,60 @@ func (r *PostgresClusterReconciler) shouldSkipFencedCandidate(ctx context.Contex
 			candidateFenced = fenced
 		}
 		if !fenced {
-			unfencedMemberExists = true
+			unfencedMembers = append(unfencedMembers, strings.TrimPrefix(pvc.Name, "data-"))
 		}
 	}
-	return candidateFenced && unfencedMemberExists, nil
+	if !candidateFenced || len(unfencedMembers) == 0 {
+		// #200 all-members-fenced deadlock recovery, or an unfenced candidate → proceed.
+		return false, nil
+	}
+
+	// Freshness override: compare the candidate's reported WAL position against the
+	// freshest serving member. Only override on positive evidence of a lead.
+	candWAL := r.reportedWALPosition(ctx, namespace, candidatePod)
+	if candWAL < 0 {
+		return true, nil // candidate position unknown → cannot prove it leads → keep guard
+	}
+	servingWAL := int64(-1)
+	servingPod := ""
+	for _, pod := range unfencedMembers {
+		if w := r.reportedWALPosition(ctx, namespace, pod); w > servingWAL {
+			servingWAL, servingPod = w, pod
+		}
+	}
+	if servingWAL < 0 {
+		return true, nil // no serving member reports a position → cannot compare → keep guard
+	}
+	// ponytail: absolute WAL-byte lead is the freshness comparator; the "or 1h" time
+	// arm is unnecessary — a frozen replica's reported position stops advancing, so
+	// the byte lead already grows past the threshold. Add a time comparator only if a
+	// member can serve stale data while reporting a fresh position (it cannot: the
+	// reported position IS its replay/write LSN). Cross-timeline LSN compare is a
+	// heuristic, sound at the >=1GiB "clearly ahead" scale.
+	if lead := candWAL - servingWAL; lead >= promotionFreshnessLeadBytes {
+		commonsevents.EmitWarningf(r.Recorder, cluster, "FailbackGuardOverridden",
+			"promoting fenced candidate %s: leads serving member %s by %d bytes of WAL (>= %d) — serving member is stale; guard overridden to prevent fresh-data loss (#220)",
+			candidatePod, servingPod, lead, promotionFreshnessLeadBytes)
+		return false, nil
+	}
+	return true, nil
+}
+
+// reportedWALPosition returns the pod's last-reported absolute WAL position
+// (statusapi WALLSNBytes) or -1 when the pod, its status annotation, or the
+// measurement is absent — the safe "cannot compare" sentinel for the #220
+// freshness guard. A fenced/crash-looping candidate still carries the annotation
+// it last patched before failing, i.e. its fresh pre-failure WAL position.
+func (r *PostgresClusterReconciler) reportedWALPosition(ctx context.Context, namespace, podName string) int64 {
+	var pod corev1.Pod
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, &pod); err != nil {
+		return -1
+	}
+	st, ok := parsePodStatus(&pod)
+	if !ok {
+		return -1
+	}
+	return st.WALLSNBytes
 }
 
 // promotionActuallyHappened reports whether the promotion exec performed a REAL

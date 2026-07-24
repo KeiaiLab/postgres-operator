@@ -588,6 +588,7 @@ func runStatusReporter(
 	patchOnce := func(role statusapi.Role) {
 		ready := false
 		lag := int64(-1)
+		walPos := int64(-1)
 		if sup != nil {
 			probeCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 			ready = sup.IsReady(probeCtx)
@@ -595,6 +596,11 @@ func runStatusReporter(
 			lagCtx, lagCancel := context.WithTimeout(ctx, 1*time.Second)
 			lag = sup.LagBytes(lagCtx)
 			lagCancel()
+			// #220 failback: 절대 WAL 위치 보고 — controller 가 fenced 후보 vs 서빙
+			// 멤버의 신선도를 비교(guard override)하고 단절 replica 를 검출한다.
+			walCtx, walCancel := context.WithTimeout(ctx, 1*time.Second)
+			walPos = sup.WALPositionBytes(walCtx)
+			walCancel()
 			// #220 failback: operator-driven failover promotes postgres via exec
 			// without the instance-manager re-electing, so the manager stays a
 			// Follower (reports Replica) while postgres is actually primary. Report
@@ -622,13 +628,14 @@ func runStatusReporter(
 			sizeCancel()
 		}
 		st := statusapi.Status{
-			Role:       role,
-			Promoted:   promotedMarkerPresent(dataDir),
-			Ready:      ready,
-			Endpoint:   endpoint,
-			LagBytes:   lag,
-			SizeBytes:  size,
-			LastUpdate: time.Now().UTC(),
+			Role:        role,
+			Promoted:    promotedMarkerPresent(dataDir),
+			Ready:       ready,
+			Endpoint:    endpoint,
+			LagBytes:    lag,
+			WALLSNBytes: walPos,
+			SizeBytes:   size,
+			LastUpdate:  time.Now().UTC(),
 		}
 		if err := patchPodAnnotation(ctx, clientset, namespace, podName, st); err != nil {
 			logger.Warn("status reporter patch failed (best-effort)", "error", err)

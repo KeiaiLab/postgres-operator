@@ -110,3 +110,59 @@ func TestReconcileStaleReplicas_SkipsYoungAndNoPrimary(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcileRoguePrimaries_ReseedWithBackoff pins the #220 follow-up: the rogue-
+// primary reseed path (destructive pod+PVC delete) must apply the same per-pod
+// backoff + audit as the stale-standby path. A rogue primary is reseeded once, then
+// the cooldown annotation blocks a second reseed within reseedCooldown (so a
+// basebackup that keeps failing can't drive an unbounded delete loop).
+func TestReconcileRoguePrimaries_ReseedWithBackoff(t *testing.T) {
+	t.Parallel()
+	const ns = "default"
+	scheme := newScheme(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	cluster := &postgresv1alpha1.PostgresCluster{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns}}
+	roguePod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-shard-0-1", Namespace: ns}}
+	roguePVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data-demo-shard-0-1", Namespace: ns}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, roguePod, roguePVC).Build()
+	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+
+	shardStatuses := []postgresv1alpha1.ShardStatus{{
+		Name: "shard-0", Ordinal: 0,
+		Primary: &postgresv1alpha1.ShardEndpoint{Pod: "demo-shard-0-0", Ready: true},
+		Replicas: []postgresv1alpha1.ShardEndpoint{
+			{Pod: "demo-shard-0-1", Ready: false, Reason: roguePrimaryReason},
+		},
+	}}
+
+	// First pass: reseed (pod+PVC deleted) + cooldown annotation recorded.
+	if err := r.reconcileRoguePrimaries(ctx, cluster, shardStatuses, now); err != nil {
+		t.Fatalf("reconcileRoguePrimaries: %v", err)
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-1"}, &pod); err == nil {
+		t.Fatal("rogue primary pod should have been deleted for re-seed")
+	}
+	var got postgresv1alpha1.PostgresCluster
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo"}, &got); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	if got.Annotations[reseedAnnotationPrefix+"demo-shard-0-1"] == "" {
+		t.Fatal("reseed cooldown annotation must be recorded for the rogue primary")
+	}
+
+	// Recreate the pod (as the StatefulSet would) and run again within cooldown:
+	// the backoff must skip the reseed, leaving the pod intact.
+	recreated := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "demo-shard-0-1", Namespace: ns}}
+	if err := c.Create(ctx, recreated); err != nil {
+		t.Fatalf("recreate pod: %v", err)
+	}
+	if err := r.reconcileRoguePrimaries(ctx, &got, shardStatuses, now.Add(time.Minute)); err != nil {
+		t.Fatalf("reconcileRoguePrimaries (cooldown): %v", err)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-1"}, &pod); err != nil {
+		t.Fatal("rogue primary pod must survive a second reseed within cooldown (backoff)")
+	}
+}

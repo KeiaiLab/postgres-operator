@@ -49,6 +49,10 @@ const (
 	ConditionHibernation       = "cnpg.io/hibernation"
 	ConditionBackupHealthy     = "BackupHealthy"
 	ConditionAutoSplitEligible = "AutoSplitEligible"
+	// ConditionReplicationHealthy 는 각 shard 의 replica 가 primary 에 정상 연결·추종
+	// 중인지 보고한다 — 단절/동결(stale) replica 를 status 로 표면화(#220 RCA: 7일
+	// 동결 replica 가 status/알림에 안 떠 stale 승격을 유발).
+	ConditionReplicationHealthy = "ReplicationHealthy"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -70,6 +74,11 @@ const (
 
 	// Reasons — 분산 SQL topology (P3+ 활성)
 	ReasonTopologyDrift = "TopologyDrift"
+
+	// Reasons — 복제 건강성 (#220 후속)
+	ReasonReplicasHealthy      = "ReplicasHealthy"
+	ReasonReplicaDisconnected  = "ReplicaDisconnected"
+	ReasonReplicationNotApplic = "NoReplicas"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"

@@ -33,10 +33,11 @@ type Mock struct {
 	PromoteErr error
 	SlotErr    error
 
-	Ready bool
-	Lag   int64
-	Size  int64
-	pid   int
+	Ready  bool
+	Lag    int64
+	Size   int64
+	WALPos int64
+	pid    int
 
 	// InRecovery + InRecoveryOK 는 IsInRecovery 의 반환값을 제어한다. 기본
 	// (false, false) 는 "판정 불가" → status reporter 가 override 안 함 (기존
@@ -145,6 +146,13 @@ func (m *Mock) LagBytes(_ context.Context) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.Lag
+}
+
+// WALPositionBytes 는 WALPos 필드를 그대로 반환 (테스트 stub). 기본값 0.
+func (m *Mock) WALPositionBytes(_ context.Context) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.WALPos
 }
 
 // DatabaseSizeBytes 는 Size 필드를 그대로 반환 (테스트 stub). 기본값 0.

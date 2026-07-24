@@ -124,6 +124,17 @@ type Supervisor interface {
 	// 반환 안 함 (status reporter 가 매 5s 호출 — error spam 회피).
 	LagBytes(ctx context.Context) int64
 
+	// WALPositionBytes 는 이 인스턴스의 *절대* WAL 위치(bytes, '0/0' 기준)를 반환한다.
+	//
+	// primary: pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') — write 위치.
+	// replica: pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0') — replay 위치.
+	//
+	// LagBytes(상대 지연)와 달리 멤버 간 직접 비교가 가능한 진본 신선도 신호다
+	// (#220 failback guard 의 신선도 판정 + replication-health 단절 검출). 측정
+	// 실패(connection/query 에러) 시 -1 반환 — 호출자가 비교 불가로 처리. error 는
+	// 별도로 반환 안 함 (status reporter 가 매 5s 호출 — spam 회피, LagBytes 정합).
+	WALPositionBytes(ctx context.Context) int64
+
 	// DatabaseSizeBytes 는 current_database() 의 크기(bytes)를 pg_database_size 로
 	// 측정한다 — AutoSplit 의 sizeThresholdGB 트리거 관측용. primary 에서만 의미가
 	// 있으며(replica 는 물리 복제라 동일 크기지만 status reporter 는 primary 만 보고),
