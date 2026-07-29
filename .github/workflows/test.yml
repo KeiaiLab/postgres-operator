@@ -1,5 +1,6 @@
-# PR/main 단위 테스트 게이트 (2026-07-29 신설) — 그간 release/helm-publish/scorecard 만 있고
+# PR/main 테스트 게이트 (2026-07-29 신설) — 그간 release/helm-publish/scorecard 만 있고
 # 테스트를 도는 잡이 전무해 role-label 리컨실 회귀(INC-0002, data#39)가 조용히 통과했다.
+# make test = manifests/generate + envtest 셋업 + 전 패키지(controller envtest 스위트 포함).
 name: test
 
 on:
@@ -18,5 +19,5 @@ jobs:
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
-      - name: Unit tests (incl. controller fake-client suite)
-        run: make test-unit
+      - name: Tests (unit + integration, envtest 포함 — make test 가 setup-envtest 를 수행)
+        run: make test

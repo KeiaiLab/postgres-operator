@@ -84,9 +84,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests (combined unit + int
 
 .PHONY: test-unit
 test-unit: fmt vet ## Run unit tests only (no envtest — fast feedback).
-	# controller 패키지는 fake-client 기반이라 envtest 불요 — role_label_sync 등 핵심 리컨실
-	# 테스트가 여기 포함돼야 CI 게이트가 실효 (INC-0002/data#39: 게이트 부재로 회귀 통과).
-	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... ./internal/controller/... -coverprofile cover-unit.out
+	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... -coverprofile cover-unit.out
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet setup-envtest ## Run integration tests (envtest required).
