@@ -13,6 +13,14 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.11] - 2026-07-29
+
+### Fixed (rw 路由 — postgres-prod 2026-07-11 / 2026-07-28 故障, INC-0002 / data#39)
+
+- *(controller)* 新增 `role_label_sync` — 基于 leader lease 在每次调谐中同步 `postgres.keiailab.io/role`(rw 路由)与 instance-role 标签。此前**根本不存在赋予这些标签的代码**,任何 failover 或 Pod 重建都会悄然清空 `-rw` Service endpoints(Forgejo/Harbor 两次故障复现)。以 `PrimaryRoleSynced` condition 暴露。
+- *(controller)* stale-standby reseed 仅在超过阈值的 Terminating 且节点被独立确认 NotReady 时升级为 force delete (#226 F2)。
+- *(ci)* 新增 `test` 工作流,以 `make test`(含 envtest 套件)门禁所有 PR。
+
 ## [0.4.0-beta.10] - 2026-07-24
 
 ### 修复 (failover 安全性 — postgres-prod 2026-07-24 SEV-1 根因修复, #287)

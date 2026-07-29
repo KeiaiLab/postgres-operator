@@ -13,6 +13,14 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.11] - 2026-07-29
+
+### Fixed (rw 라우팅 — postgres-prod 2026-07-11 / 2026-07-28 장애, INC-0002 / data#39)
+
+- *(controller)* `role_label_sync` 신설 — 리더 리스 기준으로 `postgres.keiailab.io/role`(rw 라우팅)·instance-role 라벨을 매 리컨실마다 동기화. 기존에는 **이 라벨을 부여하는 코드 자체가 없어** failover/파드 재생성마다 `-rw` Service endpoints 가 조용히 비었다 (Forgejo/Harbor 다운 2회 재현). `PrimaryRoleSynced` 컨디션으로 노출.
+- *(controller)* stale-standby reseed 가 임계 초과 Terminating + 노드 NotReady 가 독립 확인된 경우에만 force delete 로 승급 (#226 F2) — 죽은 kubelet 이 delete 를 영원히 인지하지 못해 reseed 가 무한 재발화하던 경로 차단.
+- *(ci)* 모든 PR 을 `make test`(envtest 스위트 포함)로 게이트하는 `test` 워크플로 신설. 위 회귀는 테스트를 도는 CI 잡이 전무해 통과했었다.
+
 ## [0.4.0-beta.10] - 2026-07-24
 
 ### 수정 (failover 안전성 — postgres-prod 2026-07-24 SEV-1 근본수정, #287)
