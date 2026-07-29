@@ -4,6 +4,14 @@ This project follows SemVer.
 
 ## [Unreleased]
 
+## [0.4.0-beta.11] - 2026-07-29
+
+### Fixed (rw routing — postgres-prod 2026-07-11 / 2026-07-28 outages, INC-0002 / data#39)
+
+- *(controller)* New `role_label_sync` reconciles the `postgres.keiailab.io/role` (rw routing) and instance-role labels from the leader lease on every pass. Previously **no code assigned these labels at all**, so any failover or pod recreation silently emptied the `-rw` Service endpoints (Forgejo/Harbor outages, reproduced twice). Exposed as the `PrimaryRoleSynced` condition.
+- *(controller)* Stale-standby reseed escalates to a force delete only for pods stuck Terminating past threshold on a Node that is independently NotReady (#226 F2) — a dead kubelet could otherwise never acknowledge the delete, leaving reseed re-emitting forever.
+- *(ci)* New `test` workflow gates every PR with `make test` (envtest suite included). The regression above survived precisely because no CI job ran tests.
+
 ## [0.4.0-beta.10] - 2026-07-24
 
 ### Fixed (failover safety — postgres-prod 2026-07-24 SEV-1 root fix, #287)
