@@ -72,7 +72,7 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 	if oldPrimary != "" && decision.PromotionCandidate != nil &&
 		oldPrimary != decision.PromotionCandidate.Pod &&
 		r.podAbsentOrNotReady(ctx, cluster.Namespace, oldPrimary) {
-		if err := r.reseedStandby(ctx, cluster, oldPrimary); err != nil {
+		if err := r.reseedStandby(ctx, cluster, oldPrimary, time.Now()); err != nil {
 			return fmt.Errorf("reseed failed old primary %q: %w", oldPrimary, err)
 		}
 	}

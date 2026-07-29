@@ -166,3 +166,141 @@ func TestReconcileRoguePrimaries_ReseedWithBackoff(t *testing.T) {
 		t.Fatal("rogue primary pod must survive a second reseed within cooldown (backoff)")
 	}
 }
+
+// TestReseedStandby_ForceDeletesStuckPodOnDeadNode pins #226 F2: a pod that is
+// already Terminating (finalizer present) well past
+// stuckTerminatingForceDeleteThreshold, on a Node that independently reports
+// NotReady, and that is itself confirmed not-Ready, must be escalated to a
+// force delete — mirroring the manual `kubectl delete pod --grace-period=0
+// --force` recovery this previously required. Without this, a dead node's
+// kubelet never acknowledging the delete left reconcileStaleReplicas
+// re-emitting StandbyReseeded every reseedCooldown forever.
+func TestReseedStandby_ForceDeletesStuckPodOnDeadNode(t *testing.T) {
+	t.Parallel()
+	const ns = "default"
+	scheme := newScheme(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	deadNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-dead"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}},
+		},
+	}
+	stuckPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-shard-0-0", Namespace: ns,
+			Finalizers:        []string{"keiailab.io/test-stuck"},
+			DeletionTimestamp: &metav1.Time{Time: now.Add(-5 * time.Minute)},
+		},
+		Spec: corev1.PodSpec{NodeName: "node-dead"},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+		},
+	}
+	cluster := &postgresv1alpha1.PostgresCluster{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deadNode, stuckPod, cluster).Build()
+	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+
+	if err := r.reseedStandby(ctx, cluster, "demo-shard-0-0", now); err != nil {
+		t.Fatalf("reseedStandby: %v", err)
+	}
+
+	var got corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-0"}, &got); err == nil {
+		t.Fatalf("stuck pod on a NotReady node should have been force-deleted, still present: %+v", got)
+	}
+}
+
+// TestReseedStandby_DoesNotForceDeleteWhenNodeIsReady verifies the safety gate:
+// a pod stuck Terminating past the threshold must NOT be force-deleted if its
+// node independently reports Ready — a merely-slow (not dead) node could still
+// hold the volume attached, and force-deleting the API object risks the
+// StatefulSet recreating the pod elsewhere while the healthy node still has it
+// mounted (multi-attach).
+func TestReseedStandby_DoesNotForceDeleteWhenNodeIsReady(t *testing.T) {
+	t.Parallel()
+	const ns = "default"
+	scheme := newScheme(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	readyNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-ready"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		},
+	}
+	stuckPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-shard-0-0", Namespace: ns,
+			Finalizers:        []string{"keiailab.io/test-stuck"},
+			DeletionTimestamp: &metav1.Time{Time: now.Add(-5 * time.Minute)},
+		},
+		Spec: corev1.PodSpec{NodeName: "node-ready"},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+		},
+	}
+	cluster := &postgresv1alpha1.PostgresCluster{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(readyNode, stuckPod, cluster).Build()
+	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+
+	if err := r.reseedStandby(ctx, cluster, "demo-shard-0-0", now); err != nil {
+		t.Fatalf("reseedStandby: %v", err)
+	}
+
+	var got corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-0"}, &got); err != nil {
+		t.Fatalf("pod should still exist (finalizer holds it, safety gate must not force-delete on a Ready node): %v", err)
+	}
+	if len(got.Finalizers) == 0 {
+		t.Fatal("finalizers must not have been cleared — force delete must not have been attempted on a Ready node")
+	}
+}
+
+// TestReseedStandby_DoesNotForceDeleteFreshDeletionTimestamp verifies the
+// stuckTerminatingForceDeleteThreshold gate: a Delete issued moments ago must
+// not be escalated to a force delete even on a NotReady node — normal
+// graceful termination needs a chance to complete first.
+func TestReseedStandby_DoesNotForceDeleteFreshDeletionTimestamp(t *testing.T) {
+	t.Parallel()
+	const ns = "default"
+	scheme := newScheme(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	deadNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-dead"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}},
+		},
+	}
+	freshPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-shard-0-0", Namespace: ns,
+			Finalizers:        []string{"keiailab.io/test-stuck"},
+			DeletionTimestamp: &metav1.Time{Time: now.Add(-10 * time.Second)},
+		},
+		Spec: corev1.PodSpec{NodeName: "node-dead"},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+		},
+	}
+	cluster := &postgresv1alpha1.PostgresCluster{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deadNode, freshPod, cluster).Build()
+	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+
+	if err := r.reseedStandby(ctx, cluster, "demo-shard-0-0", now); err != nil {
+		t.Fatalf("reseedStandby: %v", err)
+	}
+
+	var got corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "demo-shard-0-0"}, &got); err != nil {
+		t.Fatalf("pod should still exist — DeletionTimestamp is too fresh to escalate: %v", err)
+	}
+	if len(got.Finalizers) == 0 {
+		t.Fatal("finalizers must not have been cleared — force delete must not fire before the stuck-terminating threshold")
+	}
+}

@@ -132,6 +132,7 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services;configmaps;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
@@ -514,6 +515,22 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
 		}
 	}
+	// #226: project each shard's observed primary/replica onto the
+	// instance-role Pod label *before* — and independent of — standby
+	// cleanup/reseed below. This must never be blocked by a stuck delete (e.g.
+	// a demoted primary wedged Terminating on a dead node): rw-routing that
+	// selects on this label has to keep converging to the real primary
+	// regardless of whether the old pod's deletion ever completes.
+	// Best-effort — log and continue; primaryRoleLabelsSynced feeds
+	// ConditionPrimaryRoleSynced below.
+	primaryRoleLabelsSynced := true
+	if !standaloneReplica && !databasePodsStopped {
+		var labelErr error
+		primaryRoleLabelsSynced, labelErr = r.reconcilePrimaryRoleLabels(ctx, &cluster, shardStatuses)
+		if labelErr != nil {
+			logger.Error(labelErr, "primary role label sync failed (best-effort)")
+		}
+	}
 	// #205: re-seed any standby that failed to rejoin (not-ready too long with a
 	// ready primary, e.g. stuck in startup recovery after a primary restart).
 	// Best-effort — log and continue.
@@ -531,7 +548,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses)
 	}
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
-		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision)
+		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision, primaryRoleLabelsSynced)
 
 	// per-shard primary Service: 각 shard 의 현재 Ready primary 를 가리키는 ExternalName
 	// Service 를 publish/갱신한다(§6 stable per-shard primary Service). failover 로 primary
@@ -702,6 +719,7 @@ func applyClusterConditions(
 	standaloneReplica bool,
 	wasReady bool,
 	failoverDecision failover.Decision,
+	primaryRoleLabelsSynced bool,
 ) {
 	conds := &cluster.Status.Conditions
 	if hibernating {
@@ -719,6 +737,8 @@ func applyClusterConditions(
 		}
 		setCondition(conds, ConditionFailoverReady, metav1.ConditionFalse, ReasonHibernated,
 			"failover suspended while cluster is hibernated", cluster.Generation)
+		setCondition(conds, ConditionPrimaryRoleSynced, metav1.ConditionTrue, ReasonNotApplicable,
+			"cluster hibernated; no primary Pod to label", cluster.Generation)
 		setCondition(conds, ConditionReady, metav1.ConditionFalse, ReasonHibernated,
 			"cluster hibernated; database pods intentionally stopped", cluster.Generation)
 		setCondition(conds, ConditionProgressing, metav1.ConditionFalse, ReasonHibernated,
@@ -727,6 +747,19 @@ func applyClusterConditions(
 	}
 	setCondition(conds, ConditionHibernation, metav1.ConditionFalse, ReasonNotHibernated,
 		"Cluster is not hibernated", cluster.Generation)
+
+	// #226: surface the "CR status/lease says primary is Ready, but the
+	// instance-role=primary label that rw-routing selects on has not converged
+	// yet" contradiction as a first-class, independent signal — never folded
+	// into ShardsReady/Ready so their existing meaning (and any callers gating
+	// on them) is unchanged.
+	if primaryRoleLabelsSynced {
+		setCondition(conds, ConditionPrimaryRoleSynced, metav1.ConditionTrue, ReasonAvailable,
+			"primary Pod(s) carry the current instance-role=primary label", cluster.Generation)
+	} else {
+		setCondition(conds, ConditionPrimaryRoleSynced, metav1.ConditionFalse, ReasonRoleLabelPending,
+			"a Ready primary Pod does not yet carry instance-role=primary; rw-routing may still target a demoted pod", cluster.Generation)
+	}
 
 	if allShardPrimaryReady && shardCount > 0 {
 		message := fmt.Sprintf("%d/%d shard primary ready", shardCount, shardCount)
