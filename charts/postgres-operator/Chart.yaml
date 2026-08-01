@@ -256,7 +256,7 @@ annotations:
           - name: pgcrypto
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.8
+      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.11
   artifacthub.io/changes: |
     - kind: changed
       description: "Package operator appVersion/image 0.4.0-beta.8 and publish all 10 CRDs, including ShardRange and ShardSplitJob."
