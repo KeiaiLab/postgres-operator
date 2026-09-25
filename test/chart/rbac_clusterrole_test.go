@@ -173,3 +173,40 @@ func TestChartRoleCoversRBAC(t *testing.T) {
 		}
 	}
 }
+
+// pvcDelete 는 멤버 PVC 를 지우는 권한 칸이다 — 어떤 판에도 없어야 한다(I2, 2026-09-24 PV 누수).
+var pvcDelete = rbacGrant{"", "persistentvolumeclaims", "delete"}
+
+// TestRoleYAMLNoPVCDelete 는 마커 정본(role.yaml)이 PVC 를 지우지 못하고 재구축 엔진의 스냅숏·죽은 노드
+// 판정 권한을 갖는지 본다(설계 §3.10) — 멤버 데이터를 버리는 길은 readyToUse 스냅숏 뒤 파드 재생성뿐이다.
+func TestRoleYAMLNoPVCDelete(t *testing.T) {
+	role := loadClusterRole(t, generatedRoles[0])
+	if grantSet(role)[pvcDelete] {
+		t.Error("role.yaml 이 persistentvolumeclaims delete 를 준다 — 재시드는 PVC 를 지우지 않는다")
+	}
+	rules := []struct {
+		group, resource string
+		verbs           []string
+	}{
+		{"", "persistentvolumeclaims", []string{"get", "list", "watch", "patch"}},
+		{"snapshot.storage.k8s.io", "volumesnapshots", []string{"get", "list", "create", "delete"}},
+		{"", "nodes", []string{"get", "list", "watch"}},
+	}
+	for _, want := range rules {
+		if !hasRule(role, want.group, want.resource, want.verbs...) {
+			t.Errorf("role.yaml 에 %s/%s 규칙 %v 없음", want.group, want.resource, want.verbs)
+		}
+	}
+}
+
+// TestChartRoleNoPVCDelete 는 차트 manager-role 에서도 PVC delete 를 뺐는지 본다 — ⊇ 시험(TestChartRoleCoversRBAC)은
+// 손으로 옮긴 사본에 남은 권한을 못 잡는다.
+func TestChartRoleNoPVCDelete(t *testing.T) {
+	cr, found := findManagerClusterRole(t, helmTemplate(t))
+	if !found {
+		t.Fatal("렌더 결과에 manager-role ClusterRole 이 없음")
+	}
+	if grantSet(cr)[pvcDelete] {
+		t.Error("차트 manager-role 이 persistentvolumeclaims delete 를 준다 — 마커에서 뺀 권한이 차트에 남았다")
+	}
+}

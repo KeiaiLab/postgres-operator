@@ -221,7 +221,7 @@ func parseReplicationRows(out []byte) (map[string]string, error) {
 }
 
 // reconcileGraphActions 는 그래프로 움직인다(§3.4): 연결 기록 → 연결된 fenced 멤버의 fence 제거
-// → 끊긴 standby 재지정. 옛 재시드 경로는 그대로다(OP4c).
+// → 끊긴 standby 재지정. 오래 끊긴 standby 의 재시드는 재구축 엔진이 한다(requestRebuilds).
 func (r *PostgresClusterReconciler) reconcileGraphActions(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,

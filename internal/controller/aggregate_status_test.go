@@ -205,8 +205,8 @@ func TestAggregateShardStatus_FencedPrimaryIsNotPromotionReadyReplica(t *testing
 	if out.Replicas[0].Ready {
 		t.Fatalf("fenced pod must not remain promotion-ready replica: %+v", out.Replicas[0])
 	}
-	if out.Replicas[0].Reason != "fenced" {
-		t.Fatalf("fenced replica reason = %q, want fenced", out.Replicas[0].Reason)
+	if out.Replicas[0].Reason != fencedPrimaryReason {
+		t.Fatalf("fenced primary reason = %q, want %s (rebuild reason FencedPrimary)", out.Replicas[0].Reason, fencedPrimaryReason)
 	}
 }
 

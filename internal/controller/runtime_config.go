@@ -10,6 +10,7 @@ package controller
 //
 //	CR 애노테이션 shard-runtime ── 정본: epoch(단조) · initialized(끈적) · promotionLSN
 //	      │ promoteAndPublish(승격) · adoptPrimary(발행 전 크래시 채택) · ensureRuntime(생성만)
+//	      │ 승격·채택의 CM 쓰기는 밀려난 primary 의 MEMBER_HOLD 를 같이 싣는다(I9)
 //	      ▼
 //	ConfigMap <cluster>-<shard>-runtime ── 사본: PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED
 //	      │                                  재구축 엔진(ADR-0031): MEMBER_HOLD · RESEED_REQUESTS
@@ -36,6 +37,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -105,7 +107,8 @@ var bootstrapRuntimeKeys = []string{
 	runtimeKeyMemberHold, runtimeKeyReseedRequests,
 }
 
-// promotionRuntimeKeys 는 승격·채택이 쓰는 키다 — hold·재시드 키는 재구축 엔진만 쓴다.
+// promotionRuntimeKeys 는 승격·채택이 늘 쓰는 키다 — MEMBER_HOLD 는 밀려난 primary 를 더할 때만 같이 쓰고
+// (writePromotion), 재시드 키는 재구축 엔진만 쓴다.
 var promotionRuntimeKeys = []string{runtimeKeyPrimaryEndpoint, runtimeKeyPromotionEpoch, runtimeKeyClusterInitialized}
 
 // memberRuntimeKeys 는 재구축 엔진의 목록 키다 — 비어도 늘 쓴다(템플릿이 Optional=false 로 참조한다).
@@ -544,7 +547,8 @@ func (r *PostgresClusterReconciler) fillRuntimeKeys(ctx context.Context, cm *cor
 }
 
 // publishRuntime 은 승격 결과를 CM 에 한 번 쓴다 — CM 이 없으면(옛 템플릿 창) 그 값으로 만든다.
-// 있으면 승격 키만 쓴다 — hold·재시드 키는 재구축 엔진의 것이라 덮지 않는다.
+// 있으면 승격 키만 쓴다 — hold·재시드 키는 재구축 엔진의 것이라 덮지 않는다. rt.Hold 는 같은 쓰기로
+// MEMBER_HOLD 에 더할 멤버다(I9 — 새 primary 발행과 옛 primary hold 사이에 창이 없다).
 func (r *PostgresClusterReconciler) publishRuntime(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -556,7 +560,7 @@ func (r *PostgresClusterReconciler) publishRuntime(
 	for _, key := range promotionRuntimeKeys {
 		promotion[key] = cm.Data[key]
 	}
-	err := r.patchRuntime(ctx, cluster, shard, promotion)
+	err := r.writePromotion(ctx, cluster, shard, promotion, rt.Hold)
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -566,11 +570,40 @@ func (r *PostgresClusterReconciler) publishRuntime(
 	return r.Create(ctx, cm)
 }
 
+// writePromotion 은 있는 CM 에 승격 키를 쓴다(없으면 NotFound). held 가 없으면 잠금 없이 쓴다 — 캐시가
+// 낡아도 이 값이 남는다. 있으면 같은 쓰기로 MEMBER_HOLD 에 더한다 — 목록 키라 낙관적 잠금이고, 낡은
+// 캐시로 충돌하면 다시 읽는다.
+func (r *PostgresClusterReconciler) writePromotion(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard string,
+	promotion map[string]string,
+	held []string,
+) error {
+	if len(held) == 0 {
+		return r.patchRuntime(ctx, cluster, shard, promotion)
+	}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		cm, found, err := r.runtimeConfigMap(ctx, cluster, shard)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return apierrors.NewNotFound(corev1.Resource("configmaps"), ShardRuntimeConfigMapName(cluster.Name, shard))
+		}
+		data := maps.Clone(promotion)
+		data[runtimeKeyMemberHold] = formatHold(append(runtimeFromData(cm.Data).Hold, held...))
+		return r.patchRuntimeLocked(ctx, cm, data)
+	})
+}
+
 // promoteAndPublish 는 CM primary·epoch 를 바꾸는 승격 경로다(§3.2-1):
 //
-//	CR epoch E+1 선기록 → 승격 exec(epoch) → PROMOTE_RESULT=promoted 면 지표·이벤트 → CM 한 번 → CR promotionLSN
+//	CR epoch E+1 선기록 → 승격 exec(epoch) → PROMOTE_RESULT=promoted 면 지표·이벤트
+//	  → CM 한 번(endpoint · epoch · failover 면 옛 primary hold) → CR promotionLSN → Demoted 요청
 //
-// 발행 전 크래시는 CR epoch 이 앞서 있어 채택(OP2b)이 잇는다. oldPrimary 는 OP4c 의 hold 대상이다.
+// 발행 전 크래시는 CR epoch 이 앞서 있어 채택(OP2b)이 잇는다. Demoted 항목 쓰기가 실패해도 옛 primary 는
+// hold 에 있고 다음 reconcile 이 복원한다(restoreHeldRebuilds).
 func (r *PostgresClusterReconciler) promoteAndPublish(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -616,29 +649,60 @@ func (r *PostgresClusterReconciler) promoteAndPublish(
 	commonsevents.Emitf(r.Recorder, cluster, promotionExecutedReason,
 		"shard=%s pod=%s epoch=%d kind=%s", shardName, target.Pod, canon.Epoch, kind)
 	published := shardRuntime{PrimaryEndpoint: target.Endpoint, PromotionEpoch: canon.Epoch, ClusterInitialized: true}
+	demoted := demotedMember(kind, oldPrimary, target.Pod)
+	if demoted != "" {
+		published.Hold = []string{demoted}
+	}
 	if err := r.publishRuntime(ctx, cluster, shardName, published); err != nil {
 		return errors.Join(promoteErr, fmt.Errorf("publish primary %q epoch %d: %w", target.Pod, canon.Epoch, err))
 	}
 	logger := log.FromContext(ctx).WithValues("shard", shardName, "pod", target.Pod, "epoch", canon.Epoch)
 	logger.Info("primary published", "previous", oldPrimary, "kind", kind)
 
-	// 분기점을 모르면 비워 둔다 — 재구축 판정이 모름을 보존 쪽으로 다룬다.
-	lsn, err := r.promotionLSN(ctx, cluster.Namespace, target.Pod)
-	if err != nil {
-		logger.Info("promotion LSN unknown", "error", err)
+	r.recordPromotionLSN(ctx, cluster, shardName, target.Pod, state)
+	if demoted == "" {
 		return promoteErr
 	}
-	canon.PromotionLSN = lsn
-	state.Shards[shardName] = canon
-	if err := r.saveRuntimeState(ctx, cluster, state); err != nil {
-		logger.Info("promotion LSN not recorded", "error", err)
+	if err := r.requestRebuild(ctx, cluster, shardName, demoted, rebuildDemoted, time.Now()); err != nil {
+		logger.Info("demoted member left held without an entry; next reconcile restores it", "member", demoted, "error", err)
 	}
 	return promoteErr
 }
 
+// demotedMember 는 발행과 같은 쓰기로 hold 할 옛 primary 다 — failover 로 밀려난 다른 멤버만(§3.2). 없으면
+// 빈 문자열이다.
+func demotedMember(kind promotionKind, oldPrimary, target string) string {
+	if kind != promotionFailover || oldPrimary == target {
+		return ""
+	}
+	return oldPrimary
+}
+
+// recordPromotionLSN 은 새 타임라인 분기점을 정본에 적는다 — 모르면 비워 둔다(재구축 판정이 모름을 보존
+// 쪽으로 다룬다).
+func (r *PostgresClusterReconciler) recordPromotionLSN(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard, pod string,
+	state runtimeState,
+) {
+	canon := state.Shards[shard]
+	logger := log.FromContext(ctx).WithValues("shard", shard, "pod", pod, "epoch", canon.Epoch)
+	lsn, err := r.promotionLSN(ctx, cluster.Namespace, pod)
+	if err != nil {
+		logger.Info("promotion LSN unknown", "error", err)
+		return
+	}
+	canon.PromotionLSN = lsn
+	state.Shards[shard] = canon
+	if err := r.saveRuntimeState(ctx, cluster, state); err != nil {
+		logger.Info("promotion LSN not recorded", "error", err)
+	}
+}
+
 // adoptPrimary 는 발행 전 크래시를 잇는다(§3.2-2): CM epoch 이 CR epoch 보다 작고 마커 epoch 이
-// CR epoch 인 실제 primary 가 정확히 하나면 그 파드로 CM 을 한 번 쓴다(endpoint·epoch). 마커가
-// 모자라면(승격 exec 실패) 채택하지 않는다 — 다음 승격이 epoch 을 더 올린다(단조).
+// CR epoch 인 실제 primary 가 정확히 하나면 그 파드로 CM 을 한 번 쓴다(endpoint·epoch · 옛 CM primary
+// hold). 마커가 모자라면(승격 exec 실패) 채택하지 않는다 — 다음 승격이 epoch 을 더 올린다(단조).
 func (r *PostgresClusterReconciler) adoptPrimary(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -695,12 +759,66 @@ func (r *PostgresClusterReconciler) adoptPrimary(
 		PrimaryEndpoint:    memberEndpoint(adopted[0], ref.service),
 		PromotionEpoch:     canon.Epoch,
 		ClusterInitialized: canon.Initialized || rt.ClusterInitialized,
+		Hold:               adoptionHold(pods, endpointPod(rt.PrimaryEndpoint), adopted[0].Name, fenced, now),
 	}
 	if err := r.publishRuntime(ctx, cluster, ref.name, published); err != nil {
 		return fmt.Errorf("adopt primary %q epoch %d: %w", adopted[0].Name, canon.Epoch, err)
 	}
 	logger.Info("primary adopted", "pod", adopted[0].Name, "previous", rt.PrimaryEndpoint)
 	return nil
+}
+
+// adoptionHold 는 채택이 같은 쓰기로 hold 할 옛 CM primary 다 — 채택한 파드 자신이거나 아직 unfenced
+// primary 를 보고하면(primary 둘 — hold 0, Warning 은 reportAuthorities) 없다.
+func adoptionHold(pods []corev1.Pod, previous, adopted string, fenced map[string]bool, now time.Time) []string {
+	if previous == "" || previous == adopted {
+		return nil
+	}
+	if pod := podNamed(pods, previous); pod != nil && claimsPrimary(pod, fenced, now) {
+		return nil
+	}
+	return []string{previous}
+}
+
+// restoreHeldRebuilds 는 hold 에 있고 재구축 항목이 없는 멤버를 Demoted 로 되살린다(§3.2) — 발행·채택의
+// hold 뒤 항목 쓰기가 실패해도 멤버는 멈춘 채 남고 엔진이 잇는다. runtimePropagationWait 안에 끝난 항목의
+// hold 는 건너뛴다 — 끝내는 쓰기는 CM(hold 해제) 먼저라 캐시가 CR 만 새로 볼 수 있다.
+func (r *PostgresClusterReconciler) restoreHeldRebuilds(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shards []postgresv1alpha1.ShardStatus,
+	now time.Time,
+) {
+	logger := log.FromContext(ctx)
+	state, err := loadRebuildState(cluster)
+	if err != nil {
+		logger.Info("held members not restored: rebuild state unreadable", "error", err)
+		return
+	}
+	for i := range shards {
+		rt, found, err := r.readRuntime(ctx, cluster, shards[i].Name)
+		if err != nil || !found {
+			continue
+		}
+		for _, pod := range rt.Hold {
+			if _, active := state.Active[pod]; active || endedWithin(state, pod, now, runtimePropagationWait) {
+				continue
+			}
+			if err := r.requestRebuild(ctx, cluster, shards[i].Name, pod, rebuildDemoted, now); err != nil {
+				logger.Info("held member not restored", "shard", shards[i].Name, "pod", pod, "error", err)
+			}
+		}
+	}
+}
+
+// endedWithin 은 pod 의 재구축이 window 안에 끝났는지다(원장).
+func endedWithin(state rebuildState, pod string, now time.Time, window time.Duration) bool {
+	for _, x := range state.Ledger {
+		if x.Pod == pod && !x.Ended.IsZero() && now.Sub(x.Ended) < window {
+			return true
+		}
+	}
+	return false
 }
 
 // checkPrimary 는 멤버가 실제 primary 인지 본다 — 싼 판정(fence·하트비트·파드 상태) 뒤 exec 한 번.

@@ -245,7 +245,7 @@ func (r *PostgresClusterReconciler) reportAuthorities(
 // aggregate 가 고른 primary 는 따르지 않는다: primary 가 둘이면 목록 순서대로 요동한다(DS-2).
 // 멤버를 먼저 replica 로 내리고 권위 파드를 마지막에 올린다 — rw 라벨이 둘인 순간이 없다.
 //
-// #226: standby cleanup/재시딩(reconcileStaleReplicas/reconcileRoguePrimaries)
+// #226: standby cleanup/재시딩(재구축 엔진 requestRebuilds/advanceRebuilds)
 // 보다 *먼저*, 그리고 *독립적으로* 호출되어야 한다 — 그래야 죽은 노드의 pod
 // delete가 영원히 hang해도(kubelet 무응답) rw 트래픽 라우팅은 항상 런타임 CM이
 // 가리키는 실제 primary로 수렴한다. 강등 대상 Pod가 이미

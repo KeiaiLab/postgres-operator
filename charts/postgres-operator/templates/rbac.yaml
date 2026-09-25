@@ -42,22 +42,25 @@ rules:
   - apiGroups: [""]
     resources: [services, configmaps, secrets, serviceaccounts]
     verbs: [get, list, watch, create, update, patch, delete]
-  # nodes: reseedStandby(#226)가 stuck-Terminating standby pod 를 force-delete로
+  # nodes: 재구축 엔진(#226)이 stuck-Terminating 멤버 pod 를 force-delete로
   # 승격하기 전, 대상 node 의 Ready condition 을 확인해 "정말 죽은 노드"에서만
   # 승격하도록 하는 안전 게이트(stuckTerminatingOnDeadNode/nodeNotReady) 에 필요.
   - apiGroups: [""]
     resources: [nodes]
     verbs: [get, list, watch]
-  # delete: reseedStandby(#205)가 standby PVC 를 지운다 — 마커(role.yaml)와 같게.
+  # delete 없음: 재시드는 PVC 를 지우지 않는다(2026-09-24 Retain PV 누수) — 마커(role.yaml)와 같게.
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
-    verbs: [get, list, watch, patch, update, delete]
+    verbs: [get, list, watch, patch]
   - apiGroups: [""]
     resources: [pods]
-    # delete: reseedStandby/reconcileStaleReplicas(#205/#220)가 stuck standby(timeline
-    # divergence 등)의 pod+PVC를 삭제해 StatefulSet 이 fresh pg_basebackup 으로 재clone.
-    # delete 누락 시 reseed 가 pod 삭제에서 forbidden → timeline-stuck replica 영구 방치.
+    # delete: 재구축 엔진이 hold 한 멤버 pod 를 지워 StatefulSet 이 다시 만들게 한다 — PGDATA 를
+    # 버리는 재시드는 readyToUse 스냅숏 뒤에만(ADR-0031).
     verbs: [get, list, watch, patch, delete]
+  # 재구축 엔진이 멤버 데이터를 버리기 전에 뜨는 스냅숏(<pod>-rebuild-<token>)과 그 GC.
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
+    verbs: [get, list, create, delete]
   - apiGroups: [""]
     resources: [pods/exec]
     verbs: [create]

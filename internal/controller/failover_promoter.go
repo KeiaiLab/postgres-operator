@@ -61,19 +61,9 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 	if err != nil {
 		return fmt.Errorf("build plan: %w", err)
 	}
+	// 옛 primary 는 발행과 같은 CM 쓰기로 hold 되고 재구축 엔진이 Demoted 로 잇는다(§3.2) — 즉시 재시드 0.
 	if err := r.promoteAndPublish(ctx, cluster, shardName, plan.Target, oldPrimary, promotionFailover); err != nil {
 		return fmt.Errorf("execute promotion plan for shard %q pod %q: %w", shardName, plan.Target.Pod, err)
-	}
-	// #220: reseed the FAILED old primary so it can only return as a fresh
-	// pg_basebackup standby of the new primary — never as a rogue primary booting
-	// from stale PGDATA (split-brain). Gated on the old primary being genuinely
-	// down/not-ready so a spurious promotion can never destroy a healthy primary.
-	if oldPrimary != "" && decision.PromotionCandidate != nil &&
-		oldPrimary != decision.PromotionCandidate.Pod &&
-		r.podAbsentOrNotReady(ctx, cluster.Namespace, oldPrimary) {
-		if err := r.reseedStandby(ctx, cluster, oldPrimary, time.Now()); err != nil {
-			return fmt.Errorf("reseed failed old primary %q: %w", oldPrimary, err)
-		}
 	}
 	return nil
 }

@@ -32,11 +32,9 @@ rules:
   resources:
   - persistentvolumeclaims
   verbs:
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -217,6 +215,15 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - snapshot.storage.k8s.io
+  resources:
+  - volumesnapshots
+  verbs:
+  - create
+  - delete
+  - get
+  - list
 - apiGroups:
   - storage.k8s.io
   resources:
