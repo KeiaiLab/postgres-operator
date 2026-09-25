@@ -1,0 +1,28 @@
+# GREEN J4 — 오퍼레이터 /metrics(:8443, 인증·인가 필터)를 긁는 드라이버 전용 신원.
+# 토큰은 kubectl create token 으로 그 자리에서 받는다(파일·로그에 남기지 않는다).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loopdrill-metrics
+  namespace: data
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: loopdrill-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: loopdrill-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: loopdrill-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: loopdrill-metrics
+    namespace: data

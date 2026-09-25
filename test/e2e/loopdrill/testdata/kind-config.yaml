@@ -1,0 +1,56 @@
+# loopdrill kind 클러스터 — 1 control-plane + 4 worker(설계 2026-09-25 §3.12).
+#
+#   control-plane        apiserver 감사(PVC·pod delete)            S4 가 docker pause 한다
+#   worker ~ worker3     pg 멤버 셋(anti-affinity 로 노드당 1)       S5 가 standby 노드를 세운다
+#   worker4 (infra)      NFS 서버 · CSI controller · 오퍼레이터      테인트로 pg 를 받지 않는다
+#
+# infra 를 떼는 이유: S4·S5 동안 저장과 오퍼레이터가 살아 있어야 운영(k3s 재시작·노드 사망)과 같다.
+# 경로는 저장소 루트 기준이다 — 드라이버가 루트에서 kind 를 부른다.
+# 노드 이미지 = 운영 k3s v1.36.4 와 같은 판 · Harbor dockerhub-proxy 디지스트 핀.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    image: harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+    extraMounts:
+      - hostPath: test/e2e/loopdrill/testdata/audit-policy.yaml
+        containerPath: /etc/kubernetes/loopdrill/audit-policy.yaml
+        readOnly: true
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            - name: audit-policy-file
+              value: /etc/kubernetes/loopdrill/audit-policy.yaml
+            - name: audit-log-path
+              value: /var/log/kubernetes/audit.log
+          extraVolumes:
+            - name: loopdrill-audit-policy
+              hostPath: /etc/kubernetes/loopdrill
+              mountPath: /etc/kubernetes/loopdrill
+              readOnly: true
+              pathType: DirectoryOrCreate
+            - name: loopdrill-audit-log
+              hostPath: /var/log/kubernetes
+              mountPath: /var/log/kubernetes
+              pathType: DirectoryOrCreate
+  - role: worker
+    image: harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+    labels:
+      keiailab.dev/tier: "1"
+      loopdrill.keiailab.io/role: infra
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: loopdrill.keiailab.io/infra
+              value: "true"
+              effect: NoSchedule

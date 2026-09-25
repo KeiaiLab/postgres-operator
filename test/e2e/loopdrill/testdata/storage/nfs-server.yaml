@@ -1,0 +1,79 @@
+# 클러스터 안 NFS 서버 — csi-driver-nfs 의 백엔드(스냅숏 · 노드 간 이동).
+# 커널 nfsd(Docker Desktop linuxkit 커널에 있음)를 쓰므로 privileged. 수출 디렉터리는 infra 노드의
+# /var 아래(ext4) — 노드 컨테이너의 overlay 루트는 NFS 로 수출되지 않는다.
+# 이미지 = k8s e2e volume/nfs 1.4(다중 아키텍처) · Harbor k8s-registry-proxy 디지스트 핀.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loopdrill-nfs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: loopdrill-nfs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-server
+  template:
+    metadata:
+      labels:
+        app: nfs-server
+    spec:
+      nodeSelector:
+        loopdrill.keiailab.io/role: infra
+      tolerations:
+        - key: loopdrill.keiailab.io/infra
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: nfs-server
+          image: harbor.keiailab.com/k8s-registry-proxy/e2e-test-images/volume/nfs:1.4@sha256:c3e380bb5a92095288b4dd586a250c560612afbabf53fb2a057e99fff75f038f
+          args: ["/exports"]
+          securityContext:
+            privileged: true
+          ports:
+            - name: nfs
+              containerPort: 2049
+              protocol: TCP
+            - name: mountd
+              containerPort: 20048
+              protocol: TCP
+            - name: rpcbind
+              containerPort: 111
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 2049
+            periodSeconds: 5
+          volumeMounts:
+            - name: exports
+              mountPath: /exports
+      volumes:
+        - name: exports
+          hostPath:
+            path: /var/lib/loopdrill-nfs
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+  namespace: loopdrill-nfs
+spec:
+  selector:
+    app: nfs-server
+  ports:
+    - name: nfs
+      port: 2049
+      protocol: TCP
+    - name: mountd
+      port: 20048
+      protocol: TCP
+    - name: rpcbind
+      port: 111
+      protocol: TCP

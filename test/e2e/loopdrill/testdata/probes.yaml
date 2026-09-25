@@ -1,0 +1,39 @@
+# 사전 탐침(설계 §3.12). ConfigMap p1 은 드라이버가 값을 바꿔 가며 만든다 — 이 파일이 값을 되돌리지 않게 뺐다.
+#   P1  새 파드가 ConfigMap 최신 값을 env(configMapKeyRef)로 받나 — 거짓이면 설계 재검토
+#   P2  kind 노드(arm64)가 linux/amd64 이미지를 돌리나 — 참이면 발행 digest 그대로, 거짓이면 arm64 로컬 빌드
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loopdrill-probe
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: p1
+  namespace: loopdrill-probe
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: probe
+      image: harbor.keiailab.com/dockerhub-proxy/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+      # PID 1 은 기본 동작 신호를 받지 않는다 — TERM 을 잡아 끝내야 컨테이너 재시작을 부를 수 있다.
+      command: ["sh", "-c", "trap 'exit 0' TERM; while true; do sleep 1; done"]
+      env:
+        - name: VALUE
+          valueFrom:
+            configMapKeyRef:
+              name: p1
+              key: VALUE
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: p2
+  namespace: loopdrill-probe
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      # busybox 1.37.0 의 linux/amd64 단일 매니페스트 — 인덱스가 아니라 노드가 제 아키텍처로 바꿔 당기지 못한다.
+      image: harbor.keiailab.com/dockerhub-proxy/library/busybox@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
+      command: ["uname", "-m"]
