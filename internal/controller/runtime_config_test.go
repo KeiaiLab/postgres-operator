@@ -536,6 +536,8 @@ func TestPromoteAndPublishOrder(t *testing.T) {
 				runtimeKeyPrimaryEndpoint:    podDNS(name, target),
 				runtimeKeyPromotionEpoch:     "3",
 				runtimeKeyClusterInitialized: runtimeFlagOn,
+				runtimeKeyMemberHold:         "",
+				runtimeKeyReseedRequests:     "",
 			}
 			if got := runtimeCM(t, c, name); !equality.Semantic.DeepEqual(got, want) {
 				t.Fatalf("runtime CM = %v, want %v", got, want)
@@ -573,6 +575,8 @@ func TestRuntimeCreatedFromHealthyPrimary(t *testing.T) {
 		runtimeKeyPrimaryEndpoint:    podDNS(name, primary.Name),
 		runtimeKeyPromotionEpoch:     "2",
 		runtimeKeyClusterInitialized: runtimeFlagOn,
+		runtimeKeyMemberHold:         "",
+		runtimeKeyReseedRequests:     "",
 	}
 	if got := runtimeCM(t, c, name); !equality.Semantic.DeepEqual(got, want) {
 		t.Fatalf("runtime CM = %v, want %v", got, want)
@@ -610,6 +614,8 @@ func TestFreshShardRuntime(t *testing.T) {
 		runtimeKeyPrimaryEndpoint:    podDNS(name, seed),
 		runtimeKeyPromotionEpoch:     "0",
 		runtimeKeyClusterInitialized: runtimeFlagOff,
+		runtimeKeyMemberHold:         "",
+		runtimeKeyReseedRequests:     "",
 	}
 	if got := runtimeCM(t, c, name); !equality.Semantic.DeepEqual(got, want) {
 		t.Fatalf("fresh runtime CM = %v, want %v", got, want)
@@ -705,6 +711,8 @@ func TestRuntimeRecreatedFromCanon(t *testing.T) {
 		runtimeKeyPrimaryEndpoint:    podDNS(name, primary.Name),
 		runtimeKeyPromotionEpoch:     "3",
 		runtimeKeyClusterInitialized: runtimeFlagOn,
+		runtimeKeyMemberHold:         "",
+		runtimeKeyReseedRequests:     "",
 	}
 	if got := runtimeCM(t, c, name); !equality.Semantic.DeepEqual(got, want) {
 		t.Fatalf("recreated runtime CM = %v, want canon %v", got, want)
@@ -792,6 +800,8 @@ func TestAdoptPrimary(t *testing.T) {
 					runtimeKeyPrimaryEndpoint:    podDNS(name, promoted.Name),
 					runtimeKeyPromotionEpoch:     strconv.FormatInt(epoch, 10),
 					runtimeKeyClusterInitialized: runtimeFlagOn,
+					runtimeKeyMemberHold:         "",
+					runtimeKeyReseedRequests:     "",
 				}
 				writes = 1
 			}

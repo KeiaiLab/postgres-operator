@@ -7,6 +7,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package controller
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,6 +89,7 @@ func (w bootWorld) seed(t *testing.T, files map[string]string) {
 func (w bootWorld) run(t *testing.T, env map[string]string) (string, error) {
 	t.Helper()
 	paths := bootstrapPaths{
+		Root:       w.root,
 		Data:       w.data,
 		PGPass:     filepath.Join(w.root, "primary.pgpass"),
 		ClientKey:  filepath.Join(w.root, "client.key"),
@@ -244,4 +246,173 @@ func TestBootstrapBasebackupDropsCopiedMarker(t *testing.T) {
 		t.Fatal("a fresh standby must have standby.signal and no copied promoted marker")
 	}
 	assertOneConninfo(t, w)
+}
+
+// tree 는 bin 밖 파일·디렉터리의 권한·내용이다 — 파일 변화 0 단언용.
+func (w bootWorld) tree(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(w.root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == w.bin {
+			return filepath.SkipDir
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		body := ""
+		if !d.IsDir() {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			body = string(raw)
+		}
+		out[path] = info.Mode().String() + "|" + body
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func (w bootWorld) rootFile(t *testing.T, name string) (string, bool) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(w.root, name))
+	if os.IsNotExist(err) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw)), true
+}
+
+func (w bootWorld) initdbCalled() bool {
+	_, err := os.Stat(filepath.Join(w.bin, "initdb.called"))
+	return err == nil
+}
+
+// reseedEnv 는 bootEnv 에 hold·재시드 키를 더한다.
+func reseedEnv(env map[string]string, hold, reseed string) map[string]string {
+	env[runtimeKeyMemberHold] = hold
+	env[runtimeKeyReseedRequests] = reseed
+	return env
+}
+
+// TestBootstrapHeldTouchesNothing: MEMBER_HOLD 에 자기 → exit≠0 · 파일 변화 0(대기 중인 재시드 토큰도 안 돈다).
+func TestBootstrapHeldTouchesNothing(t *testing.T) {
+	t.Parallel()
+	w := newBootWorld(t)
+	w.seed(t, map[string]string{
+		"PG_VERSION":           "18\n",
+		"postmaster.pid":       "",
+		promotedPrimaryMarker:  "1\n",
+		"postgresql.auto.conf": "primary_conninfo = 'host=a'\nprimary_conninfo = 'host=b'\n",
+	})
+	if err := os.Chmod(w.data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := w.tree(t)
+	env := reseedEnv(bootEnv(bootReplica, bootPrimary, "1", "1"), "other-0,"+bootReplica+",other-2", bootReplica+"=tok-0")
+
+	out, err := w.run(t, env)
+	if err == nil || !strings.Contains(out, "member held by operator") {
+		t.Fatalf("held member: err=%v out=%s, want exit≠0 with the hold message", err, out)
+	}
+	after := w.tree(t)
+	if len(before) != len(after) {
+		t.Fatalf("held member changed files:\nbefore=%v\nafter=%v", before, after)
+	}
+	for path, state := range before {
+		if after[path] != state {
+			t.Fatalf("held member changed %s: %q → %q", path, state, after[path])
+		}
+	}
+}
+
+// TestBootstrapReseedToken: 토큰 대기 → PGDATA 비움·basebackup·applied=token(pending 없음) · applied==token → 삭제 0.
+func TestBootstrapReseedToken(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		applied string
+		wiped   bool
+	}{
+		"pending token": {"", true},
+		"older applied": {"tok-0", true},
+		"token applied": {"tok-1", false},
+	}
+	for label, tc := range cases {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+			w := newBootWorld(t)
+			w.seed(t, map[string]string{"PG_VERSION": "18\n", "standby.signal": "", "old-data": "x", "postgresql.auto.conf": ""})
+			if tc.applied != "" {
+				if err := os.WriteFile(filepath.Join(w.root, reseedAppliedMarker), []byte(tc.applied+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			env := reseedEnv(bootEnv(bootReplica, bootPrimary, "1", "1"), "", "other-9=tok-9,"+bootReplica+"=tok-1")
+
+			if out, err := w.run(t, env); err != nil {
+				t.Fatalf("bootstrap: %v\n%s", err, out)
+			}
+			if w.exists("old-data") == tc.wiped {
+				t.Fatalf("old-data present = %v, want wiped=%v", w.exists("old-data"), tc.wiped)
+			}
+			if applied, _ := w.rootFile(t, reseedAppliedMarker); applied != "tok-1" {
+				t.Fatalf("applied = %q, want tok-1", applied)
+			}
+			if _, pending := w.rootFile(t, reseedPendingMarker); pending {
+				t.Fatal("pending token left behind after the basebackup")
+			}
+			if !w.exists("standby.signal") {
+				t.Fatal("reseeded member must come back as a standby")
+			}
+			if tc.wiped {
+				assertOneConninfo(t, w)
+			}
+		})
+	}
+}
+
+// TestBootstrapReseedNeedsOtherPrimary: 토큰 대기인데 CM primary 가 자기이거나 비었으면 exit≠0 · PGDATA 그대로.
+func TestBootstrapReseedNeedsOtherPrimary(t *testing.T) {
+	t.Parallel()
+	self := bootReplica + ".demo-shard-0-headless.ns.svc.cluster.local:5432"
+	for label, endpoint := range map[string]string{"self": self, "empty": ""} {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+			w := newBootWorld(t)
+			w.seed(t, map[string]string{"PG_VERSION": "18\n", "old-data": "x"})
+			env := reseedEnv(bootEnv(bootReplica, endpoint, "1", "1"), "", bootReplica+"=tok-1")
+
+			out, err := w.run(t, env)
+			if err == nil || !w.exists("old-data") {
+				t.Fatalf("reseed without another primary: err=%v old-data=%v, want exit≠0 with PGDATA kept\n%s", err, w.exists("old-data"), out)
+			}
+			if _, pending := w.rootFile(t, reseedPendingMarker); pending {
+				t.Fatal("pending written although the reseed was refused")
+			}
+		})
+	}
+}
+
+// TestBootstrapPendingRefusesInitdb: 재시드 대기(pending) ∧ 빈 PGDATA ord-0 → initdb 0 · exit≠0(I6).
+func TestBootstrapPendingRefusesInitdb(t *testing.T) {
+	t.Parallel()
+	w := newBootWorld(t)
+	if err := os.WriteFile(filepath.Join(w.root, reseedPendingMarker), []byte("tok-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	self := bootOrdZero + ".demo-shard-0-headless.ns.svc.cluster.local:5432"
+
+	out, err := w.run(t, reseedEnv(bootEnv(bootOrdZero, self, "0", runtimeFlagOff), "", ""))
+	if err == nil || w.initdbCalled() {
+		t.Fatalf("pending reseed on an empty ordinal-0: err=%v initdb=%v, want exit≠0 without initdb\n%s", err, w.initdbCalled(), out)
+	}
 }

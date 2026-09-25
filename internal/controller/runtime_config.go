@@ -12,6 +12,7 @@ package controller
 //	      │ promoteAndPublish(승격) · adoptPrimary(발행 전 크래시 채택) · ensureRuntime(생성만)
 //	      ▼
 //	ConfigMap <cluster>-<shard>-runtime ── 사본: PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED
+//	      │                                  재구축 엔진(ADR-0031): MEMBER_HOLD · RESEED_REQUESTS
 //	      │ configMapKeyRef(Optional=false) — 컨테이너를 만들 때마다 읽힌다
 //	      ▼
 //	bootstrap(init) · instance(main) env
@@ -23,7 +24,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +52,13 @@ const (
 	runtimeKeyPrimaryEndpoint    = "PRIMARY_ENDPOINT"
 	runtimeKeyPromotionEpoch     = "PROMOTION_EPOCH"
 	runtimeKeyClusterInitialized = "CLUSTER_INITIALIZED"
+	runtimeKeyMemberHold         = "MEMBER_HOLD"
+	runtimeKeyReseedRequests     = "RESEED_REQUESTS"
+
+	// runtimeListSeparator·reseedTokenSeparator 는 목록 키의 형식이다
+	// (MEMBER_HOLD = pod,pod · RESEED_REQUESTS = pod=token,pod=token).
+	runtimeListSeparator = ","
+	reseedTokenSeparator = "="
 
 	runtimeFlagOn  = "1"
 	runtimeFlagOff = "0"
@@ -90,7 +100,16 @@ const (
 )
 
 // bootstrapRuntimeKeys 는 init 컨테이너가 받는 런타임 키다(main 은 PRIMARY_ENDPOINT 만).
-var bootstrapRuntimeKeys = []string{runtimeKeyPrimaryEndpoint, runtimeKeyPromotionEpoch, runtimeKeyClusterInitialized}
+var bootstrapRuntimeKeys = []string{
+	runtimeKeyPrimaryEndpoint, runtimeKeyPromotionEpoch, runtimeKeyClusterInitialized,
+	runtimeKeyMemberHold, runtimeKeyReseedRequests,
+}
+
+// promotionRuntimeKeys 는 승격·채택이 쓰는 키다 — hold·재시드 키는 재구축 엔진만 쓴다.
+var promotionRuntimeKeys = []string{runtimeKeyPrimaryEndpoint, runtimeKeyPromotionEpoch, runtimeKeyClusterInitialized}
+
+// memberRuntimeKeys 는 재구축 엔진의 목록 키다 — 비어도 늘 쓴다(템플릿이 Optional=false 로 참조한다).
+var memberRuntimeKeys = []string{runtimeKeyMemberHold, runtimeKeyReseedRequests}
 
 // lsnPattern 은 PostgreSQL LSN 표기(예: 0/3000160)다.
 var lsnPattern = regexp.MustCompile(`^[0-9A-Fa-f]{1,8}/[0-9A-Fa-f]{1,8}$`)
@@ -100,6 +119,8 @@ type shardRuntime struct {
 	PrimaryEndpoint    string
 	PromotionEpoch     int64
 	ClusterInitialized bool
+	Hold               []string          // MEMBER_HOLD — 부트스트랩이 멈추는 멤버(정렬)
+	Reseed             map[string]string // RESEED_REQUESTS — 멤버 → 재시드 토큰
 }
 
 // runtimeState 는 CR 정본 — {version:1, shards:{<shard>:{epoch, initialized, promotionLSN}}}.
@@ -224,8 +245,78 @@ func buildRuntimeConfigMap(cluster *postgresv1alpha1.PostgresCluster, shard stri
 			runtimeKeyPrimaryEndpoint:    rt.PrimaryEndpoint,
 			runtimeKeyPromotionEpoch:     strconv.FormatInt(rt.PromotionEpoch, 10),
 			runtimeKeyClusterInitialized: initialized,
+			runtimeKeyMemberHold:         formatHold(rt.Hold),
+			runtimeKeyReseedRequests:     formatReseed(rt.Reseed),
 		},
 	}
+}
+
+// runtimeFromData 는 CM 데이터의 값이다 — 없는 키는 빈 값이다.
+func runtimeFromData(data map[string]string) shardRuntime {
+	return shardRuntime{
+		PrimaryEndpoint:    data[runtimeKeyPrimaryEndpoint],
+		PromotionEpoch:     parseEpoch(data[runtimeKeyPromotionEpoch]),
+		ClusterInitialized: data[runtimeKeyClusterInitialized] == runtimeFlagOn,
+		Hold:               parseHold(data[runtimeKeyMemberHold]),
+		Reseed:             parseReseed(data[runtimeKeyReseedRequests]),
+	}
+}
+
+// parseHold 는 MEMBER_HOLD(pod,pod)를 정렬된 멤버 목록으로 읽는다.
+func parseHold(raw string) []string {
+	var pods []string
+	for pod := range strings.SplitSeq(raw, runtimeListSeparator) {
+		if pod = strings.TrimSpace(pod); pod != "" && !slices.Contains(pods, pod) {
+			pods = append(pods, pod)
+		}
+	}
+	slices.Sort(pods)
+	return pods
+}
+
+// formatHold 는 멤버 목록을 MEMBER_HOLD 로 쓴다(정렬 — 같은 목록은 같은 글자).
+func formatHold(pods []string) string {
+	return strings.Join(parseHold(strings.Join(pods, runtimeListSeparator)), runtimeListSeparator)
+}
+
+// parseReseed 는 RESEED_REQUESTS(pod=token,…)를 읽는다 — 형식이 틀린 항목은 버린다.
+func parseReseed(raw string) map[string]string {
+	tokens := map[string]string{}
+	for pair := range strings.SplitSeq(raw, runtimeListSeparator) {
+		pod, token, ok := strings.Cut(strings.TrimSpace(pair), reseedTokenSeparator)
+		if !ok || pod == "" || token == "" {
+			continue
+		}
+		tokens[pod] = token
+	}
+	return tokens
+}
+
+// formatReseed 는 재시드 토큰을 RESEED_REQUESTS 로 쓴다(멤버 순).
+func formatReseed(tokens map[string]string) string {
+	pairs := make([]string, 0, len(tokens))
+	for _, pod := range slices.Sorted(maps.Keys(tokens)) {
+		pairs = append(pairs, pod+reseedTokenSeparator+tokens[pod])
+	}
+	return strings.Join(pairs, runtimeListSeparator)
+}
+
+// parseLSN 은 PostgreSQL LSN 표기(X/Y, 16진)를 절대 바이트 위치로 읽는다.
+func parseLSN(s string) (uint64, error) {
+	s = strings.TrimSpace(s)
+	if !lsnPattern.MatchString(s) {
+		return 0, fmt.Errorf("LSN %q is malformed", s)
+	}
+	hi, lo, _ := strings.Cut(s, "/")
+	high, err := strconv.ParseUint(hi, 16, 32)
+	if err != nil {
+		return 0, err
+	}
+	low, err := strconv.ParseUint(lo, 16, 32)
+	if err != nil {
+		return 0, err
+	}
+	return high<<32 | low, nil
 }
 
 // runtimeEnvVars 는 런타임 CM 키를 같은 이름 env 로 싣는다 — Optional=false 라 CM·키가
@@ -251,19 +342,28 @@ func (r *PostgresClusterReconciler) readRuntime(
 	cluster *postgresv1alpha1.PostgresCluster,
 	shard string,
 ) (shardRuntime, bool, error) {
+	cm, found, err := r.runtimeConfigMap(ctx, cluster, shard)
+	if err != nil || !found {
+		return shardRuntime{}, found, err
+	}
+	return runtimeFromData(cm.Data), true, nil
+}
+
+// runtimeConfigMap 은 런타임 CM 객체다(found=false 면 없음) — 잠금 쓰기가 resourceVersion 을 쓴다.
+func (r *PostgresClusterReconciler) runtimeConfigMap(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard string,
+) (*corev1.ConfigMap, bool, error) {
 	var cm corev1.ConfigMap
 	key := client.ObjectKey{Namespace: cluster.Namespace, Name: ShardRuntimeConfigMapName(cluster.Name, shard)}
 	if err := r.Get(ctx, key, &cm); err != nil {
 		if apierrors.IsNotFound(err) {
-			return shardRuntime{}, false, nil
+			return nil, false, nil
 		}
-		return shardRuntime{}, false, fmt.Errorf("get runtime ConfigMap %q: %w", key.Name, err)
+		return nil, false, fmt.Errorf("get runtime ConfigMap %q: %w", key.Name, err)
 	}
-	return shardRuntime{
-		PrimaryEndpoint:    cm.Data[runtimeKeyPrimaryEndpoint],
-		PromotionEpoch:     parseEpoch(cm.Data[runtimeKeyPromotionEpoch]),
-		ClusterInitialized: cm.Data[runtimeKeyClusterInitialized] == runtimeFlagOn,
-	}, true, nil
+	return &cm, true, nil
 }
 
 // runtimeForShard 는 STS 가 참조할 런타임 CM 이름과 upsert 가부다.
@@ -297,12 +397,15 @@ func (r *PostgresClusterReconciler) ensureRuntime(
 	if err != nil {
 		return false, err
 	}
-	rt, found, err := r.readRuntime(ctx, cluster, ref.name)
+	cm, found, err := r.runtimeConfigMap(ctx, cluster, ref.name)
 	if err != nil {
 		return false, err
 	}
 	if found {
-		return true, r.raiseInitialized(ctx, cluster, ref, state, rt)
+		if err := r.fillRuntimeKeys(ctx, cm); err != nil {
+			return false, err
+		}
+		return true, r.raiseInitialized(ctx, cluster, ref, state, runtimeFromData(cm.Data))
 	}
 
 	pods, err := r.shardMembers(ctx, cluster, ref.member)
@@ -338,7 +441,7 @@ func (r *PostgresClusterReconciler) ensureRuntime(
 			return false, err
 		}
 	}
-	cm := buildRuntimeConfigMap(cluster, ref.name, shardRuntime{
+	cm = buildRuntimeConfigMap(cluster, ref.name, shardRuntime{
 		PrimaryEndpoint:    endpoint,
 		PromotionEpoch:     canon.Epoch,
 		ClusterInitialized: canon.Initialized,
@@ -406,7 +509,42 @@ func (r *PostgresClusterReconciler) patchRuntime(
 	return r.Patch(ctx, cm, client.RawPatch(types.MergePatchType, raw))
 }
 
+// patchRuntimeLocked 는 읽은 CM 위에 키를 병합 패치한다 — 낙관적 잠금이라 낡은 캐시로 읽은
+// 목록 키가 새 값을 덮지 못한다(충돌이면 다음 reconcile 이 다시 읽는다).
+func (r *PostgresClusterReconciler) patchRuntimeLocked(
+	ctx context.Context,
+	cm *corev1.ConfigMap,
+	data map[string]string,
+) error {
+	target := cm.DeepCopy()
+	before := cm.DeepCopy()
+	if target.Data == nil {
+		target.Data = map[string]string{}
+	}
+	maps.Copy(target.Data, data)
+	if err := r.Patch(ctx, target, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("patch runtime ConfigMap %q: %w", cm.Name, err)
+	}
+	return nil
+}
+
+// fillRuntimeKeys 는 옛 CM 에 없는 재구축 키를 빈 값으로 더한다 — 템플릿이 Optional=false 로
+// 참조하므로 키가 없으면 컨테이너가 뜨지 않는다. 있는 키는 건드리지 않는다.
+func (r *PostgresClusterReconciler) fillRuntimeKeys(ctx context.Context, cm *corev1.ConfigMap) error {
+	missing := map[string]string{}
+	for _, key := range memberRuntimeKeys {
+		if _, ok := cm.Data[key]; !ok {
+			missing[key] = ""
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return r.patchRuntimeLocked(ctx, cm, missing)
+}
+
 // publishRuntime 은 승격 결과를 CM 에 한 번 쓴다 — CM 이 없으면(옛 템플릿 창) 그 값으로 만든다.
+// 있으면 승격 키만 쓴다 — hold·재시드 키는 재구축 엔진의 것이라 덮지 않는다.
 func (r *PostgresClusterReconciler) publishRuntime(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -414,7 +552,11 @@ func (r *PostgresClusterReconciler) publishRuntime(
 	rt shardRuntime,
 ) error {
 	cm := buildRuntimeConfigMap(cluster, shard, rt)
-	err := r.patchRuntime(ctx, cluster, shard, cm.Data)
+	promotion := make(map[string]string, len(promotionRuntimeKeys))
+	for _, key := range promotionRuntimeKeys {
+		promotion[key] = cm.Data[key]
+	}
+	err := r.patchRuntime(ctx, cluster, shard, promotion)
 	if !apierrors.IsNotFound(err) {
 		return err
 	}
