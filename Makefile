@@ -160,23 +160,23 @@ test-e2e-pg: setup-test-e2e manifests generate fmt vet ## Run RFC 0006 R1+R2 회
 test-e2e-failover: setup-test-e2e manifests generate fmt vet ## RFC 0006 R3 회귀 e2e (kind 의존, p2 라벨, replicas=1 primary kill).
 	$(call run-e2e-and-cleanup,go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v -ginkgo.label-filter=p2)
 
-# kind 훈련장 — failover 루프·PV 누수·컨트롤러 정지 판정(test/e2e/loopdrill, 설계 2026-09-25 §3.12).
+# kind 훈련장 — failover 루프·PV 누수·컨트롤러 정지 판정(test/e2e/loopdrill*_test.go · internal/loopdrill, 설계 2026-09-25 §3.12).
 # 클러스터 loopdrill 은 드라이버가 만들고 지운다(KEEP=1 재사용·체크포인트 재개). 사용자 kubeconfig 무변.
 # 끊긴 판이 남긴 클러스터는 다음 판이 NFS 손님부터 내려 걷는다 — 손으로 kind delete 하면 손님이 NFS 에 걸린다.
 # LOOPDRILL_CHART_DIR = data 체크아웃의 postgres-operator/ (필수, 깨끗한 git 트리 — 판정문이 그 트리에 결속).
-# 기본 이미지 = 기점(운영 beta.11 · pg 18) — RED 양성 대조. GREEN 은 LOOPDRILL_EXPECT=green 과 수정판 digest.
+# RED 는 그 저장소에서 ST0 부모 트리(드라이버 핀)를 풀어 쓴다. pg 는 늘 pg-drill(인스턴스 매니저 = 기점 c7608427).
+# 기본 이미지 = 기점(운영 beta.11) — RED 양성 대조. GREEN 은 LOOPDRILL_EXPECT=green 과 수정판 digest.
 LOOPDRILL_EXPECT ?= red
 LOOPDRILL_CHART_DIR ?=
 LOOPDRILL_OPERATOR_IMAGE ?= harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:v0.4.0-beta.11@sha256:29c503ffc16c3347d9b6912a9994d17c069667c89efe0a738e6e472ae551869d
-LOOPDRILL_PG_IMAGE ?= harbor.keiailab.com/ghcr-proxy/keiailab/pg:18@sha256:3e1bf011a059ab684f320f18a46bdf3d7a293369d5801b1013f790e98d325981
 LOOPDRILL_REPORT ?=
 
 .PHONY: test-e2e-loopdrill
 test-e2e-loopdrill: ## kind 훈련장 판정문(LOOPDRILL_EXPECT=red|green, LOOPDRILL_CHART_DIR 필수, KEEP=1 재사용).
 	LOOPDRILL_EXPECT="$(LOOPDRILL_EXPECT)" LOOPDRILL_CHART_DIR="$(LOOPDRILL_CHART_DIR)" \
-	LOOPDRILL_OPERATOR_IMAGE="$(LOOPDRILL_OPERATOR_IMAGE)" LOOPDRILL_PG_IMAGE="$(LOOPDRILL_PG_IMAGE)" \
+	LOOPDRILL_OPERATOR_IMAGE="$(LOOPDRILL_OPERATOR_IMAGE)" \
 	LOOPDRILL_REPORT="$(LOOPDRILL_REPORT)" KEEP="$(KEEP)" KIND="$(KIND)" \
-	go test -tags=e2e ./test/e2e/loopdrill/ -run '^TestLoopDrill$$' -count=1 -timeout 6h -v
+	go test -tags=e2e ./test/e2e/ -run '^TestLoopDrill$$' -count=1 -timeout 6h -v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

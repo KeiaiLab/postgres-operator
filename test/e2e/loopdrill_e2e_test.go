@@ -7,7 +7,7 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-package loopdrill
+package e2e
 
 import (
 	"crypto/sha256"
@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keiailab/postgres-operator/internal/loopdrill"
 )
 
 // kind 훈련장 진입점 — make test-e2e-loopdrill(설계 2026-09-25 §3.12).
@@ -35,7 +37,6 @@ const (
 	envChartDir     = "LOOPDRILL_CHART_DIR"
 	envBaseChartDir = "LOOPDRILL_BASE_CHART_DIR"
 	envOperator     = "LOOPDRILL_OPERATOR_IMAGE"
-	envPG           = "LOOPDRILL_PG_IMAGE"
 	envReport       = "LOOPDRILL_REPORT"
 	envScenarios    = "LOOPDRILL_SCENARIOS"
 	envStateDir     = "LOOPDRILL_STATE_DIR"
@@ -46,8 +47,15 @@ const (
 	baseChartRef          = "origin/stable"
 	verdictDir            = "test/e2e/loopdrill/verdicts"
 	drillDir              = "test/e2e/loopdrill"
+	judgeDir              = "internal/loopdrill"
+	drillDriverGlob       = "test/e2e/loopdrill*_test.go"
+	drillHelpers          = "test/e2e/helpers.go"
 	kindConfig            = "kind-config.yaml"
 	storageNote           = "csi-driver-nfs v4.13.4 · nfs-retain(Retain) · VolumeSnapshotClass nfs-snapshot(Delete)"
+
+	// preHoldDataCommit 은 data ST0(fe7c2ba) 의 부모 — RED 차트 트리 핀.
+	// ST0 뒤 data stable 은 오퍼레이터 0 복제라 기점 루프·정지가 재현되지 않는다.
+	preHoldDataCommit = "56d79387a723284b99f3899420a5daf86161113b"
 )
 
 // 판정문 결과.
@@ -61,8 +69,8 @@ const (
 )
 
 var (
-	redScenarios   = []Scenario{ScenarioS4, ScenarioS5}
-	greenScenarios = []Scenario{ScenarioS0, ScenarioS1, ScenarioS2, ScenarioS3, ScenarioS4, ScenarioS5, ScenarioS5b, ScenarioS6, ScenarioS7}
+	redScenarios   = []loopdrill.Scenario{loopdrill.ScenarioS4, loopdrill.ScenarioS5}
+	greenScenarios = []loopdrill.Scenario{loopdrill.ScenarioS0, loopdrill.ScenarioS1, loopdrill.ScenarioS2, loopdrill.ScenarioS3, loopdrill.ScenarioS4, loopdrill.ScenarioS5, loopdrill.ScenarioS5b, loopdrill.ScenarioS6, loopdrill.ScenarioS7}
 )
 
 // Fidelity 는 시험 이미지가 운영과 얼마나 같은가.
@@ -82,20 +90,19 @@ var fidelityNotes = []string{
 }
 
 type drillConfig struct {
-	mode         Mode
+	mode         loopdrill.Mode
 	chartDir     string
 	baseChartDir string
 	operator     imageRef
-	pg           imageRef
 	report       string
-	scenarios    []Scenario
+	scenarios    []loopdrill.Scenario
 	keep         bool
 	stateDir     string
 }
 
 func loadConfig() (drillConfig, error) {
-	cfg := drillConfig{mode: Mode(os.Getenv(envExpect)), keep: os.Getenv(envKeep) == "1"}
-	if cfg.mode != ModeRed && cfg.mode != ModeGreen {
+	cfg := drillConfig{mode: loopdrill.Mode(os.Getenv(envExpect)), keep: os.Getenv(envKeep) == "1"}
+	if cfg.mode != loopdrill.ModeRed && cfg.mode != loopdrill.ModeGreen {
 		return cfg, fmt.Errorf("%s 는 red 또는 green: %q", envExpect, cfg.mode)
 	}
 	cfg.chartDir = os.Getenv(envChartDir)
@@ -106,17 +113,14 @@ func loadConfig() (drillConfig, error) {
 	if cfg.operator, err = parseImageRef(os.Getenv(envOperator)); err != nil {
 		return cfg, fmt.Errorf("%s: %w", envOperator, err)
 	}
-	if cfg.pg, err = parseImageRef(os.Getenv(envPG)); err != nil {
-		return cfg, fmt.Errorf("%s: %w", envPG, err)
-	}
 	cfg.scenarios = redScenarios
-	if cfg.mode == ModeGreen {
+	if cfg.mode == loopdrill.ModeGreen {
 		cfg.scenarios = greenScenarios
 	}
 	if raw := os.Getenv(envScenarios); raw != "" {
 		cfg.scenarios = nil
 		for _, s := range strings.Split(raw, ",") {
-			cfg.scenarios = append(cfg.scenarios, Scenario(strings.TrimSpace(s)))
+			cfg.scenarios = append(cfg.scenarios, loopdrill.Scenario(strings.TrimSpace(s)))
 		}
 	}
 	cfg.baseChartDir = os.Getenv(envBaseChartDir)
@@ -128,40 +132,41 @@ func loadConfig() (drillConfig, error) {
 	return cfg, nil
 }
 
-// Inputs 는 판정문이 결속하는 입력(설계 §3.12 — digest · pg · fidelity · data 커밋 · 트리 · kind 노드 판 · 저장).
+// Inputs 는 판정문이 결속하는 입력(설계 §3.12 — digest · pg-drill 과 인스턴스 매니저 기점 · fidelity · data 커밋 · 트리 · kind 노드 판 · 저장).
 type Inputs struct {
-	OperatorImage string   `json:"operatorImage"`
-	OperatorRun   string   `json:"operatorRun"`
-	PGImage       string   `json:"pgImage"`
-	PGRun         string   `json:"pgRun"`
-	Fidelity      Fidelity `json:"fidelity"`
-	DataCommit    string   `json:"dataCommit"`
-	DataTree      string   `json:"dataTree"`
-	BaseDataTree  string   `json:"baseDataTree,omitempty"`
-	KindNode      string   `json:"kindNode"`
-	KindVersion   string   `json:"kindVersion"`
-	Storage       string   `json:"storage"`
-	DrillDigest   string   `json:"drillDigest"`
-	Notes         []string `json:"notes"`
+	OperatorImage    string   `json:"operatorImage"`
+	OperatorRun      string   `json:"operatorRun"`
+	PGImage          string   `json:"pgImage"` // pg-drill 이미지 ID
+	PGRun            string   `json:"pgRun"`
+	PGInstanceCommit string   `json:"pgInstanceCommit"` // pg-drill 인스턴스 매니저를 구운 기점
+	Fidelity         Fidelity `json:"fidelity"`
+	DataCommit       string   `json:"dataCommit"`
+	DataTree         string   `json:"dataTree"`
+	BaseDataTree     string   `json:"baseDataTree,omitempty"`
+	KindNode         string   `json:"kindNode"`
+	KindVersion      string   `json:"kindVersion"`
+	Storage          string   `json:"storage"`
+	DrillDigest      string   `json:"drillDigest"`
+	Notes            []string `json:"notes"`
 }
 
 // ScenarioRun 은 시나리오 하나의 기록.
 type ScenarioRun struct {
-	Verdict
-	Expect Expect      `json:"expect"`
-	Before ClusterSnap `json:"before"`
-	After  ClusterSnap `json:"after"`
+	loopdrill.Verdict
+	Expect loopdrill.Expect      `json:"expect"`
+	Before loopdrill.ClusterSnap `json:"before"`
+	After  loopdrill.ClusterSnap `json:"after"`
 }
 
-// Report 는 판정문.
-type Report struct {
-	Expect     Mode          `json:"expect"`
-	Result     string        `json:"result"`
-	Inputs     Inputs        `json:"inputs"`
-	Probes     ProbeResult   `json:"probes"`
-	Scenarios  []ScenarioRun `json:"scenarios"`
-	StartedAt  time.Time     `json:"startedAt"`
-	FinishedAt time.Time     `json:"finishedAt"`
+// DrillReport 는 판정문.
+type DrillReport struct {
+	Expect     loopdrill.Mode `json:"expect"`
+	Result     string         `json:"result"`
+	Inputs     Inputs         `json:"inputs"`
+	Probes     ProbeResult    `json:"probes"`
+	Scenarios  []ScenarioRun  `json:"scenarios"`
+	StartedAt  time.Time      `json:"startedAt"`
+	FinishedAt time.Time      `json:"finishedAt"`
 }
 
 // checkpoint 는 KEEP=1 재개용 — 같은 입력일 때만 이어 쓴다.
@@ -202,7 +207,7 @@ func TestLoopDrill(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := resultRedAsExpected
-	if cfg.mode == ModeGreen {
+	if cfg.mode == loopdrill.ModeGreen {
 		want = resultGreen
 	}
 	if report.Result != want {
@@ -210,7 +215,7 @@ func TestLoopDrill(t *testing.T) {
 	}
 }
 
-func (d *drill) run() (*Report, error) {
+func (d *drill) run() (*DrillReport, error) {
 	started := time.Now()
 	if err := d.prepareState(); err != nil {
 		return nil, err
@@ -235,7 +240,7 @@ func (d *drill) run() (*Report, error) {
 		cp.Probes = &probes
 		d.saveCheckpoint(cp)
 	}
-	report := &Report{Expect: d.cfg.mode, Inputs: d.inputs, Probes: *cp.Probes, StartedAt: started}
+	report := &DrillReport{Expect: d.cfg.mode, Inputs: d.inputs, Probes: *cp.Probes, StartedAt: started}
 	if !cp.Probes.NewPodLatest {
 		report.Result, report.FinishedAt = resultProbeFailed, time.Now()
 		return report, errors.New("P1 거짓 — 새 파드가 ConfigMap 최신 값을 env 로 받지 않는다(설계 재검토)")
@@ -333,7 +338,7 @@ func (d *drill) ensureCluster() error {
 
 // bindInputs 는 차트 트리·kind 판·드라이버 digest 를 판정문 입력에 묶는다(차트 디렉터리가 더러우면 멈춘다).
 func (d *drill) bindInputs() error {
-	commit, tree, err := chartTree(d.cfg.chartDir)
+	commit, tree, err := d.dataTree()
 	if err != nil {
 		return err
 	}
@@ -350,17 +355,31 @@ func (d *drill) bindInputs() error {
 		return err
 	}
 	d.inputs = Inputs{
-		OperatorImage: d.cfg.operator.String(),
-		PGImage:       d.cfg.pg.String(),
-		DataCommit:    commit,
-		DataTree:      tree,
-		KindNode:      node,
-		KindVersion:   strings.TrimSpace(version),
-		Storage:       storageNote,
-		DrillDigest:   digest,
-		Notes:         fidelityNotes,
+		OperatorImage:    d.cfg.operator.String(),
+		PGInstanceCommit: pgDrillBase,
+		DataCommit:       commit,
+		DataTree:         tree,
+		KindNode:         node,
+		KindVersion:      strings.TrimSpace(version),
+		Storage:          storageNote,
+		DrillDigest:      digest,
+		Notes:            fidelityNotes,
 	}
 	return nil
+}
+
+// dataTree 는 판정문이 결속할 data 커밋·트리 — RED 는 차트 저장소에서 ST0 부모 트리를 풀어 쓴다.
+func (d *drill) dataTree() (string, string, error) {
+	if d.cfg.mode != loopdrill.ModeRed {
+		return chartTree(d.cfg.chartDir)
+	}
+	dir, tree, err := d.archiveChart(preHoldDataCommit, "red-chart")
+	if err != nil {
+		return "", "", err
+	}
+	d.t.Logf("RED 차트 = data %s(ST0 부모) 트리 %s", shortHash(preHoldDataCommit), shortHash(tree))
+	d.cfg.chartDir = dir
+	return preHoldDataCommit, tree, nil
 }
 
 // chartTree 는 차트 디렉터리의 커밋과 git 트리 해시 — 판정문이 이것에 결속된다.
@@ -399,21 +418,27 @@ func kindNodeImage() (string, error) {
 
 // drillDigest 는 훈련장 원본(판정문 제외)의 내용 해시 — 어떤 드라이버가 판정했는지.
 func drillDigest() (string, error) {
-	var files []string
-	err := filepath.WalkDir(drillDir, func(path string, e fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if e.IsDir() && path == verdictDir {
-			return filepath.SkipDir
-		}
-		if !e.IsDir() {
-			files = append(files, path)
-		}
-		return nil
-	})
+	files, err := filepath.Glob(drillDriverGlob)
 	if err != nil {
 		return "", err
+	}
+	files = append(files, drillHelpers)
+	for _, root := range []string{judgeDir, drillDir} {
+		err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if e.IsDir() && path == verdictDir {
+				return filepath.SkipDir
+			}
+			if !e.IsDir() {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
 	}
 	slices.Sort(files)
 	sum := sha256.New()
@@ -434,12 +459,13 @@ func (d *drill) loadImages(probes ProbeResult) error {
 	if probes.Amd64 {
 		fidelity = FidelityPublished
 	}
-	op, pg, err := prepareImages(d.cfg.operator, d.cfg.pg, fidelity)
+	op, pg, pgID, err := prepareImages(d.cfg.operator, fidelity)
 	if err != nil {
 		return err
 	}
 	d.operatorOn, d.pgOn = op, pg
 	d.inputs.OperatorRun, d.inputs.PGRun, d.inputs.Fidelity = op.String(), pg.String(), fidelity
+	d.inputs.PGImage = pgID
 	return nil
 }
 
@@ -469,10 +495,10 @@ func (d *drill) settle() (observation, int, error) {
 	if err != nil {
 		return obs, members, err
 	}
-	if d.operator, err = readOperator(operatorDeploy); err != nil {
+	if d.operator, err = readOperator(drillOperatorDeploy); err != nil {
 		return obs, members, err
 	}
-	if d.cfg.mode == ModeGreen && d.gauge == nil {
+	if d.cfg.mode == loopdrill.ModeGreen && d.gauge == nil {
 		if d.gauge, err = newGaugeScraper(d.operator); err != nil {
 			return obs, members, err
 		}
@@ -490,19 +516,19 @@ func waitReplicas() (int, error) {
 		if time.Now().After(deadline) {
 			return 0, err
 		}
-		time.Sleep(StatusPollInterval)
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
 }
 
 // scenario 는 시나리오 하나를 돈다 — RED 는 매번 새로 설치(루프·정지는 수렴하지 않는다), GREEN 은 이어서.
-func (d *drill) scenario(scn Scenario) (ScenarioRun, error) {
-	if scn == ScenarioS0 {
+func (d *drill) scenario(scn loopdrill.Scenario) (ScenarioRun, error) {
+	if scn == loopdrill.ScenarioS0 {
 		return d.transition()
 	}
 	var obs observation
 	var members int
 	var err error
-	if d.cfg.mode == ModeRed || d.operator.Deployment == "" {
+	if d.cfg.mode == loopdrill.ModeRed || d.operator.Deployment == "" {
 		obs, members, err = d.install(d.target())
 	} else {
 		obs, members, err = d.settle()
@@ -523,7 +549,7 @@ func (d *drill) scenario(scn Scenario) (ScenarioRun, error) {
 }
 
 // observeScenario 는 표식 행 · before · 창 · after · 판정.
-func (d *drill) observeScenario(scn Scenario, f fault, members int, oldPods []string) (ScenarioRun, error) {
+func (d *drill) observeScenario(scn loopdrill.Scenario, f fault, members int, oldPods []string) (ScenarioRun, error) {
 	obs, err := probeCluster()
 	if err != nil {
 		return ScenarioRun{}, err
@@ -551,7 +577,7 @@ func (d *drill) observeScenario(scn Scenario, f fault, members int, oldPods []st
 		return ScenarioRun{}, err
 	}
 
-	rec := newRecorder(before.lastTimeline(), members)
+	rec := newRecorder(lastTimeline(before), members)
 	rec.timeline = slices.Clone(before.Timeline)
 	if err := d.window(scn, f, obs, before, rec); err != nil {
 		return ScenarioRun{}, err
@@ -563,8 +589,16 @@ func (d *drill) observeScenario(scn Scenario, f fault, members int, oldPods []st
 	after.Writes = checkMarker(marker)
 	after.Writes.WritableAt = rec.writableAt
 
-	exp := ExpectFor(scn, d.cfg.mode, members-1)
-	return ScenarioRun{Verdict: Judge(scn, before, after, exp), Expect: exp, Before: before, After: after}, nil
+	exp := loopdrill.ExpectFor(scn, d.cfg.mode, members-1)
+	return ScenarioRun{Verdict: loopdrill.Judge(scn, before, after, exp), Expect: exp, Before: before, After: after}, nil
+}
+
+// lastTimeline 은 스냅숏이 마지막으로 본 타임라인(0 = 못 봄).
+func lastTimeline(s loopdrill.ClusterSnap) int64 {
+	if len(s.Timeline) == 0 {
+		return 0
+	}
+	return s.Timeline[len(s.Timeline)-1].Timeline
 }
 
 // transition 은 S0 — 기점(beta.11 + 운영 차트) 설치 → S5 로 정지 재현 확인 → 수정판으로 helm upgrade.
@@ -601,11 +635,11 @@ func (d *drill) transition() (ScenarioRun, error) {
 	upgrade := fault{rounds: 1, inject: func(observation, int) (injection, error) {
 		return injection{}, installRelease(d.target(), d.cfg.stateDir)
 	}}
-	run, err := d.observeScenario(ScenarioS0, upgrade, members, oldPods)
+	run, err := d.observeScenario(loopdrill.ScenarioS0, upgrade, members, oldPods)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
-	if d.operator, err = readOperator(operatorDeploy); err != nil {
+	if d.operator, err = readOperator(drillOperatorDeploy); err != nil {
 		return ScenarioRun{}, err
 	}
 	return run, nil
@@ -621,7 +655,7 @@ func (d *drill) reproduceStall(obs observation) error {
 	if err != nil {
 		return err
 	}
-	time.Sleep(StallStopDuration)
+	time.Sleep(loopdrill.StallStopDuration)
 	if err := inj.revert(); err != nil {
 		return err
 	}
@@ -640,50 +674,59 @@ func (d *drill) baseChart() (string, error) {
 	if d.cfg.baseChartDir != "" {
 		return d.cfg.baseChartDir, nil
 	}
-	prefix, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-prefix")
+	dir, tree, err := d.archiveChart(baseChartRef, "base-chart")
 	if err != nil {
 		return "", err
+	}
+	d.inputs.BaseDataTree = tree
+	return dir, nil
+}
+
+// archiveChart 는 차트 저장소의 ref 트리를 상태 디렉터리 name 에 풀고 차트 경로와 트리 해시를 낸다.
+func (d *drill) archiveChart(ref, name string) (string, string, error) {
+	prefix, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-prefix")
+	if err != nil {
+		return "", "", err
 	}
 	path := strings.TrimSuffix(strings.TrimSpace(prefix), "/")
 	top, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	dest := filepath.Join(d.cfg.stateDir, "base-chart")
-	archive := filepath.Join(d.cfg.stateDir, "base-chart.tar")
+	dest := filepath.Join(d.cfg.stateDir, name)
+	archive := filepath.Join(d.cfg.stateDir, name+".tar")
 	if err := os.RemoveAll(dest); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return "", err
+		return "", "", err
 	}
-	if _, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "archive", "-o", archive, baseChartRef, path); err != nil {
-		return "", err
+	if _, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "archive", "-o", archive, ref, path); err != nil {
+		return "", "", err
 	}
 	if _, err := run(commandTimeout, "tar", "-xf", archive, "-C", dest); err != nil {
-		return "", err
+		return "", "", err
 	}
-	tree, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "rev-parse", baseChartRef+":"+path)
+	tree, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "rev-parse", ref+":"+path)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	d.inputs.BaseDataTree = strings.TrimSpace(tree)
-	return filepath.Join(dest, path), nil
+	return filepath.Join(dest, path), strings.TrimSpace(tree), nil
 }
 
 // result 는 모드의 통과 조건으로 판정문 결과를 낸다.
 func (d *drill) result(runs []ScenarioRun) string {
-	byScenario := map[Scenario]Verdict{}
+	byScenario := map[loopdrill.Scenario]loopdrill.Verdict{}
 	for _, r := range runs {
 		byScenario[r.Scenario] = r.Verdict
 	}
-	if d.cfg.mode == ModeRed {
-		s4, ok4 := byScenario[ScenarioS4]
-		s5, ok5 := byScenario[ScenarioS5]
+	if d.cfg.mode == loopdrill.ModeRed {
+		s4, ok4 := byScenario[loopdrill.ScenarioS4]
+		s5, ok5 := byScenario[loopdrill.ScenarioS5]
 		if !ok4 || !ok5 {
 			return resultScenarioMissed
 		}
-		if RedReproduced(s4, s5) {
+		if loopdrill.RedReproduced(s4, s5) {
 			return resultRedAsExpected
 		}
 		return resultRedMissing
@@ -700,7 +743,7 @@ func (d *drill) result(runs []ScenarioRun) string {
 	return resultGreen
 }
 
-func summarize(v Verdict) string {
+func summarize(v loopdrill.Verdict) string {
 	var parts []string
 	for _, c := range v.Checks {
 		mark := "✓"
@@ -714,7 +757,7 @@ func summarize(v Verdict) string {
 
 // ── 판정문 · 체크포인트 ──
 
-func (d *drill) reportPath(r *Report) string {
+func (d *drill) reportPath(r *DrillReport) string {
 	if d.cfg.report != "" {
 		return d.cfg.report
 	}
@@ -729,7 +772,7 @@ func shortHash(h string) string {
 	return h[:min(shortDigestLen, len(h))]
 }
 
-func (d *drill) writeReport(r *Report) error {
+func (d *drill) writeReport(r *DrillReport) error {
 	raw, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
@@ -744,7 +787,7 @@ func (d *drill) writeReport(r *Report) error {
 
 func (d *drill) checkpointKey() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		string(d.cfg.mode), d.inputs.OperatorImage, d.inputs.PGImage, d.inputs.DataTree, d.inputs.DrillDigest,
+		string(d.cfg.mode), d.inputs.OperatorImage, d.inputs.PGInstanceCommit, d.inputs.DataTree, d.inputs.DrillDigest,
 	}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

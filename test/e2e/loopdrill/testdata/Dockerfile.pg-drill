@@ -1,4 +1,4 @@
-# kind 훈련장 전용 pg 이미지 — P2 거짓(노드가 linux/amd64 를 못 돌림)일 때만 같은 sha 로 노드 아키텍처에 굽는다.
+# kind 훈련장 전용 pg 이미지 — 컨텍스트는 드라이버가 git archive 로 푼 기점 c7608427 트리다(작업 트리 0, 설계 I26).
 # 시험 산출물이다(push 0). 운영 pg 이미지(Dockerfile.pg)와 같은 뼈대에서 apt 를 뺐다 — pgbackrest 는 훈련장이 안 쓴다.
 # 베이스는 Harbor 프록시 디지스트 핀, 의존은 Nexus Go 프록시, 빌드는 --network=none(시험 중 공개망 0).
 
