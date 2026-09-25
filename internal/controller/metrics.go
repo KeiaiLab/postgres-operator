@@ -26,6 +26,12 @@ import (
 
 const metricSubsystem = "postgrescluster"
 
+// metricNamespace 는 오퍼레이터 도메인 지표의 접두다.
+const metricNamespace = "postgres_operator"
+
+// apiReadKindNode 는 api_read_denied_total 의 kind 라벨 값이다.
+const apiReadKindNode = "Node"
+
 // reconMetrics — commons reconcile SLO trio. 등록은 init() 에서
 // controller-runtime metrics.Registry 주입 (commons 는 registry 비결합).
 var reconMetrics = reconcilemetrics.New(metricSubsystem)
@@ -89,6 +95,30 @@ var (
 		},
 		[]string{"namespace", "name", "shard", "pod", "role"},
 	)
+
+	// MetricAPIReadDenied 는 거부되거나 시한을 넘긴 API 읽기 수다(kind 별).
+	// 권한 부족이 정지 대신 보수 기본값으로 가는 순간을 드러낸다.
+	MetricAPIReadDenied = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "api_read_denied_total",
+			Help:      "API reads refused or timed out, by kind",
+		},
+		[]string{"kind"},
+	)
+
+	// MetricStatusWriteTimestamp 는 PostgresCluster status 쓰기 성공 시각(unix 초)이다.
+	// 컨트롤러가 멈추면 이 값이 멈춘다.
+	MetricStatusWriteTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "status_write_timestamp_seconds",
+			Help:      "Unix time of the last successful PostgresCluster status write",
+		},
+		[]string{"namespace", "name"},
+	)
 )
 
 func init() {
@@ -99,6 +129,8 @@ func init() {
 		MetricBackupJobPhase,
 		MetricPoolerPhase,
 		MetricPostgresClusterReplicationLagBytes,
+		MetricAPIReadDenied,
+		MetricStatusWriteTimestamp,
 	)
 }
 
@@ -109,6 +141,7 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricPostgresClusterReplicationLagBytes.DeletePartialMatch(prometheus.Labels{
 		"namespace": namespace, "name": name,
 	})
+	MetricStatusWriteTimestamp.DeleteLabelValues(namespace, name)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

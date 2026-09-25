@@ -15,12 +15,25 @@ Licensed under the MIT License. See the LICENSE file for details.
 package chart
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"sigs.k8s.io/yaml"
 )
+
+// generatedRoles 는 차트 manager-role 이 담아야 할 controller-gen 생성물이다
+// (마커 → role.yaml · 메트릭 인증 → metrics_auth_role.yaml).
+var generatedRoles = []string{
+	"../../config/rbac/role.yaml",
+	"../../config/rbac/metrics_auth_role.yaml",
+}
+
+// rbacGrant 는 권한 한 칸(apiGroup, resource, verb)이다.
+type rbacGrant struct {
+	group, resource, verb string
+}
 
 // clusterRole 는 helm 렌더 결과에서 ClusterRole 규칙만 최소 파싱하기 위한 형태다.
 type clusterRole struct {
@@ -92,20 +105,71 @@ func TestManagerClusterRole_CoversShardSplitResources(t *testing.T) {
 		t.Fatal("렌더 결과에 manager-role ClusterRole 이 없음")
 	}
 
-	// config/rbac/role.yaml 정본: shardranges/shardsplitjobs 는 create/delete 없이
-	// get,list,watch,update,patch — 메인 CRD 규칙과 verb 집합이 다르다.
+	// config/rbac/role.yaml 정본: shardranges 는 create/delete 없이
+	// get,list,watch,update,patch. shardsplitjobs 는 AutoSplit 마커가 create·delete 를
+	// 더해 메인 CRD 규칙과 같은 전 verb 다.
 	if !hasRule(cr, "postgres.keiailab.io", "shardranges",
 		"get", "list", "watch", "update", "patch") {
 		t.Error("manager-role 에 shardranges RBAC 규칙 부재 (get,list,watch,update,patch)")
 	}
 	if !hasRule(cr, "postgres.keiailab.io", "shardsplitjobs",
-		"get", "list", "watch", "update", "patch") {
-		t.Error("manager-role 에 shardsplitjobs RBAC 규칙 부재 (get,list,watch,update,patch)")
+		"get", "list", "watch", "create", "update", "patch", "delete") {
+		t.Error("manager-role 에 shardsplitjobs RBAC 규칙 부재 (get,list,watch,create,update,patch,delete)")
 	}
 
 	// status subresource 는 status 규칙 묶음(get,update,patch)에 포함되어야 한다.
 	if !hasRule(cr, "postgres.keiailab.io", "shardsplitjobs/status",
 		"get", "update", "patch") {
 		t.Error("manager-role 에 shardsplitjobs/status RBAC 규칙 부재 (get,update,patch)")
+	}
+}
+
+// grantSet 은 ClusterRole 규칙을 권한 칸 집합으로 편다.
+func grantSet(cr clusterRole) map[rbacGrant]bool {
+	set := map[rbacGrant]bool{}
+	for _, rule := range cr.Rules {
+		for _, group := range rule.APIGroups {
+			for _, resource := range rule.Resources {
+				for _, verb := range rule.Verbs {
+					set[rbacGrant{group, resource, verb}] = true
+				}
+			}
+		}
+	}
+	return set
+}
+
+// loadClusterRole 은 생성물 ClusterRole YAML 한 파일을 읽는다.
+func loadClusterRole(t *testing.T, path string) clusterRole {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s 읽기 실패: %v", path, err)
+	}
+	var cr clusterRole
+	if err := yaml.Unmarshal(raw, &cr); err != nil {
+		t.Fatalf("%s 파싱 실패: %v", path, err)
+	}
+	return cr
+}
+
+// TestChartRoleCoversRBAC 는 차트 manager-role ⊇ role.yaml ∪ metrics_auth_role.yaml 을
+// 강제한다. 차트는 생성물을 손으로 옮긴 사본이라, 빠진 권한은 운영에서 forbidden
+// 정지(nodes 선례)나 메트릭 인증 실패(tokenreviews)로만 드러난다.
+func TestChartRoleCoversRBAC(t *testing.T) {
+	cr, found := findManagerClusterRole(t, helmTemplate(t))
+	if !found {
+		t.Fatal("렌더 결과에 manager-role ClusterRole 이 없음")
+	}
+	have := grantSet(cr)
+
+	for _, path := range generatedRoles {
+		for g := range grantSet(loadClusterRole(t, path)) {
+			if have[g] {
+				continue
+			}
+			t.Errorf("차트 manager-role 에 %s 권한 없음: group=%q resource=%q verb=%q",
+				path, g.group, g.resource, g.verb)
+		}
 	}
 }

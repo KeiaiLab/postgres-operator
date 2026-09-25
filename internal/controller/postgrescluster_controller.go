@@ -45,6 +45,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -61,6 +62,13 @@ import (
 
 const (
 	statusPollInterval = 5 * time.Second
+
+	// nodeReadTimeout 은 Node live GET 1회의 상한이다 — 무응답이 reconcile 을 붙잡지 않는다.
+	nodeReadTimeout = statusPollInterval
+
+	// reconcileTimeout 은 reconcile 1회의 상한(백스톱)이다. 가장 긴 정상 reconcile
+	// (승격 exec ≤ 60s)보다 길고, 알 수 없는 대기가 worker 를 영구히 잡지 못한다.
+	reconcileTimeout = staleStandbyReseedTimeout
 
 	// failoverDebounceThreshold 는 자동 failover 를 발동하기 전 primary 실패가
 	// 지속되어야 하는 최소 시간이다. statusPollInterval(5s) 의 ~1.5배로, 실패가
@@ -117,6 +125,11 @@ type PostgresClusterReconciler struct {
 	// 추적한다(shouldPromoteAfterDebounce 미러). namespace/name/keyspace/shard 키.
 	autoSplitBreach   map[string]time.Time
 	autoSplitBreachMu sync.Mutex
+
+	// nodeReadDeniedAt 은 클러스터별 마지막 NodeReadDenied 이벤트 시각이다
+	// (namespace/name 키) — statusStaleThresh 안 중복 이벤트를 막는다.
+	nodeReadDeniedAt map[string]time.Time
+	nodeReadDeniedMu sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -598,6 +611,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logger.Error(err, "Failed to update PostgresCluster status")
 		return ctrl.Result{}, err
 	}
+	MetricStatusWriteTimestamp.WithLabelValues(cluster.Namespace, cluster.Name).SetToCurrentTime()
 	ObservePostgresClusterMetrics(&cluster)
 
 	return ctrl.Result{RequeueAfter: statusPollInterval}, nil
@@ -1202,8 +1216,14 @@ func (r *PostgresClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		WithOptions(controllerOptions()).
 		Named("postgrescluster").
 		Complete(r)
+}
+
+// controllerOptions 는 PostgresCluster 컨트롤러 옵션이다 — reconcile 마다 시한을 건다.
+func controllerOptions() crcontroller.Options {
+	return crcontroller.Options{ReconciliationTimeout: reconcileTimeout}
 }
 
 // reloadPostgresConfig executes SELECT pg_reload_conf() on the ready primary Pod

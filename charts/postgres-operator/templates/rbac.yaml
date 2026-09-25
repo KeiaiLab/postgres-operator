@@ -2,6 +2,7 @@
 # 본 ClusterRole은 cmd/main.go의 +kubebuilder:rbac 마커와 정합한다.
 # config/rbac/role.yaml의 결과를 chart에 통합. controller-gen 결과 변경 시
 # 본 파일도 동기화 필요 (Makefile chart-rbac-sync 타겟 — 후속).
+# test/chart 가 이 ClusterRole ⊇ role.yaml ∪ metrics_auth_role.yaml 을 강제한다.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -9,17 +10,18 @@ metadata:
   labels:
     {{- include "postgres-operator.labels" . | nindent 4 }}
 rules:
+  # shardsplitjobs: AutoSplit(PostgresCluster reconciler)이 만든다 — 마커대로 전 verb.
   - apiGroups: [postgres.keiailab.io]
-    resources: [backupjobs, poolers, postgresclusters, postgresdatabases, postgresusers, scheduledbackups]
+    resources: [backupjobs, poolers, postgresclusters, postgresdatabases, postgresusers, scheduledbackups, shardsplitjobs]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [postgres.keiailab.io]
     resources: [imagecatalogs, clusterimagecatalogs]
     verbs: [get, list, watch]
   # ShardSplitJobReconciler (internal/controller/shardsplitjob_controller.go L45) —
-  # online resharding state machine 은 shardsplitjobs/shardranges 를 watch + update 한다.
+  # online resharding state machine 은 shardranges 를 watch + update 한다.
   # create/delete 는 marker 에 없음 (router building block 이 phase 부수효과 담당).
   - apiGroups: [postgres.keiailab.io]
-    resources: [shardranges, shardsplitjobs]
+    resources: [shardranges]
     verbs: [get, list, watch, update, patch]
   - apiGroups: [postgres.keiailab.io]
     resources: [backupjobs/status, poolers/status, postgresclusters/status, postgresdatabases/status, postgresusers/status, scheduledbackups/status, shardsplitjobs/status]
@@ -29,6 +31,10 @@ rules:
     verbs: [update]
   - apiGroups: [apps]
     resources: [statefulsets, deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # router HPA — PostgresCluster 컨트롤러가 Owns 로 watch 한다(없으면 informer 동기화 실패).
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [batch]
     resources: [jobs]
@@ -42,9 +48,10 @@ rules:
   - apiGroups: [""]
     resources: [nodes]
     verbs: [get, list, watch]
+  # delete: reseedStandby(#205)가 standby PVC 를 지운다 — 마커(role.yaml)와 같게.
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
-    verbs: [get, list, watch, patch, update]
+    verbs: [get, list, watch, patch, update, delete]
   - apiGroups: [""]
     resources: [pods]
     # delete: reseedStandby/reconcileStaleReplicas(#205/#220)가 stuck standby(timeline
@@ -76,6 +83,17 @@ rules:
   - apiGroups: [cert-manager.io]
     resources: [certificates]
     verbs: [get, list, watch, create, update, patch, delete]
+  # AutoSplit CPU 관측 — metrics-server PodMetrics 읽기.
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+  # --metrics-secure(기본 true) 인증·인가 필터 — config/rbac/metrics_auth_role.yaml.
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
