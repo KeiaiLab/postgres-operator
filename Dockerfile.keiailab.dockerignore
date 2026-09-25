@@ -1,0 +1,8 @@
+# Dockerfile.keiailab 전용 — BuildKit 이 루트 .dockerignore 대신 이것을 쓴다.
+# 상류 .dockerignore 는 *_test.go 를 빼서 test 단계가 시험 0개가 된다(상류 파일은 무변).
+**
+!go.mod
+!go.sum
+!api/**
+!cmd/**
+!internal/**

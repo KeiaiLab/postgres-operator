@@ -1,0 +1,34 @@
+# keiailab 발행 빌드 — 이 맥 image-ship 이 기본 타깃(image) 하나만 굽는다(KEIAILAB.md).
+# 사슬 deps → build → test → image: image 가 test 에서 바이너리를 받으므로 발행 이미지 = 시험 초록.
+# 망은 deps 만(Nexus Go 프록시). build·test 는 --network=none. 베이스는 빌더 mirrors 가 Harbor 로 돌린다.
+
+# 의존 — go.sum 이 모든 zip 해시를 가져 sumdb 조회가 없다.
+FROM --platform=$BUILDPLATFORM golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS deps
+ARG GOPROXY=https://pkg.keiailab.com/repository/go/
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 빌드 — cmd/main.go 가 import 하는 디렉터리만 싣는다.
+FROM deps AS build
+COPY api ./api
+COPY cmd ./cmd
+COPY internal ./internal
+ARG TARGETOS
+ARG TARGETARCH
+RUN --network=none CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/manager ./cmd/main.go
+
+# 시험 — envtest 두 스위트(TestController·TestAPIs)는 apiserver·etcd 가 없어 GitHub test.yml 몫.
+# 종료 0 ∧ '^ok ' 줄 ≥ 1 일 때만 초록 — 시험 0개(빈 컨텍스트)로 초록이 되지 않는다.
+FROM build AS test
+RUN --network=none status=0; \
+    go test ./api/... ./cmd/... ./internal/... -count=1 -skip '^(TestController|TestAPIs)$' > /tmp/go-test.log 2>&1 || status=$?; \
+    cat /tmp/go-test.log; \
+    if [ "$status" -ne 0 ]; then echo "go test exit $status" >&2; exit 1; fi; \
+    if ! grep -q '^ok ' /tmp/go-test.log; then echo "go test ran no tests" >&2; exit 1; fi
+
+# 발행 — 마지막 단계가 기본 타깃이다.
+FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39 AS image
+COPY --from=test /out/manager /manager
+USER 65532:65532
+ENTRYPOINT ["/manager"]
