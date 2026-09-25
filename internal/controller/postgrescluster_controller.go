@@ -138,6 +138,12 @@ type PostgresClusterReconciler struct {
 	// (namespace/name 키) — statusStaleThresh 안 중복 이벤트를 막는다.
 	heartbeatStaleAt map[string]time.Time
 	heartbeatStaleMu sync.Mutex
+
+	// memberAbsentSince·lastRetarget 는 복제 그래프의 기억이다(§3.4, namespace/name → 멤버 파드).
+	// memberAbsentSince 값: 0 = 연결로 관측(연결 기록) · 그 밖 = 끊김을 처음 본 시각 · 없음 = 모름.
+	memberAbsentSince map[string]map[string]time.Time
+	lastRetarget      map[string]map[string]retargetAttempt
+	graphMu           sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -568,9 +574,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.reconcileRoguePrimaries(ctx, &cluster, shardStatuses, time.Now()); err != nil {
 			logger.Error(err, "rogue primary re-seed failed (best-effort)")
 		}
+		// 복제 그래프(§3.4) — readyz 는 단절을 못 본다. 관측 → fence 제거·재지정 → 건강.
+		graphs := r.observeGraphs(ctx, &cluster, shardStatuses)
+		r.reconcileGraphActions(ctx, &cluster, shardStatuses, graphs, time.Now())
 		// #220 후속: 복제 단절/동결(stale) replica 를 CR condition + Event 로 표면화한다
 		// (원 사고: 7일 동결 replica 가 어떤 신호에도 안 떠 stale 승격을 유발).
-		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses)
+		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses, graphs)
 	}
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision, primaryRoleLabelsSynced)
@@ -905,7 +914,8 @@ func (r *PostgresClusterReconciler) reconcileFailover(
 ) (failover.Decision, bool) {
 	logger := log.FromContext(ctx).WithValues("postgrescluster", client.ObjectKeyFromObject(cluster))
 	key := cluster.Namespace + "/" + cluster.Name
-	failoverShardName, failoverDecision := r.clusterFailoverDecision(ctx, cluster, shardStatuses)
+	// 끊긴 standby 는 연결 기록이 있는 후보가 있으면 후보가 아니다(§3.3·§3.4).
+	failoverShardName, failoverDecision := r.clusterFailoverDecision(ctx, cluster, r.linkedCandidates(cluster, shardStatuses, now))
 
 	// 가짜 promotion 차단 (#220 라이브 드릴 RCA): 실패가 debounce window 동안 지속될
 	// 때만 promote. 일시적 status flicker 는 fenceNonTargetMembers 를 통해 건강한 멤버를
