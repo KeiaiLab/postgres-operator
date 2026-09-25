@@ -257,6 +257,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	shardStatuses := make([]postgresv1alpha1.ShardStatus, 0, shardCount)
 	allShardPrimaryReady := true
+	var runtimePending []string
 
 	for ord := range shardCount {
 		shardID := ShardIDForOrdinal(ord)
@@ -280,22 +281,28 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "shard Service", logger)
 		}
-		// primaryEndpoint 결정: 관측된 primary 를 우선하되, HA 초기 bootstrap 에서는
-		// deterministic ord-0 DNS 를 즉시 넣어 후속 reconcile 의 template drift 로
-		// primary Pod 가 rolling restart 되는 false failover window 를 만들지 않는다.
-		primaryEndpoint := primaryEndpointForShard(&cluster, ord, svcName, replicaBootstrap, databasePodsStopped)
-		desiredSTS := buildPGStatefulSet(
-			&cluster, stsName, svcName,
-			ord,
-			resolvedImage.Image, cmName, resolvedImage.PostgresMajor,
-			desiredMembersForShard,
-			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
-			primaryEndpoint,
-			configHash,
-			"", // reshardTargetID: ordinal shard (격리 label 미사용)
-		)
-		if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
-			return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
+		// 승격 상태는 런타임 CM 에 있다(ADR-0030) — 템플릿은 승격으로 바뀌지 않는다.
+		// CM 을 못 만들면(primary 를 하나로 못 정함) 옛 템플릿을 그대로 둔다.
+		runtimeCM, runtimeReady, err := r.runtimeForShard(ctx, &cluster, ordinalShardRef(&cluster, ord))
+		if err != nil {
+			return r.handleUpsertErr(ctx, &cluster, err, "shard runtime ConfigMap", logger)
+		}
+		if !runtimeReady {
+			runtimePending = append(runtimePending, shardID)
+		} else {
+			desiredSTS := buildPGStatefulSet(
+				&cluster, stsName, svcName,
+				ord,
+				resolvedImage.Image, cmName, resolvedImage.PostgresMajor,
+				desiredMembersForShard,
+				cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
+				runtimeCM,
+				configHash,
+				"", // reshardTargetID: ordinal shard (격리 label 미사용)
+			)
+			if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
+				return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
+			}
 		}
 
 		// shard PDB (PR #31): members>=2 시 자동 생성.
@@ -378,15 +385,17 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if databasePodsStopped {
 			targetMembers = 0
 		}
-		if err := r.reconcileActiveNamedShardResources(
+		namedPending, err := r.reconcileActiveNamedShardResources(
 			ctx, &cluster, activeShardIDs,
 			resolvedImage.Image, resolvedImage.PostgresMajor,
 			targetMembers,
-			databasePodsStopped,
-		); err != nil {
+		)
+		if err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "active named shard resources", logger)
 		}
+		runtimePending = append(runtimePending, namedPending...)
 	}
+	setRuntimeCondition(&cluster, runtimePending)
 
 	if !databasePodsStopped {
 		namedShardStatuses, namedReady, err := activeNamedShardStatuses(ctx, r.Client, &cluster)
@@ -658,6 +667,8 @@ func (r *PostgresClusterReconciler) reconcileShardPrimaryServices(
 	return nil
 }
 
+// reconcileActiveNamedShardResources 는 active named shard 자원을 upsert 하고, 런타임 CM 을
+// 못 만들어 StatefulSet 을 옛 템플릿으로 둔 shard 를 돌려준다(ADR-0030).
 func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -665,10 +676,9 @@ func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	image string,
 	pgMajor string,
 	members int32,
-	databasePodsStopped bool,
-) error {
+) ([]string, error) {
 	if cluster == nil || len(activeShardIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 	ids := make([]string, 0, len(activeShardIDs))
 	for shardID := range activeShardIDs {
@@ -678,39 +688,44 @@ func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	}
 	sort.Strings(ids)
 
+	var pending []string
 	for _, shardID := range ids {
 		cm := buildTargetShardConfigMap(cluster, shardID, r.Plugins)
 		configHash := postgresConfigHash(cm.Data)
 		if err := r.upsert(ctx, cluster, cm); err != nil {
-			return fmt.Errorf("upsert active target %q ConfigMap: %w", shardID, err)
+			return nil, fmt.Errorf("upsert active target %q ConfigMap: %w", shardID, err)
 		}
 		if err := r.upsert(ctx, cluster, buildTargetHeadlessService(cluster, shardID)); err != nil {
-			return fmt.Errorf("upsert active target %q Service: %w", shardID, err)
+			return nil, fmt.Errorf("upsert active target %q Service: %w", shardID, err)
 		}
-		svcName := TargetShardServiceName(cluster.Name, shardID)
-		primaryEndpoint := primaryEndpointForNamedShard(cluster, shardID, svcName, databasePodsStopped)
+		runtimeCM, runtimeReady, err := r.runtimeForShard(ctx, cluster, namedShardRef(cluster, shardID))
+		if err != nil {
+			return nil, fmt.Errorf("active target %q runtime ConfigMap: %w", shardID, err)
+		}
+		if !runtimeReady {
+			pending = append(pending, shardID)
+			continue
+		}
 		sts := buildTargetShardStatefulSetWithMembers(
 			cluster, shardID, image, pgMajor,
-			members, primaryEndpoint,
+			members, runtimeCM,
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
 			cm.Name, configHash,
 		)
 		if err := r.upsert(ctx, cluster, sts); err != nil {
-			return fmt.Errorf("upsert active target %q StatefulSet: %w", shardID, err)
+			return nil, fmt.Errorf("upsert active target %q StatefulSet: %w", shardID, err)
 		}
 	}
-	return nil
+	return pending, nil
 }
 
+// primaryEndpointForNamedShard 는 named shard 런타임 CM 의 첫 PRIMARY_ENDPOINT 폴백이다
+// (primaryEndpointForShard 와 같은 역할 — ADR-0030).
 func primaryEndpointForNamedShard(
 	cluster *postgresv1alpha1.PostgresCluster,
 	shardID string,
 	svcName string,
-	databasePodsStopped bool,
 ) string {
-	if cluster == nil || databasePodsStopped {
-		return ""
-	}
 	for i := range cluster.Status.Shards {
 		shard := &cluster.Status.Shards[i]
 		if shard.Name == shardID && shard.Primary != nil && shard.Primary.Endpoint != "" {
