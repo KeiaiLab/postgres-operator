@@ -409,6 +409,15 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		shardStatuses = append(shardStatuses, namedShardStatuses...)
 	}
 
+	// 발행 전 크래시를 잇는다(§3.2-2) — rw 권위를 읽기 전에 CM 이 그 epoch 의 실제 primary 를 가리키게.
+	if !standaloneReplica && !databasePodsStopped {
+		for i := range shardStatuses {
+			if err := r.adoptPrimary(ctx, &cluster, shardRefFor(&cluster, &shardStatuses[i])); err != nil {
+				logger.Error(err, "primary adoption failed (best-effort)", "shard", shardStatuses[i].Name)
+			}
+		}
+	}
+
 	// 2. router 자원 3종 — shardingMode=native && Router.Enabled 일 때만.
 	routerActive := cluster.Spec.ShardingMode == postgresv1alpha1.ShardingModeNative &&
 		cluster.Spec.Router != nil && cluster.Spec.Router.Enabled
@@ -537,7 +546,14 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
 		}
 	}
-	// #226: project each shard's observed primary/replica onto the
+	// rw 권위 = 런타임 CM 파드, 실제 primary 일 때만(§3.2) — 승격 뒤에 읽어 라벨·-primary
+	// Service·PrimaryEndpointConsistent 가 같은 값을 쓴다.
+	var authorities []shardAuthority
+	if !databasePodsStopped {
+		authorities = r.primaryAuthorities(ctx, &cluster, shardStatuses)
+	}
+	r.reportAuthorities(&cluster, authorities)
+	// #226: project each shard's rw authority onto the
 	// instance-role Pod label *before* — and independent of — standby
 	// cleanup/reseed below. This must never be blocked by a stuck delete (e.g.
 	// a demoted primary wedged Terminating on a dead node): rw-routing that
@@ -548,7 +564,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	primaryRoleLabelsSynced := true
 	if !standaloneReplica && !databasePodsStopped {
 		var labelErr error
-		primaryRoleLabelsSynced, labelErr = r.reconcilePrimaryRoleLabels(ctx, &cluster, shardStatuses)
+		primaryRoleLabelsSynced, labelErr = r.reconcilePrimaryRoleLabels(ctx, &cluster, authorities)
 		if labelErr != nil {
 			logger.Error(labelErr, "primary role label sync failed (best-effort)")
 		}
@@ -572,12 +588,12 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision, primaryRoleLabelsSynced)
 
-	// per-shard primary Service: 각 shard 의 현재 Ready primary 를 가리키는 ExternalName
-	// Service 를 publish/갱신한다(§6 stable per-shard primary Service). failover 로 primary
-	// 가 바뀌면 다음 reconcile 이 ExternalName 을 새 primary 로 갱신 → 라우터/클라가 DNS 로
+	// per-shard primary Service: 각 shard 의 rw 권위(실제 primary 인 런타임 CM 파드)를 가리키는
+	// ExternalName Service 를 publish/갱신한다(§6 stable per-shard primary Service). 승격이 CM 을
+	// 바꾸면 ExternalName 이 새 primary 로 갱신 → 라우터/클라가 DNS 로
 	// failover-follow(status polling 불요). DB 정지 중엔 primary 부재이므로 skip. best-effort.
 	if !databasePodsStopped {
-		if err := r.reconcileShardPrimaryServices(ctx, &cluster, shardStatuses); err != nil {
+		if err := r.reconcileShardPrimaryServices(ctx, &cluster, authorities); err != nil {
 			logger.Error(err, "per-shard primary Service reconcile 실패(best-effort, reconcile 계속)")
 		}
 	}
@@ -640,28 +656,28 @@ func restoreInProgress(cluster *postgresv1alpha1.PostgresCluster) bool {
 	return strings.TrimSpace(cluster.Annotations[AnnotationRestoreInProgress]) != ""
 }
 
-// reconcileShardPrimaryServices 는 각 shard 의 현재 Ready primary 를 가리키는
-// ExternalName Service 를 upsert 한다(§6 stable per-shard primary Service). primary 가
-// 없거나 not-ready 인 shard 는 skip(마지막 값 보존 — flap 방지). failover 시 primary
-// Endpoint 가 바뀌면 ExternalName 이 갱신되어 이 이름을 참조하는 라우터/클라이언트가
-// status polling 없이 새 primary 로 접속한다.
+// reconcileShardPrimaryServices 는 각 shard 의 rw 권위 — 실제 primary 로 확인된 런타임 CM
+// 파드 — 를 가리키는 ExternalName Service 를 upsert 한다(§6 stable per-shard primary Service,
+// §3.2). 확인되지 않은 shard 는 skip(마지막 값 보존 — flap 방지). 승격으로 CM 이 바뀌면
+// ExternalName 이 갱신되어 이 이름을 참조하는 라우터/클라이언트가 status polling 없이 새
+// primary 로 접속한다.
 func (r *PostgresClusterReconciler) reconcileShardPrimaryServices(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
-	shards []postgresv1alpha1.ShardStatus,
+	authorities []shardAuthority,
 ) error {
-	for i := range shards {
-		s := &shards[i]
-		if s.Name == "" || s.Primary == nil || !s.Primary.Ready {
+	for i := range authorities {
+		a := &authorities[i]
+		if a.shard == "" || a.writable() == "" {
 			continue
 		}
-		host := primaryEndpointHost(s.Primary.Endpoint)
+		host := primaryEndpointHost(a.endpoint)
 		if host == "" {
 			continue
 		}
-		svc := buildShardPrimaryService(cluster, ShardPrimaryServiceName(cluster.Name, s.Name), host)
+		svc := buildShardPrimaryService(cluster, ShardPrimaryServiceName(cluster.Name, a.shard), host)
 		if err := r.upsert(ctx, cluster, svc); err != nil {
-			return fmt.Errorf("upsert primary Service for shard %q: %w", s.Name, err)
+			return fmt.Errorf("upsert primary Service for shard %q: %w", a.shard, err)
 		}
 	}
 	return nil

@@ -57,6 +57,10 @@ const (
 	// ConditionRuntimeConfigPending 은 런타임 ConfigMap 이 없고 건강한 primary 가 정확히
 	// 하나가 아니라 CM 을 만들지 못해 그 shard 의 StatefulSet 을 옛 템플릿으로 둔 상태다(ADR-0030).
 	ConditionRuntimeConfigPending = "RuntimeConfigPending"
+	// ConditionPrimaryEndpointConsistent 는 샤드마다 런타임 ConfigMap 의 primary 가 실제
+	// primary 이고 다른 primary 관측이 없는지다(§3.2). CM 파드가 실제 primary 가 아니면 그
+	// 샤드의 rw 라벨은 0 이다.
+	ConditionPrimaryEndpointConsistent = "PrimaryEndpointConsistent"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -93,6 +97,10 @@ const (
 	// Reasons — 런타임 ConfigMap (ADR-0030)
 	ReasonRuntimeConfigPublished = "RuntimeConfigPublished"
 	ReasonPrimaryNotUnique       = "PrimaryNotUnique"
+
+	// Reasons — rw 권위(§3.2). Disagrees 는 같은 이름의 Warning 이벤트 사유이기도 하다.
+	ReasonPrimaryEndpointAgrees    = "PrimaryEndpointAgrees"
+	ReasonPrimaryEndpointDisagrees = "PrimaryEndpointDisagrees"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"

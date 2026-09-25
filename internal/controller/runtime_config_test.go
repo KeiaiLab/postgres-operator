@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ import (
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
+	"github.com/keiailab/postgres-operator/internal/instance/fencing"
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
@@ -324,6 +326,25 @@ func (f *funcExecutor) Exec(_ context.Context, target BackupSidecarTarget, comma
 		f.log.add("exec other " + target.Pod)
 	}
 	return f.respond(target, command)
+}
+
+// recoveryExecutor 는 pg_is_in_recovery 와 승격 마커 exec 에 파드별로 답한다 — recovery 답이
+// 없는 파드는 exec 가 실패한다.
+func recoveryExecutor(log *writeLog, recovery, markers map[string]string) *funcExecutor {
+	return &funcExecutor{log: log, respond: func(target BackupSidecarTarget, command []string) ([]byte, error) {
+		joined := strings.Join(command, " ")
+		switch {
+		case strings.Contains(joined, "pg_is_in_recovery"):
+			answer, ok := recovery[target.Pod]
+			if !ok {
+				return nil, fmt.Errorf("exec %s: unreachable", target.Pod)
+			}
+			return []byte(answer + "\n"), nil
+		case strings.Contains(joined, promotedPrimaryMarker):
+			return []byte(markers[target.Pod]), nil
+		}
+		return nil, nil
+	}}
 }
 
 // TestPrimaryChangeKeepsTemplate 는 primary 가 바뀌어도 STS 파드 템플릿이 그대로인지 본다.
@@ -723,6 +744,133 @@ func TestStalePrimaryLeavesRuntime(t *testing.T) {
 	}
 	if n := log.count("patch cm/"+cm.Name) + log.count("update cm/"+cm.Name); n != 0 {
 		t.Fatalf("runtime CM writes = %d, want 0: %q", n, log.lines)
+	}
+}
+
+// TestAdoptPrimary 는 발행 전 크래시를 잇는지 본다(§3.2-2): CR epoch E · CM epoch E−1 이고
+// 마커 epoch 이 E 인 실제 primary 가 있으면 CM 을 한 번 쓴다(endpoint·epoch=E). 마커가 E 보다
+// 작으면(승격 exec 실패) 채택하지 않는다.
+func TestAdoptPrimary(t *testing.T) {
+	t.Parallel()
+	const epoch = 3
+	cases := []struct {
+		name   string
+		marker int64
+		adopt  bool
+	}{
+		{"marker at canon epoch", epoch, true},
+		{"marker behind canon epoch", epoch - 1, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			name := "adopt-" + strings.ReplaceAll(tc.name, " ", "-")
+			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+				shardCanon{Epoch: epoch, Initialized: true})
+			old := shardMember(name, 0, statusapi.RoleReplica)
+			promoted := shardMember(name, 1, statusapi.RolePrimary)
+			cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
+				PrimaryEndpoint: podDNS(name, old.Name), PromotionEpoch: epoch - 1, ClusterInitialized: true,
+			})
+			log := &writeLog{}
+			scheme := runtimeScheme(t)
+			c := fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(cluster, cm, old, promoted).
+				WithStatusSubresource(&postgresv1alpha1.PostgresCluster{}).
+				WithInterceptorFuncs(log.funcs()).Build()
+			exec := recoveryExecutor(log,
+				map[string]string{old.Name: pgBoolTrue, promoted.Name: pgBoolFalse},
+				map[string]string{promoted.Name: strconv.FormatInt(tc.marker, 10) + "\n"})
+			r := &PostgresClusterReconciler{Client: c, Scheme: scheme, PromotionPodExecutor: exec}
+			defer DeleteMetricsFor(runtimeTestNS, name)
+
+			reconcileCluster(t, r, cluster)
+
+			want, writes := cm.Data, 0
+			if tc.adopt {
+				want = map[string]string{
+					runtimeKeyPrimaryEndpoint:    podDNS(name, promoted.Name),
+					runtimeKeyPromotionEpoch:     strconv.FormatInt(epoch, 10),
+					runtimeKeyClusterInitialized: runtimeFlagOn,
+				}
+				writes = 1
+			}
+			if got := runtimeCM(t, c, name); !equality.Semantic.DeepEqual(got, want) {
+				t.Fatalf("runtime CM = %v, want %v", got, want)
+			}
+			if n := log.count("patch cm/"+cm.Name) + log.count("update cm/"+cm.Name) + log.count("create cm/"+cm.Name); n != writes {
+				t.Fatalf("runtime CM writes = %d, want %d: %q", n, writes, log.lines)
+			}
+		})
+	}
+}
+
+// TestCheckPrimary 는 실제 primary 판정(pg_is_in_recovery=f ∧ 하트비트 신선 ∧ unfenced, §3.2)이
+// 그 밖의 모든 경우 — exec 실패·엉뚱한 답 포함 — 를 비확인으로 두는지 본다. 싼 판정에서 걸리면
+// exec 하지 않는다(죽은 노드의 파드에 exec 하지 않는다).
+func TestCheckPrimary(t *testing.T) {
+	t.Parallel()
+	const name = "check"
+	now := time.Now()
+	cases := []struct {
+		name   string
+		mutate func(*corev1.Pod)
+		fenced bool
+		answer string // pg_is_in_recovery 답 — 빈 문자열이면 exec 실패
+		want   primaryCheck
+		execs  int
+	}{
+		{name: "confirmed", answer: pgBoolFalse, want: primaryConfirmed, execs: 1},
+		{name: "in recovery", answer: pgBoolTrue, want: primaryInRecovery, execs: 1},
+		{name: "exec fails", want: primaryUnknown, execs: 1},
+		{name: "odd answer", answer: "x", want: primaryUnknown, execs: 1},
+		{name: "fenced", fenced: true, answer: pgBoolFalse, want: primaryFenced},
+		{name: "stale heartbeat", answer: pgBoolFalse, want: primaryStale, mutate: func(p *corev1.Pod) {
+			setMemberRole(p, ShardServiceName(name, 0), statusapi.RolePrimary, now.Add(-2*statusStaleThresh))
+		}},
+		{name: "no heartbeat", answer: pgBoolFalse, want: primaryStale, mutate: func(p *corev1.Pod) {
+			delete(p.Annotations, statusapi.AnnotationKey)
+		}},
+		{name: "pending", answer: pgBoolFalse, want: primaryNotRunning, mutate: func(p *corev1.Pod) {
+			p.Status.Phase = corev1.PodPending
+		}},
+		{name: "deleting", answer: pgBoolFalse, want: primaryNotRunning, mutate: func(p *corev1.Pod) {
+			p.DeletionTimestamp = &metav1.Time{Time: now}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pod := shardMember(name, 0, statusapi.RolePrimary)
+			if tc.mutate != nil {
+				tc.mutate(pod)
+			}
+			answers := map[string]string{}
+			if tc.answer != "" {
+				answers[pod.Name] = tc.answer
+			}
+			fenced := map[string]bool{}
+			if tc.fenced {
+				fenced[fencing.PVCName(pod.Name)] = true
+			}
+			log := &writeLog{}
+			r := &PostgresClusterReconciler{PromotionPodExecutor: recoveryExecutor(log, answers, nil)}
+
+			if got := r.checkPrimary(context.Background(), pod, fenced, now); got != tc.want {
+				t.Fatalf("checkPrimary = %q, want %q", got, tc.want)
+			}
+			if n := log.count("exec "); n != tc.execs {
+				t.Fatalf("execs = %d, want %d: %q", n, tc.execs, log.lines)
+			}
+		})
+	}
+
+	r := &PostgresClusterReconciler{}
+	if got := r.checkPrimary(context.Background(), nil, map[string]bool{}, now); got != primaryAbsent {
+		t.Fatalf("checkPrimary(nil) = %q, want %q", got, primaryAbsent)
+	}
+	if got := r.checkPrimary(context.Background(), shardMember(name, 0, statusapi.RolePrimary), map[string]bool{}, now); got != primaryUnknown {
+		t.Fatalf("checkPrimary without executor = %q, want %q", got, primaryUnknown)
 	}
 }
 

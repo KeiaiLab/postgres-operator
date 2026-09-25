@@ -63,12 +63,12 @@ func TestReconcileShardPrimaryServices_PublishAndFailoverUpdate(t *testing.T) {
 
 	svcKey := client.ObjectKey{Namespace: ns, Name: ShardPrimaryServiceName("demo", "shard-0")}
 
-	// 1) 초기 primary(pod-0) → ExternalName Service publish.
-	shards := []postgresv1alpha1.ShardStatus{{
-		Name:    "shard-0",
-		Primary: &postgresv1alpha1.ShardEndpoint{Pod: "demo-shard-0-0", Endpoint: "demo-shard-0-0.hdl.default.svc.cluster.local:5432", Ready: true},
+	// 1) 초기 런타임 primary(pod-0, 실제 primary 확인) → ExternalName Service publish.
+	authorities := []shardAuthority{{
+		shard: "shard-0", primary: "demo-shard-0-0", check: primaryConfirmed,
+		endpoint: "demo-shard-0-0.hdl.default.svc.cluster.local:5432",
 	}}
-	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, shards); err != nil {
+	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, authorities); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	var svc corev1.Service
@@ -79,9 +79,10 @@ func TestReconcileShardPrimaryServices_PublishAndFailoverUpdate(t *testing.T) {
 		t.Fatalf("initial externalName = %q", svc.Spec.ExternalName)
 	}
 
-	// 2) failover: primary 가 pod-1 로 승격 → ExternalName 이 새 primary 로 갱신되어야 함.
-	shards[0].Primary = &postgresv1alpha1.ShardEndpoint{Pod: "demo-shard-0-1", Endpoint: "demo-shard-0-1.hdl.default.svc.cluster.local:5432", Ready: true}
-	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, shards); err != nil {
+	// 2) failover: 승격이 CM 을 pod-1 로 바꿈 → ExternalName 이 새 primary 로 갱신되어야 함.
+	authorities[0].primary = "demo-shard-0-1"
+	authorities[0].endpoint = "demo-shard-0-1.hdl.default.svc.cluster.local:5432"
+	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, authorities); err != nil {
 		t.Fatalf("reconcile (failover): %v", err)
 	}
 	if err := c.Get(context.Background(), svcKey, &svc); err != nil {
@@ -99,11 +100,11 @@ func TestReconcileShardPrimaryServices_SkipNotReadyOrNoPrimary(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
 	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
 
-	shards := []postgresv1alpha1.ShardStatus{
-		{Name: "shard-0", Primary: nil}, // primary 부재.
-		{Name: "shard-1", Primary: &postgresv1alpha1.ShardEndpoint{Pod: "p", Endpoint: "p:5432", Ready: false}}, // not-ready.
+	authorities := []shardAuthority{
+		{shard: "shard-0", check: primaryUnknown},                                      // 런타임 CM 없음.
+		{shard: "shard-1", primary: "p", endpoint: "p:5432", check: primaryInRecovery}, // 실제 primary 아님.
 	}
-	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, shards); err != nil {
+	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, authorities); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	var list corev1.ServiceList
@@ -111,6 +112,20 @@ func TestReconcileShardPrimaryServices_SkipNotReadyOrNoPrimary(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	if len(list.Items) != 0 {
-		t.Fatalf("expected no primary Service (skip not-ready/no-primary), got %d", len(list.Items))
+		t.Fatalf("expected no primary Service (skip unconfirmed/no runtime primary), got %d", len(list.Items))
+	}
+}
+
+// TestObservedAuthorities 는 복제 클러스터(런타임 CM 없음)의 -primary Service 권위가 관측된
+// Ready primary 그대로인지 본다(무변) — not-ready·부재 primary 는 빠진다.
+func TestObservedAuthorities(t *testing.T) {
+	shards := []postgresv1alpha1.ShardStatus{
+		{Name: "shard-0", Primary: &postgresv1alpha1.ShardEndpoint{Pod: "a", Endpoint: "a.hdl:5432", Ready: true}},
+		{Name: "shard-1", Primary: &postgresv1alpha1.ShardEndpoint{Pod: "b", Endpoint: "b.hdl:5432", Ready: false}},
+		{Name: "shard-2"},
+	}
+	got := observedAuthorities(shards)
+	if len(got) != 1 || got[0].shard != "shard-0" || got[0].writable() != "a" || got[0].endpoint != "a.hdl:5432" {
+		t.Fatalf("observedAuthorities = %+v, want only shard-0 → a", got)
 	}
 }
