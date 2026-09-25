@@ -7,6 +7,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package controller
 
 import (
+	"context"
 	"testing"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
@@ -33,7 +34,7 @@ func TestClusterFailoverDecisionSkipsStandaloneReplicaCluster(t *testing.T) {
 		}},
 	}}
 
-	shardName, decision := clusterFailoverDecision(cluster, shards)
+	shardName, decision := (&PostgresClusterReconciler{}).clusterFailoverDecision(context.Background(), cluster, shards)
 	if shardName != "" {
 		t.Fatalf("shardName = %q, want empty for standalone replica cluster", shardName)
 	}

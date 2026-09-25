@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	commonsevents "github.com/keiailab/keiailab-commons/pkg/events"
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
 	"github.com/keiailab/postgres-operator/internal/instance/fencing"
@@ -69,6 +70,9 @@ const (
 	// recoveryProbeTimeout 은 실제 primary 확인 exec 1회의 상한이다 — 무응답 exec 가
 	// reconcile 을 붙잡지 않는다.
 	recoveryProbeTimeout = statusPollInterval
+
+	// promotionExecutedReason 은 승격 exec 가 실제로 승격했을 때의 이벤트 사유다.
+	promotionExecutedReason = "PromotionExecuted"
 )
 
 // primaryCheck 는 멤버가 실제 primary 인지의 판정이다 — pg_is_in_recovery=f ∧ 하트비트 신선 ∧
@@ -422,7 +426,7 @@ func (r *PostgresClusterReconciler) publishRuntime(
 
 // promoteAndPublish 는 CM primary·epoch 를 바꾸는 승격 경로다(§3.2-1):
 //
-//	CR epoch E+1 선기록 → 승격 exec(epoch) → PROMOTE_RESULT=promoted 면 CM 한 번 → CR promotionLSN
+//	CR epoch E+1 선기록 → 승격 exec(epoch) → PROMOTE_RESULT=promoted 면 지표·이벤트 → CM 한 번 → CR promotionLSN
 //
 // 발행 전 크래시는 CR epoch 이 앞서 있어 채택(OP2b)이 잇는다. oldPrimary 는 OP4c 의 hold 대상이다.
 func (r *PostgresClusterReconciler) promoteAndPublish(
@@ -465,6 +469,10 @@ func (r *PostgresClusterReconciler) promoteAndPublish(
 	if !promoter.promoted {
 		return promoteErr
 	}
+	// 타임라인이 바뀌었다 — 발행 성패와 무관하게 센다(O1 PostgresFailoverStorm).
+	MetricPromotions.WithLabelValues(cluster.Namespace, cluster.Name, shardName, string(kind)).Inc()
+	commonsevents.Emitf(r.Recorder, cluster, promotionExecutedReason,
+		"shard=%s pod=%s epoch=%d kind=%s", shardName, target.Pod, canon.Epoch, kind)
 	published := shardRuntime{PrimaryEndpoint: target.Endpoint, PromotionEpoch: canon.Epoch, ClusterInitialized: true}
 	if err := r.publishRuntime(ctx, cluster, shardName, published); err != nil {
 		return errors.Join(promoteErr, fmt.Errorf("publish primary %q epoch %d: %w", target.Pod, canon.Epoch, err))

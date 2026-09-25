@@ -57,6 +57,7 @@ import (
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
+	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 	"github.com/keiailab/postgres-operator/internal/plugin"
 )
 
@@ -71,10 +72,12 @@ const (
 	reconcileTimeout = staleStandbyReseedTimeout
 
 	// failoverDebounceThreshold 는 자동 failover 를 발동하기 전 primary 실패가
-	// 지속되어야 하는 최소 시간이다. statusPollInterval(5s) 의 ~1.5배로, 실패가
-	// 최소 2회의 reconcile 관측에 걸쳐 지속되어야 promotion 이 실행된다 — sub-second
-	// status flicker 는 걸러지고, 진짜 실패는 ~10s 내 promote 된다.
-	failoverDebounceThreshold = 8 * time.Second
+	// 지속되어야 하는 최소 시간이다 — 하트비트 끊김 문턱(statusStaleThresh)과 같다(§3.3).
+	// 8 s 는 primary 재시작보다 짧아 롤링 재시작마다 standby 를 승격했다(2026-09-24 루프).
+	failoverDebounceThreshold = statusStaleThresh
+
+	// primaryHeartbeatStaleReason 은 하트비트만 낡아 failover 를 보류할 때의 Warning 사유다.
+	primaryHeartbeatStaleReason = "PrimaryHeartbeatStale"
 
 	// AnnotationHibernation 은 CloudNativePG 의 선언형 하이버네이션 스위치와
 	// 같은 annotation 이다. cnpg.io/hibernation=on 이면 database Pod 를 0개로
@@ -130,6 +133,11 @@ type PostgresClusterReconciler struct {
 	// (namespace/name 키) — statusStaleThresh 안 중복 이벤트를 막는다.
 	nodeReadDeniedAt map[string]time.Time
 	nodeReadDeniedMu sync.Mutex
+
+	// heartbeatStaleAt 은 클러스터별 마지막 PrimaryHeartbeatStale 이벤트 시각이다
+	// (namespace/name 키) — statusStaleThresh 안 중복 이벤트를 막는다.
+	heartbeatStaleAt map[string]time.Time
+	heartbeatStaleMu sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -519,32 +527,11 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	failoverShardName, failoverDecision := clusterFailoverDecision(&cluster, shardStatuses)
-	// 가짜 promotion 차단 (#220 라이브 드릴 RCA): 실패가 debounce window 동안 지속될
-	// 때만 promote. 일시적 status flicker 는 fenceNonTargetMembers 를 통해 건강한 멤버를
-	// fence 할 수 있으므로 instantaneous 트리거 금지.
-	failureDetected := failoverDecision.Failed && failoverDecision.PromotionCandidate != nil
-	clusterWasReady := prevPhase == postgresv1alpha1.ClusterPhaseReady
-	if r.shouldPromoteAfterDebounce(cluster.Namespace+"/"+cluster.Name, failureDetected, clusterWasReady, time.Now()) {
-		// #220 failback guard: never re-promote a fenced candidate (a known-failed
-		// primary) while an unfenced member is serving — otherwise the promoter's
-		// unfenceTargetPVC defeats the fence and a returned old primary re-takes on
-		// a stale timeline, rewinding away post-failover writes.
-		skipFenced, ferr := r.shouldSkipFencedCandidate(ctx, &cluster, failoverDecision.PromotionCandidate.Pod)
-		if ferr != nil {
-			logger.Error(ferr, "fenced-candidate check failed; proceeding with promotion",
-				"shard", failoverShardName, "candidate", failoverDecision.PromotionCandidate.Pod)
-		}
-		if skipFenced {
-			logger.Info("skipping promotion: candidate PVC is fenced (known-failed primary) while an unfenced member is serving (#220 failback guard)",
-				"shard", failoverShardName, "candidate", failoverDecision.PromotionCandidate.Pod)
-		} else if err := r.executeClusterPromotion(ctx, &cluster, failoverShardName, failoverDecision); err != nil {
-			logger.Error(err, "Failed to execute failover promotion",
-				"shard", failoverShardName, "pod", failoverDecision.PromotionCandidate.Pod)
-			commonsevents.EmitWarningf(r.Recorder, &cluster, "FailoverPromotionFailed",
-				"shard=%q pod=%q: %v", failoverShardName, failoverDecision.PromotionCandidate.Pod, err)
-			failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
-		}
+	failoverDecision, promoted := r.reconcileFailover(ctx, &cluster, shardStatuses, prevPhase, time.Now())
+	if promoted {
+		// 승격한 reconcile 은 끝낸다 — aggregate·fence 맵이 승격 전 값이다(§3.3).
+		// 라벨·Service·재시드는 다음 reconcile 이 새 런타임 CM 으로 한다.
+		return ctrl.Result{RequeueAfter: statusPollInterval}, nil
 	}
 	// rw 권위 = 런타임 CM 파드, 실제 primary 일 때만(§3.2) — 승격 뒤에 읽어 라벨·-primary
 	// Service·PrimaryEndpointConsistent 가 같은 값을 쓴다.
@@ -899,7 +886,117 @@ func (r *PostgresClusterReconciler) shouldPromoteAfterDebounce(key string, faile
 	return now.Sub(first) >= failoverDebounceThreshold
 }
 
-func clusterFailoverDecision(
+// resetFailoverWindow 는 key 클러스터의 디바운스 창을 지운다 — 승격 뒤 남은 창은 다음
+// reconcile 에서 곧바로 또 승격시킨다.
+func (r *PostgresClusterReconciler) resetFailoverWindow(key string) {
+	r.failoverPendingMu.Lock()
+	defer r.failoverPendingMu.Unlock()
+	delete(r.failoverPending, key)
+}
+
+// reconcileFailover 는 자동 failover 의 판정·디바운스·실행이다(§3.3). 참이면 승격을 실행했다 —
+// 호출자는 그 reconcile 을 끝낸다(aggregate·fence 맵이 승격 전 값이다).
+func (r *PostgresClusterReconciler) reconcileFailover(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shardStatuses []postgresv1alpha1.ShardStatus,
+	prevPhase postgresv1alpha1.ClusterPhase,
+	now time.Time,
+) (failover.Decision, bool) {
+	logger := log.FromContext(ctx).WithValues("postgrescluster", client.ObjectKeyFromObject(cluster))
+	key := cluster.Namespace + "/" + cluster.Name
+	failoverShardName, failoverDecision := r.clusterFailoverDecision(ctx, cluster, shardStatuses)
+
+	// 가짜 promotion 차단 (#220 라이브 드릴 RCA): 실패가 debounce window 동안 지속될
+	// 때만 promote. 일시적 status flicker 는 fenceNonTargetMembers 를 통해 건강한 멤버를
+	// fence 할 수 있으므로 instantaneous 트리거 금지. 하트비트만 낡은 primary 는 실패가 아니다.
+	failureDetected := failoverDecision.Failed && failoverDecision.PromotionCandidate != nil &&
+		!r.heartbeatOnly(ctx, cluster, failoverShardName, now)
+	clusterWasReady := prevPhase == postgresv1alpha1.ClusterPhaseReady
+	if !r.shouldPromoteAfterDebounce(key, failureDetected, clusterWasReady, now) {
+		return failoverDecision, false
+	}
+
+	// #220 failback guard: never re-promote a fenced candidate (a known-failed
+	// primary) while an unfenced member is serving — otherwise the promoter's
+	// unfenceTargetPVC defeats the fence and a returned old primary re-takes on
+	// a stale timeline, rewinding away post-failover writes.
+	candidate := failoverDecision.PromotionCandidate.Pod
+	skipFenced, ferr := r.shouldSkipFencedCandidate(ctx, cluster, candidate)
+	if ferr != nil {
+		logger.Error(ferr, "fenced-candidate check failed; proceeding with promotion",
+			"shard", failoverShardName, "candidate", candidate)
+	}
+	if skipFenced {
+		logger.Info("skipping promotion: candidate PVC is fenced (known-failed primary) while an unfenced member is serving (#220 failback guard)",
+			"shard", failoverShardName, "candidate", candidate)
+		return failoverDecision, false
+	}
+	if err := r.executeClusterPromotion(ctx, cluster, failoverShardName, failoverDecision); err != nil {
+		logger.Error(err, "Failed to execute failover promotion",
+			"shard", failoverShardName, "pod", candidate)
+		commonsevents.EmitWarningf(r.Recorder, cluster, "FailoverPromotionFailed",
+			"shard=%q pod=%q: %v", failoverShardName, candidate, err)
+		failoverDecision.Message = fmt.Sprintf("%s; promotion execution failed: %v", failoverDecision.Message, err)
+		return failoverDecision, false
+	}
+	r.resetFailoverWindow(key)
+	return failoverDecision, true
+}
+
+// heartbeatOnly 는 샤드 실패가 런타임 CM primary 의 하트비트만 낡은 것인지다(§3.3): 파드는
+// PodReady=True 이고 상태 애노테이션만 statusStaleThresh 를 넘겼고 Role≠Stopping. API 공백
+// (09-23)이 이 모양이다 — 노드가 죽으면 node lifecycle 이 PodReady 를 False 로 내려 여기를
+// 지난다. 참이면 PrimaryHeartbeatStale 을 클러스터당 statusStaleThresh 에 한 번 낸다.
+func (r *PostgresClusterReconciler) heartbeatOnly(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard string,
+	now time.Time,
+) bool {
+	// 런타임 CM 이 가리키는 primary 파드 — CM·파드가 없으면 판단할 것이 없다.
+	rt, found, err := r.readRuntime(ctx, cluster, shard)
+	if err != nil || !found {
+		return false
+	}
+	var pod corev1.Pod
+	key := client.ObjectKey{Namespace: cluster.Namespace, Name: endpointPod(rt.PrimaryEndpoint)}
+	if err := r.Get(ctx, key, &pod); err != nil {
+		return false
+	}
+
+	// kubelet 은 산 것을 보고하고 하트비트만 끊겼다.
+	if kubernetesPodNotReady(&pod) {
+		return false
+	}
+	st, ok := parsePodStatus(&pod)
+	if !ok || !st.IsStale(now, statusStaleThresh) || st.Role == statusapi.RoleStopping {
+		return false
+	}
+
+	if r.heartbeatStaleDue(cluster.Namespace+"/"+cluster.Name, now) {
+		commonsevents.EmitWarningf(r.Recorder, cluster, primaryHeartbeatStaleReason,
+			"shard %s primary %s: heartbeat stale while PodReady=True; failover withheld", shard, pod.Name)
+	}
+	return true
+}
+
+// heartbeatStaleDue 는 key 클러스터의 PrimaryHeartbeatStale 이벤트를 지금 내도 되는지 본다.
+func (r *PostgresClusterReconciler) heartbeatStaleDue(key string, now time.Time) bool {
+	r.heartbeatStaleMu.Lock()
+	defer r.heartbeatStaleMu.Unlock()
+	if last, ok := r.heartbeatStaleAt[key]; ok && now.Sub(last) < statusStaleThresh {
+		return false
+	}
+	if r.heartbeatStaleAt == nil {
+		r.heartbeatStaleAt = map[string]time.Time{}
+	}
+	r.heartbeatStaleAt[key] = now
+	return true
+}
+
+func (r *PostgresClusterReconciler) clusterFailoverDecision(
+	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
 	shards []postgresv1alpha1.ShardStatus,
 ) (string, failover.Decision) {
@@ -907,12 +1004,35 @@ func clusterFailoverDecision(
 		return "", failover.Decision{Reason: failover.ReasonNone}
 	}
 	for _, shard := range shards {
-		decision := failover.DetectPrimaryFailure(shard)
+		decision := failover.DetectPrimaryFailure(shard, r.receivePositions(ctx, cluster, shard))
 		if decision.Failed {
 			return shard.Name, decision
 		}
 	}
 	return "", failover.Decision{Reason: failover.ReasonNone}
+}
+
+// receivePositions 는 샤드 멤버마다 수신 위치다 — 상태 애노테이션의 WALLSNBytes(replay) + LagBytes
+// (receive − replay). 모르는 멤버는 뺀다: 애노테이션 없음 · 미관측(-1) · 필드 없는 옛 인스턴스(0).
+func (r *PostgresClusterReconciler) receivePositions(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard postgresv1alpha1.ShardStatus,
+) map[string]int64 {
+	pods, err := r.shardMembers(ctx, cluster, shardRefFor(cluster, &shard).member)
+	if err != nil {
+		log.FromContext(ctx).Info("receive positions unknown", "shard", shard.Name, "error", err)
+		return nil
+	}
+	positions := make(map[string]int64, len(pods))
+	for i := range pods {
+		st, ok := parsePodStatus(&pods[i])
+		if !ok || st.WALLSNBytes <= 0 || st.LagBytes < 0 {
+			continue
+		}
+		positions[pods[i].Name] = st.WALLSNBytes + st.LagBytes
+	}
+	return positions
 }
 
 // fallbackPrimaryReady 는 어떤 Pod 도 primary role 을 보고하지 않을 때 합성하는

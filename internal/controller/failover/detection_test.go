@@ -28,7 +28,7 @@ func TestDetectPrimaryFailure_HealthyPrimary(t *testing.T) {
 			{Pod: "pg-1", Ready: true, LagBytes: 100},
 		},
 	}
-	d := DetectPrimaryFailure(shard)
+	d := DetectPrimaryFailure(shard, nil)
 	if d.Failed {
 		t.Errorf("healthy primary should not be Failed, got %+v", d)
 	}
@@ -50,7 +50,7 @@ func TestDetectPrimaryFailure_NoPrimary(t *testing.T) {
 			{Pod: "pg-2", Ready: true, LagBytes: 20},
 		},
 	}
-	d := DetectPrimaryFailure(shard)
+	d := DetectPrimaryFailure(shard, nil)
 	if !d.Failed {
 		t.Fatal("missing primary should be Failed")
 	}
@@ -73,7 +73,7 @@ func TestDetectPrimaryFailure_NotReady(t *testing.T) {
 			{Pod: "pg-1", Ready: true, LagBytes: 0},
 		},
 	}
-	d := DetectPrimaryFailure(shard)
+	d := DetectPrimaryFailure(shard, nil)
 	if !d.Failed {
 		t.Fatal("not-ready primary should be Failed")
 	}
@@ -94,7 +94,7 @@ func TestDetectPrimaryFailure_NoEligibleReplica(t *testing.T) {
 			{Pod: "pg-1", Ready: false}, // not ready
 		},
 	}
-	d := DetectPrimaryFailure(shard)
+	d := DetectPrimaryFailure(shard, nil)
 	if !d.Failed {
 		t.Fatal("missing primary should be Failed even without candidate")
 	}
@@ -159,7 +159,7 @@ func TestSelectPromotionCandidate_OrdersByLagThenName(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := SelectPromotionCandidate(tc.replicas)
+			got := SelectPromotionCandidate(tc.replicas, nil)
 			if tc.want == "" {
 				if got != nil {
 					t.Errorf("expected nil, got %v", got)
@@ -171,6 +171,91 @@ func TestSelectPromotionCandidate_OrdersByLagThenName(t *testing.T) {
 			}
 			if got.Pod != tc.want {
 				t.Errorf("Pod=%q want %q", got.Pod, tc.want)
+			}
+		})
+	}
+}
+
+// TestFreshestCandidate 는 후보가 수신 위치(WALLSNBytes + LagBytes) 최대인지 본다(설계 §3.3).
+// 끊긴 standby 는 receive == replay 라 LagBytes 가 0 이다 — lag 최소를 고르면 가장 낡은
+// standby 가 1순위가 된다(2026-09-14 사고).
+func TestFreshestCandidate(t *testing.T) {
+	t.Parallel()
+	const (
+		gib    = int64(1) << 30
+		latest = 177 * gib // 운영 primary 근처의 절대 위치
+		lag    = 4096
+	)
+	cases := []struct {
+		name     string
+		replicas []postgresv1alpha1.ShardEndpoint
+		receive  map[string]int64
+		want     string
+	}{
+		{
+			"streaming beats a disconnected standby with zero lag",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-1", Ready: true, LagBytes: 0},
+				{Pod: "pg-2", Ready: true, LagBytes: lag},
+			},
+			map[string]int64{"pg-1": latest - 2*gib, "pg-2": latest + lag},
+			"pg-2",
+		},
+		{
+			"both streaming: larger receive position",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-1", Ready: true, LagBytes: 0},
+				{Pod: "pg-2", Ready: true, LagBytes: lag},
+			},
+			map[string]int64{"pg-1": latest, "pg-2": latest + lag},
+			"pg-2",
+		},
+		{
+			"unknown position loses to a known one",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-1", Ready: true, LagBytes: 0},
+				{Pod: "pg-2", Ready: true, LagBytes: lag},
+				{Pod: "pg-3", Ready: true, LagBytes: 0},
+			},
+			map[string]int64{"pg-1": -1, "pg-2": latest - 2*gib},
+			"pg-2",
+		},
+		{
+			"all unknown: lag then name",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-2", Ready: true, LagBytes: 0},
+				{Pod: "pg-1", Ready: true, LagBytes: 0},
+				{Pod: "pg-0", Ready: true, LagBytes: lag},
+			},
+			nil,
+			"pg-1",
+		},
+		{
+			"tie: lag then name",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-3", Ready: true, LagBytes: 0},
+				{Pod: "pg-2", Ready: true, LagBytes: 0},
+				{Pod: "pg-1", Ready: true, LagBytes: lag},
+			},
+			map[string]int64{"pg-1": latest, "pg-2": latest, "pg-3": latest},
+			"pg-2",
+		},
+		{
+			"not ready excluded even when freshest",
+			[]postgresv1alpha1.ShardEndpoint{
+				{Pod: "pg-1", Ready: false, LagBytes: 0},
+				{Pod: "pg-2", Ready: true, LagBytes: 0},
+			},
+			map[string]int64{"pg-1": latest, "pg-2": latest - gib},
+			"pg-2",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := DetectPrimaryFailure(postgresv1alpha1.ShardStatus{Name: "shard-0", Replicas: tc.replicas}, tc.receive)
+			if d.PromotionCandidate == nil || d.PromotionCandidate.Pod != tc.want {
+				t.Fatalf("candidate = %v, want %s", d.PromotionCandidate, tc.want)
 			}
 		})
 	}
