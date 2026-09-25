@@ -1,0 +1,25 @@
+# kind 훈련장 전용 pg 이미지 — P2 거짓(노드가 linux/amd64 를 못 돌림)일 때만 같은 sha 로 노드 아키텍처에 굽는다.
+# 시험 산출물이다(push 0). 운영 pg 이미지(Dockerfile.pg)와 같은 뼈대에서 apt 를 뺐다 — pgbackrest 는 훈련장이 안 쓴다.
+# 베이스는 Harbor 프록시 디지스트 핀, 의존은 Nexus Go 프록시, 빌드는 --network=none(시험 중 공개망 0).
+
+FROM --platform=$BUILDPLATFORM harbor.keiailab.com/dockerhub-proxy/library/golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS instance
+ARG GOPROXY=https://pkg.keiailab.com/repository/go/
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+COPY api ./api
+COPY cmd ./cmd
+COPY internal ./internal
+ARG TARGETOS
+ARG TARGETARCH
+RUN --network=none CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/instance ./cmd/instance
+
+FROM harbor.keiailab.com/dockerhub-proxy/library/postgres:18-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
+COPY --from=instance /out/instance /usr/local/bin/instance
+# ADR 0006 — 데이터플레인은 UID/GID 70 으로 돈다(공식 이미지의 postgres 는 999).
+USER root
+RUN groupadd -g 70 pg-keiailab \
+    && useradd -u 70 -g 70 -m -d /var/lib/postgresql-keiailab -s /bin/bash pg-keiailab \
+    && chmod 755 /usr/local/bin/instance
+USER 70:70
+ENTRYPOINT ["/usr/local/bin/instance"]

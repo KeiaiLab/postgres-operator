@@ -1,0 +1,21 @@
+# 운영 ceph-rbd(Retain) · ceph-rbd-snapclass(Delete) 와 같은 회수 정책.
+# Retain 이라야 PVC 삭제가 Released PV 로 남는다 — J5(누수)가 그것을 센다.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-retain
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: nfs-server.loopdrill-nfs.svc.cluster.local
+  share: /
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+mountOptions:
+  - nfsvers=4.1
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: nfs-snapshot
+driver: nfs.csi.k8s.io
+deletionPolicy: Delete

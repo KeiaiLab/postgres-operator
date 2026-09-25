@@ -1,0 +1,792 @@
+{
+  "expect": "red",
+  "result": "red-not-reproduced",
+  "inputs": {
+    "operatorImage": "harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:v0.4.0-beta.11@sha256:29c503ffc16c3347d9b6912a9994d17c069667c89efe0a738e6e472ae551869d",
+    "operatorRun": "harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:loopdrill-72f16f25",
+    "pgImage": "harbor.keiailab.com/ghcr-proxy/keiailab/pg:18@sha256:3e1bf011a059ab684f320f18a46bdf3d7a293369d5801b1013f790e98d325981",
+    "pgRun": "harbor.keiailab.com/ghcr-proxy/keiailab/pg:loopdrill-3e1bf011",
+    "fidelity": "published-amd64",
+    "dataCommit": "56d79387a723284b99f3899420a5daf86161113b",
+    "dataTree": "57767fe64f8d2d31cacac4b35496562f48ed2780",
+    "kindNode": "harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+    "kindVersion": "kind v0.33.0 go1.27.0 darwin/arm64",
+    "storage": "csi-driver-nfs v4.13.4 · nfs-retain(Retain) · VolumeSnapshotClass nfs-snapshot(Delete)",
+    "drillDigest": "sha256:29ef425adcd667594261729cee1b41092a2dd5994e7bb26345580bf0bece95f5",
+    "notes": [
+      "amd64 이미지는 arm64 노드에서 binfmt 에뮬레이션",
+      "저장은 NFS CSI(운영 Ceph RBD 아님)",
+      "CiliumNetworkPolicy 는 CRD 만 — 집행 0",
+      "kubeadm kind(운영 k3s 아님) · control-plane 1대"
+    ]
+  },
+  "probes": {
+    "newPodLatest": true,
+    "restartLatest": true,
+    "amd64": true
+  },
+  "scenarios": [
+    {
+      "scenario": "S4",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": true,
+          "detail": "generation·updateRevision·ControllerRevision 불변"
+        },
+        {
+          "id": "J2",
+          "pass": true,
+          "detail": "PVC 3개 UID 불변 · 감사 delete 0"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→1(허용 +1)"
+        },
+        {
+          "id": "J4",
+          "pass": true,
+          "detail": "관측창 status 쓰기 전진 92"
+        },
+        {
+          "id": "J5",
+          "pass": true,
+          "detail": "Released PV 0 불변"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "승격 없음 · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": true,
+          "detail": "승격 없음"
+        }
+      ],
+      "expect": {
+        "promotionsAllowed": 1,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "members": 3
+      },
+      "before": {
+        "takenAt": "2026-09-25T11:45:41.72773+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "5f0780cd-8d73-4154-b8b1-7e0ee2fd5614",
+          "data-postgres-prod-shard-0-1": "ea1e7d2b-3d6a-4b9c-a399-f38db709366a",
+          "data-postgres-prod-shard-0-2": "9fcd4259-b72d-4d70-b709-1ade39bc80ef"
+        },
+        "releasedPVs": 0,
+        "timeline": [
+          {
+            "at": "2026-09-25T11:45:40.713009+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T02:45:40Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-25T11:45:40.713009+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      },
+      "after": {
+        "takenAt": "2026-09-25T11:56:55.088554+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "5f0780cd-8d73-4154-b8b1-7e0ee2fd5614",
+          "data-postgres-prod-shard-0-1": "ea1e7d2b-3d6a-4b9c-a399-f38db709366a",
+          "data-postgres-prod-shard-0-2": "9fcd4259-b72d-4d70-b709-1ade39bc80ef"
+        },
+        "releasedPVs": 0,
+        "timeline": [
+          {
+            "at": "2026-09-25T11:45:40.713009+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T02:45:40Z",
+          "2026-09-25T02:46:46Z",
+          "2026-09-25T02:46:52Z",
+          "2026-09-25T02:46:58Z",
+          "2026-09-25T02:47:03Z",
+          "2026-09-25T02:47:14Z",
+          "2026-09-25T02:47:20Z",
+          "2026-09-25T02:47:26Z",
+          "2026-09-25T02:47:31Z",
+          "2026-09-25T02:47:42Z",
+          "2026-09-25T02:47:48Z",
+          "2026-09-25T02:47:54Z",
+          "2026-09-25T02:48:05Z",
+          "2026-09-25T02:48:11Z",
+          "2026-09-25T02:48:17Z",
+          "2026-09-25T02:48:24Z",
+          "2026-09-25T02:48:29Z",
+          "2026-09-25T02:48:35Z",
+          "2026-09-25T02:48:41Z",
+          "2026-09-25T02:48:46Z",
+          "2026-09-25T02:48:52Z",
+          "2026-09-25T02:48:57Z",
+          "2026-09-25T02:49:03Z",
+          "2026-09-25T02:49:08Z",
+          "2026-09-25T02:49:14Z",
+          "2026-09-25T02:49:20Z",
+          "2026-09-25T02:49:25Z",
+          "2026-09-25T02:49:31Z",
+          "2026-09-25T02:49:41Z",
+          "2026-09-25T02:49:47Z",
+          "2026-09-25T02:49:54Z",
+          "2026-09-25T02:49:59Z",
+          "2026-09-25T02:50:10Z",
+          "2026-09-25T02:50:15Z",
+          "2026-09-25T02:50:21Z",
+          "2026-09-25T02:50:27Z",
+          "2026-09-25T02:50:33Z",
+          "2026-09-25T02:50:44Z",
+          "2026-09-25T02:50:49Z",
+          "2026-09-25T02:50:55Z",
+          "2026-09-25T02:51:00Z",
+          "2026-09-25T02:51:12Z",
+          "2026-09-25T02:51:17Z",
+          "2026-09-25T02:51:23Z",
+          "2026-09-25T02:51:28Z",
+          "2026-09-25T02:51:34Z",
+          "2026-09-25T02:51:40Z",
+          "2026-09-25T02:51:45Z",
+          "2026-09-25T02:51:51Z",
+          "2026-09-25T02:51:56Z",
+          "2026-09-25T02:52:07Z",
+          "2026-09-25T02:52:13Z",
+          "2026-09-25T02:52:24Z",
+          "2026-09-25T02:52:29Z",
+          "2026-09-25T02:52:36Z",
+          "2026-09-25T02:52:41Z",
+          "2026-09-25T02:52:47Z",
+          "2026-09-25T02:52:53Z",
+          "2026-09-25T02:52:58Z",
+          "2026-09-25T02:53:09Z",
+          "2026-09-25T02:53:15Z",
+          "2026-09-25T02:53:20Z",
+          "2026-09-25T02:53:26Z",
+          "2026-09-25T02:53:32Z",
+          "2026-09-25T02:53:42Z",
+          "2026-09-25T02:53:48Z",
+          "2026-09-25T02:53:49Z",
+          "2026-09-25T02:54:00Z",
+          "2026-09-25T02:54:06Z",
+          "2026-09-25T02:54:11Z",
+          "2026-09-25T02:54:17Z",
+          "2026-09-25T02:54:23Z",
+          "2026-09-25T02:54:28Z",
+          "2026-09-25T02:54:34Z",
+          "2026-09-25T02:54:39Z",
+          "2026-09-25T02:54:45Z",
+          "2026-09-25T02:54:50Z",
+          "2026-09-25T02:54:56Z",
+          "2026-09-25T02:55:07Z",
+          "2026-09-25T02:55:13Z",
+          "2026-09-25T02:55:24Z",
+          "2026-09-25T02:55:30Z",
+          "2026-09-25T02:55:36Z",
+          "2026-09-25T02:55:41Z",
+          "2026-09-25T02:55:47Z",
+          "2026-09-25T02:55:53Z",
+          "2026-09-25T02:55:59Z",
+          "2026-09-25T02:56:05Z",
+          "2026-09-25T02:56:10Z",
+          "2026-09-25T02:56:16Z",
+          "2026-09-25T02:56:21Z",
+          "2026-09-25T02:56:27Z",
+          "2026-09-25T02:56:33Z",
+          "2026-09-25T02:56:38Z",
+          "2026-09-25T02:56:49Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-25T11:46:18.048897+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-25T11:46:46.095078+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-25T11:45:42.890935+09:00"
+        ],
+        "observeFrom": "2026-09-25T11:46:52.089266+09:00",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      }
+    },
+    {
+      "scenario": "S5",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": true,
+          "detail": "generation·updateRevision·ControllerRevision 불변"
+        },
+        {
+          "id": "J2",
+          "pass": false,
+          "detail": "PVC UID map[data-postgres-prod-shard-0-0:610cbea9-e332-4473-a4d2-65e91ad9349b data-postgres-prod-shard-0-1:f289ffea-47a7-4b3f-9378-8dfcc5c868a9 data-postgres-prod-shard-0-2:626bc099-7990-407c-b012-896948998c1a]→map[data-postgres-prod-shard-0-0:610cbea9-e332-4473-a4d2-65e91ad9349b data-postgres-prod-shard-0-1:e6a77d56-74b3-47a2-9662-781b7d618f26 data-postgres-prod-shard-0-2:626bc099-7990-407c-b012-896948998c1a]"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→1(허용 +0)"
+        },
+        {
+          "id": "J4",
+          "pass": false,
+          "detail": "'Failed to watch' 13줄"
+        },
+        {
+          "id": "J5",
+          "pass": false,
+          "detail": "Released PV 3→4"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "승격 없음 · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": true,
+          "detail": "승격 없음"
+        }
+      ],
+      "expect": {
+        "promotionsAllowed": 0,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "members": 3
+      },
+      "before": {
+        "takenAt": "2026-09-25T12:05:26.301368+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "610cbea9-e332-4473-a4d2-65e91ad9349b",
+          "data-postgres-prod-shard-0-1": "f289ffea-47a7-4b3f-9378-8dfcc5c868a9",
+          "data-postgres-prod-shard-0-2": "626bc099-7990-407c-b012-896948998c1a"
+        },
+        "releasedPVs": 3,
+        "timeline": [
+          {
+            "at": "2026-09-25T12:05:25.484487+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T03:04:29Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-25T12:05:25.484487+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      },
+      "after": {
+        "takenAt": "2026-09-25T12:18:33.554296+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "610cbea9-e332-4473-a4d2-65e91ad9349b",
+          "data-postgres-prod-shard-0-1": "e6a77d56-74b3-47a2-9662-781b7d618f26",
+          "data-postgres-prod-shard-0-2": "626bc099-7990-407c-b012-896948998c1a"
+        },
+        "releasedPVs": 4,
+        "timeline": [
+          {
+            "at": "2026-09-25T12:05:25.484487+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T03:05:28Z",
+          "2026-09-25T03:05:34Z",
+          "2026-09-25T03:05:45Z",
+          "2026-09-25T03:05:50Z",
+          "2026-09-25T03:05:56Z",
+          "2026-09-25T03:06:02Z",
+          "2026-09-25T03:06:07Z",
+          "2026-09-25T03:06:13Z",
+          "2026-09-25T03:06:19Z",
+          "2026-09-25T03:06:20Z",
+          "2026-09-25T03:06:31Z",
+          "2026-09-25T03:06:36Z",
+          "2026-09-25T03:06:42Z",
+          "2026-09-25T03:06:47Z",
+          "2026-09-25T03:06:53Z",
+          "2026-09-25T03:06:58Z",
+          "2026-09-25T03:07:09Z",
+          "2026-09-25T03:07:15Z",
+          "2026-09-25T03:07:21Z",
+          "2026-09-25T03:07:26Z",
+          "2026-09-25T03:07:32Z",
+          "2026-09-25T03:07:37Z",
+          "2026-09-25T03:07:48Z",
+          "2026-09-25T03:07:53Z",
+          "2026-09-25T03:07:59Z",
+          "2026-09-25T03:08:04Z",
+          "2026-09-25T03:08:10Z",
+          "2026-09-25T03:08:15Z",
+          "2026-09-25T03:08:21Z",
+          "2026-09-25T03:08:32Z",
+          "2026-09-25T03:08:38Z",
+          "2026-09-25T03:08:43Z",
+          "2026-09-25T03:08:49Z",
+          "2026-09-25T03:08:55Z",
+          "2026-09-25T03:09:00Z",
+          "2026-09-25T03:09:06Z",
+          "2026-09-25T03:09:11Z",
+          "2026-09-25T03:09:17Z",
+          "2026-09-25T03:09:22Z",
+          "2026-09-25T03:09:28Z",
+          "2026-09-25T03:09:34Z",
+          "2026-09-25T03:09:39Z",
+          "2026-09-25T03:09:51Z",
+          "2026-09-25T03:09:56Z",
+          "2026-09-25T03:10:07Z",
+          "2026-09-25T03:10:13Z",
+          "2026-09-25T03:10:18Z",
+          "2026-09-25T03:10:24Z",
+          "2026-09-25T03:10:30Z",
+          "2026-09-25T03:10:35Z",
+          "2026-09-25T03:10:41Z",
+          "2026-09-25T03:10:47Z",
+          "2026-09-25T03:10:52Z",
+          "2026-09-25T03:10:58Z",
+          "2026-09-25T03:11:03Z",
+          "2026-09-25T03:11:15Z",
+          "2026-09-25T03:11:20Z",
+          "2026-09-25T03:11:26Z",
+          "2026-09-25T03:11:31Z",
+          "2026-09-25T03:11:37Z",
+          "2026-09-25T03:11:47Z",
+          "2026-09-25T03:11:53Z",
+          "2026-09-25T03:11:58Z",
+          "2026-09-25T03:12:04Z",
+          "2026-09-25T03:12:09Z",
+          "2026-09-25T03:12:15Z",
+          "2026-09-25T03:12:20Z",
+          "2026-09-25T03:12:31Z",
+          "2026-09-25T03:12:37Z",
+          "2026-09-25T03:12:42Z",
+          "2026-09-25T03:12:47Z",
+          "2026-09-25T03:12:53Z",
+          "2026-09-25T03:12:59Z",
+          "2026-09-25T03:13:05Z",
+          "2026-09-25T03:13:15Z",
+          "2026-09-25T03:13:26Z",
+          "2026-09-25T03:13:32Z",
+          "2026-09-25T03:13:37Z",
+          "2026-09-25T03:13:43Z",
+          "2026-09-25T03:13:48Z",
+          "2026-09-25T03:13:54Z",
+          "2026-09-25T03:13:59Z",
+          "2026-09-25T03:14:05Z",
+          "2026-09-25T03:14:11Z",
+          "2026-09-25T03:14:17Z",
+          "2026-09-25T03:14:22Z",
+          "2026-09-25T03:14:28Z",
+          "2026-09-25T03:14:33Z",
+          "2026-09-25T03:14:45Z",
+          "2026-09-25T03:14:50Z",
+          "2026-09-25T03:14:55Z",
+          "2026-09-25T03:15:01Z",
+          "2026-09-25T03:15:07Z",
+          "2026-09-25T03:15:12Z",
+          "2026-09-25T03:15:18Z"
+        ],
+        "failedWatchLines": 13,
+        "auditPVCDeletes": 2,
+        "auditPodDeletes": 0,
+        "events": [
+          {
+            "at": "2026-09-25T03:05:27.510148Z",
+            "type": "Warning",
+            "reason": "StandbyReseeded",
+            "message": "standby postgres-prod-shard-0-1 not ready for 8m0s with a ready primary; re-seeding (delete pod+PVC → fresh pg_basebackup)",
+            "count": 1
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-25T12:05:27.604918+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-25T12:18:15.391835+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-25T12:05:27.604855+09:00"
+        ],
+        "observeFrom": "2026-09-25T12:18:32.629068+09:00",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      }
+    },
+    {
+      "scenario": "S1",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": true,
+          "detail": "generation·updateRevision·ControllerRevision 불변"
+        },
+        {
+          "id": "J2",
+          "pass": true,
+          "detail": "PVC 3개 UID 불변 · 감사 delete 0"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→1(허용 +1)"
+        },
+        {
+          "id": "J4",
+          "pass": true,
+          "detail": "관측창 status 쓰기 전진 85"
+        },
+        {
+          "id": "J5",
+          "pass": true,
+          "detail": "Released PV 7 불변"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "승격 없음 · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": true,
+          "detail": "승격 없음"
+        }
+      ],
+      "expect": {
+        "promotionsAllowed": 1,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "members": 3
+      },
+      "before": {
+        "takenAt": "2026-09-25T12:19:16.200863+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "e05db781-d414-41ad-8b1c-ab1e7c9cd155",
+          "data-postgres-prod-shard-0-1": "a7deab9b-e79b-491d-a6b9-b2e0ece3eaa4",
+          "data-postgres-prod-shard-0-2": "187131c8-c441-4545-9254-28c89fc2dc36"
+        },
+        "releasedPVs": 7,
+        "timeline": [
+          {
+            "at": "2026-09-25T12:19:15.389141+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T03:19:13Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-25T12:19:15.389141+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      },
+      "after": {
+        "takenAt": "2026-09-25T12:29:38.118203+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d98c44694",
+        "revisions": [
+          "postgres-prod-shard-0-6d98c44694"
+        ],
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "e05db781-d414-41ad-8b1c-ab1e7c9cd155",
+          "data-postgres-prod-shard-0-1": "a7deab9b-e79b-491d-a6b9-b2e0ece3eaa4",
+          "data-postgres-prod-shard-0-2": "187131c8-c441-4545-9254-28c89fc2dc36"
+        },
+        "releasedPVs": 7,
+        "timeline": [
+          {
+            "at": "2026-09-25T12:19:15.389141+09:00",
+            "timeline": 1
+          }
+        ],
+        "statusWrites": [
+          "2026-09-25T03:19:17Z",
+          "2026-09-25T03:19:23Z",
+          "2026-09-25T03:19:24Z",
+          "2026-09-25T03:19:30Z",
+          "2026-09-25T03:19:46Z",
+          "2026-09-25T03:19:52Z",
+          "2026-09-25T03:19:58Z",
+          "2026-09-25T03:20:03Z",
+          "2026-09-25T03:20:14Z",
+          "2026-09-25T03:20:19Z",
+          "2026-09-25T03:20:25Z",
+          "2026-09-25T03:20:30Z",
+          "2026-09-25T03:20:41Z",
+          "2026-09-25T03:20:52Z",
+          "2026-09-25T03:20:57Z",
+          "2026-09-25T03:21:03Z",
+          "2026-09-25T03:21:14Z",
+          "2026-09-25T03:21:19Z",
+          "2026-09-25T03:21:25Z",
+          "2026-09-25T03:21:30Z",
+          "2026-09-25T03:21:46Z",
+          "2026-09-25T03:21:52Z",
+          "2026-09-25T03:21:58Z",
+          "2026-09-25T03:22:03Z",
+          "2026-09-25T03:22:14Z",
+          "2026-09-25T03:22:19Z",
+          "2026-09-25T03:22:25Z",
+          "2026-09-25T03:22:30Z",
+          "2026-09-25T03:22:46Z",
+          "2026-09-25T03:22:52Z",
+          "2026-09-25T03:23:03Z",
+          "2026-09-25T03:23:09Z",
+          "2026-09-25T03:23:14Z",
+          "2026-09-25T03:23:20Z",
+          "2026-09-25T03:23:26Z",
+          "2026-09-25T03:23:36Z",
+          "2026-09-25T03:23:47Z",
+          "2026-09-25T03:23:53Z",
+          "2026-09-25T03:23:58Z",
+          "2026-09-25T03:24:09Z",
+          "2026-09-25T03:24:15Z",
+          "2026-09-25T03:24:21Z",
+          "2026-09-25T03:24:26Z",
+          "2026-09-25T03:24:32Z",
+          "2026-09-25T03:24:38Z",
+          "2026-09-25T03:24:49Z",
+          "2026-09-25T03:24:59Z",
+          "2026-09-25T03:25:05Z",
+          "2026-09-25T03:25:10Z",
+          "2026-09-25T03:25:16Z",
+          "2026-09-25T03:25:27Z",
+          "2026-09-25T03:25:32Z",
+          "2026-09-25T03:25:38Z",
+          "2026-09-25T03:25:43Z",
+          "2026-09-25T03:25:54Z",
+          "2026-09-25T03:26:00Z",
+          "2026-09-25T03:26:05Z",
+          "2026-09-25T03:26:11Z",
+          "2026-09-25T03:26:16Z",
+          "2026-09-25T03:26:22Z",
+          "2026-09-25T03:26:33Z",
+          "2026-09-25T03:26:38Z",
+          "2026-09-25T03:26:44Z",
+          "2026-09-25T03:26:49Z",
+          "2026-09-25T03:27:00Z",
+          "2026-09-25T03:27:06Z",
+          "2026-09-25T03:27:11Z",
+          "2026-09-25T03:27:17Z",
+          "2026-09-25T03:27:22Z",
+          "2026-09-25T03:27:33Z",
+          "2026-09-25T03:27:38Z",
+          "2026-09-25T03:27:44Z",
+          "2026-09-25T03:27:49Z",
+          "2026-09-25T03:28:00Z",
+          "2026-09-25T03:28:06Z",
+          "2026-09-25T03:28:12Z",
+          "2026-09-25T03:28:18Z",
+          "2026-09-25T03:28:23Z",
+          "2026-09-25T03:28:29Z",
+          "2026-09-25T03:28:34Z",
+          "2026-09-25T03:28:40Z",
+          "2026-09-25T03:28:45Z",
+          "2026-09-25T03:28:51Z",
+          "2026-09-25T03:29:02Z",
+          "2026-09-25T03:29:07Z",
+          "2026-09-25T03:29:13Z",
+          "2026-09-25T03:29:19Z",
+          "2026-09-25T03:29:25Z",
+          "2026-09-25T03:29:30Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "events": [
+          {
+            "at": "2026-09-25T03:19:17.147205Z",
+            "type": "Normal",
+            "reason": "ClusterReady",
+            "message": "PostgresCluster 1/1 shards primary ready, router=false",
+            "count": 213
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-25T12:19:22.640507+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": null
+          },
+          {
+            "at": "2026-09-25T12:19:28.52798+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "writableAt": "0001-01-01T00:00:00Z",
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-25T12:19:17.119887+09:00"
+        ],
+        "observeFrom": "2026-09-25T12:19:34.323545+09:00",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3
+      }
+    }
+  ],
+  "startedAt": "2026-09-25T11:43:21.914617+09:00",
+  "finishedAt": "2026-09-25T12:29:39.790519+09:00"
+}

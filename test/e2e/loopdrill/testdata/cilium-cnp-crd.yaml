@@ -1,0 +1,23 @@
+# Cilium 은 설치하지 않는다 — data 래퍼 차트가 렌더하는 CiliumNetworkPolicy 를 받아 줄 CRD 만.
+# 집행 0(판정문 fidelity 에 적는다). 스키마는 보존만 한다 — 필드 검증은 운영 Cilium 몫.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ciliumnetworkpolicies.cilium.io
+spec:
+  group: cilium.io
+  scope: Namespaced
+  names:
+    kind: CiliumNetworkPolicy
+    listKind: CiliumNetworkPolicyList
+    plural: ciliumnetworkpolicies
+    singular: ciliumnetworkpolicy
+    shortNames: ["cnp"]
+  versions:
+    - name: v2
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

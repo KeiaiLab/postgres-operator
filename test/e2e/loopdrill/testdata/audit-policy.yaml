@@ -1,0 +1,13 @@
+# J2(PVC 삭제 0)·S0(옛 오퍼레이터의 pod 삭제 0) 가 읽는 감사 기록 — 삭제만 남긴다.
+# 허용·거부 둘 다 남는다(ResponseComplete 의 responseStatus.code 로 가른다).
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  - level: Metadata
+    verbs: ["delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["persistentvolumeclaims", "pods"]
+  - level: None
