@@ -29,14 +29,18 @@ const statusStaleThresh = 30 * time.Second
 
 // roguePrimaryReason flags a ShardEndpoint that reports Primary but lacks the
 // operator-promote marker while a promoted primary exists — a returning old
-// primary that booted as an empty rogue from a stale env. reconcileRoguePrimaries
-// reseeds these into clean standbys (#220 clean-rejoin).
+// primary that booted as an empty rogue from a stale env (#220 clean-rejoin).
+// 재구축 엔진이 hold 한 뒤 스냅숏을 떠 재시드한다(Rogue, ADR-0031).
 const roguePrimaryReason = "rogue-primary"
 
 // fencedMemberReason marks a shard member whose PVC is fenced. Fenced members
 // must not be promotion candidates even if their last instance-status heartbeat
 // still says Ready=true.
 const fencedMemberReason = "fenced"
+
+// fencedPrimaryReason 은 fence 된 PVC 로 primary 를 보고하는 멤버다 — 밀려난 옛 primary 라 재구축 엔진이
+// hold 한 뒤 스냅숏을 떠 되감기로 합류시킨다(FencedPrimary, ADR-0031).
+const fencedPrimaryReason = "fenced-primary"
 
 // podNotReadyReason marks a member whose instance-status heartbeat still says
 // Ready=true but the Kubernetes Pod/container is not ready for exec/probes.
@@ -224,13 +228,15 @@ func aggregateShardStatusMatching(
 		case st.Role == statusapi.RolePrimary && podFenced:
 			// #220: fenced known-failed primary (e.g. a returning old primary that
 			// self-reports Primary before its fence stops it) — never the shard primary.
+			// 사유 FencedPrimary 로 재구축 엔진이 hold 한다.
+			ep.Reason = fencedPrimaryReason
 			logger.Info("ignoring Primary self-report from fenced member", "pod", pod.Name)
 			replicas = append(replicas, ep)
 		case st.Role == statusapi.RolePrimary && !st.Promoted && hasPromotedPrimary:
 			// #220: a Primary-reporting pod without the promoted marker, while a
 			// promoted primary exists, is a rogue old primary that booted empty from a
-			// stale env. Never the shard primary; flag Ready=false + reason so
-			// reconcileRoguePrimaries reseeds it into a clean standby.
+			// stale env. Never the shard primary; flag Ready=false + reason.
+			// 재구축 엔진이 hold 한 뒤 재시드한다(Rogue).
 			ep.Ready = false
 			ep.Reason = roguePrimaryReason
 			logger.Info("rogue primary detected (no promoted marker); flagging for reseed", "pod", pod.Name)

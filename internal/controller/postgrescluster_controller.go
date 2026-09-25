@@ -25,6 +25,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -161,7 +163,7 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=services;configmaps;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -170,7 +172,7 @@ type PostgresClusterReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;update;delete
+// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile 은 PostgresCluster CR 변화에 반응한다.
@@ -566,25 +568,16 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Error(labelErr, "primary role label sync failed (best-effort)")
 		}
 	}
-	// #205: re-seed any standby that failed to rejoin (not-ready too long with a
-	// ready primary, e.g. stuck in startup recovery after a primary restart).
-	// Best-effort — log and continue.
 	if !standaloneReplica && !databasePodsStopped {
-		if err := r.reconcileStaleReplicas(ctx, &cluster, shardStatuses, time.Now()); err != nil {
-			logger.Error(err, "stale standby re-seed failed (best-effort)")
-		}
-		// #220 clean-rejoin: reseed any rogue old primary (booted empty from a stale
-		// env after failback) into a clean standby of the real promoted primary.
-		if err := r.reconcileRoguePrimaries(ctx, &cluster, shardStatuses, time.Now()); err != nil {
-			logger.Error(err, "rogue primary re-seed failed (best-effort)")
-		}
 		// 복제 그래프(§3.4) — readyz 는 단절을 못 본다. 관측 → fence 제거·재지정 → 건강.
 		graphs := r.observeGraphs(ctx, &cluster, shardStatuses)
 		r.reconcileGraphActions(ctx, &cluster, shardStatuses, graphs, time.Now())
 		// #220 후속: 복제 단절/동결(stale) replica 를 CR condition + Event 로 표면화한다
 		// (원 사고: 7일 동결 replica 가 어떤 신호에도 안 떠 stale 승격을 유발).
 		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses, graphs)
-		// 재구축 엔진(ADR-0031) — 진행 중 항목을 한 걸음씩 옮기고 재구축 스냅숏을 정리한다.
+		// 재구축 엔진(ADR-0031) — 재시드 사유를 요청(즉시 hold)으로 바꾸고, 진행 중 항목을 한 걸음씩
+		// 옮기고, 재구축 스냅숏을 정리한다. PVC 는 지우지 않는다(I2).
+		r.requestRebuilds(ctx, &cluster, shardStatuses, graphs, time.Now())
 		r.advanceRebuilds(ctx, &cluster, shardStatuses, graphs, time.Now())
 		r.gcMemberSnapshots(ctx, &cluster, time.Now())
 	}
@@ -1413,4 +1406,109 @@ func (r *PostgresClusterReconciler) reloadPostgresConfig(ctx context.Context, na
 		return fmt.Errorf("pg_reload_conf on %s: %w (output: %s)", podName, err, string(out))
 	}
 	return nil
+}
+
+// endpointRebuildReasons 는 aggregate 사유 → 재구축 사유다.
+var endpointRebuildReasons = map[string]rebuildReason{
+	fencedPrimaryReason: rebuildFencedPrimary,
+	roguePrimaryReason:  rebuildRogue,
+}
+
+// requestRebuilds 는 재시드 사유를 재구축 엔진 요청(즉시 hold)으로 바꾼다(§3.5) — 멤버 데이터를 버리는 길은
+// 이것 하나다:
+//
+//	fence 된 PVC 로 primary 보고               → FencedPrimary
+//	마커 없이 primary 보고(마커 primary 있음)   → Rogue
+//	그래프 끊김 ≥ staleStandbyReseedTimeout    → Stale
+//	hold 에 있고 항목이 없는 멤버               → Demoted(발행·채택 뒤 항목 쓰기 실패)
+//
+// 사유가 CM primary 를 가리키면 부르지 않는다 — hold 만 남은 CM primary 는 복원 뒤 엔진 재검증이 푼다. 마커로
+// 못 가르는 primary 둘은 사유가 없어 hold 0 이다(PrimaryEndpointDisagrees 가 알린다).
+func (r *PostgresClusterReconciler) requestRebuilds(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shards []postgresv1alpha1.ShardStatus,
+	graphs map[string]replicationGraph,
+	now time.Time,
+) {
+	logger := log.FromContext(ctx)
+	for i := range shards {
+		causes := r.rebuildCauses(ctx, cluster, &shards[i], graphs[shards[i].Name], now)
+		for _, pod := range slices.Sorted(maps.Keys(causes)) {
+			if err := r.requestRebuild(ctx, cluster, shards[i].Name, pod, causes[pod], now); err != nil {
+				logger.Info("member rebuild not requested", "shard", shards[i].Name, "pod", pod, "reason", causes[pod], "error", err)
+			}
+		}
+	}
+	// 다시 잴 수 있는 사유가 먼저다 — 항목만 잃은 Stale 이 Demoted 로 복원되지 않게.
+	r.restoreHeldRebuilds(ctx, cluster, shards, now)
+}
+
+// rebuildCauses 는 샤드의 요청 사유다(파드 → 사유) — aggregate 사유가 그래프 끊김보다 먼저다. 런타임 CM 이
+// 없으면 hold 할 곳이 없어 비운다.
+func (r *PostgresClusterReconciler) rebuildCauses(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	ss *postgresv1alpha1.ShardStatus,
+	g replicationGraph,
+	now time.Time,
+) map[string]rebuildReason {
+	rt, found, err := r.readRuntime(ctx, cluster, ss.Name)
+	if err != nil || !found {
+		return nil
+	}
+	causes := map[string]rebuildReason{}
+	for _, pod := range r.staleMembers(ctx, cluster, ss, g, now) {
+		causes[pod] = rebuildStale
+	}
+	for _, rep := range ss.Replicas {
+		if reason, ok := endpointRebuildReasons[rep.Reason]; ok {
+			causes[rep.Pod] = reason
+		}
+	}
+	delete(causes, endpointPod(rt.PrimaryEndpoint))
+	return causes
+}
+
+// staleMembers 는 그래프가 staleStandbyReseedTimeout 이상 끊김으로 아는 standby 다. primary 를 보고하는
+// 멤버는 standby 가 아니고, reseedCooldown 안에 재구축을 끝낸 멤버는 다시 부르지 않는다 — 스냅숏 없이
+// 끝낸 Stale 이 곧바로 다시 hold 되지 않게. 파드 나이·이미지 대기는 requestRebuild 가 본다.
+func (r *PostgresClusterReconciler) staleMembers(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	ss *postgresv1alpha1.ShardStatus,
+	g replicationGraph,
+	now time.Time,
+) []string {
+	if !g.known {
+		return nil
+	}
+	pods, err := r.shardMembers(ctx, cluster, shardRefFor(cluster, ss).member)
+	if err != nil {
+		return nil
+	}
+	state, err := loadRebuildState(cluster)
+	if err != nil {
+		return nil
+	}
+	r.graphMu.Lock()
+	records := maps.Clone(r.memberAbsentSince[cluster.Namespace+"/"+cluster.Name])
+	r.graphMu.Unlock()
+
+	var out []string
+	for i := range pods {
+		name := pods[i].Name
+		since := records[name]
+		if !g.detached(name) || since.IsZero() || now.Sub(since) < staleStandbyReseedTimeout {
+			continue
+		}
+		if st, ok := parsePodStatus(&pods[i]); ok && st.Role == statusapi.RolePrimary {
+			continue
+		}
+		if endedWithin(state, name, now, reseedCooldown) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }

@@ -1410,8 +1410,11 @@ func TestRuntimeRebuildKeys(t *testing.T) {
 		if data[runtimeKeyPrimaryEndpoint] != podDNS(name, target) {
 			t.Fatalf("PRIMARY_ENDPOINT = %q, want the promoted target", data[runtimeKeyPrimaryEndpoint])
 		}
-		if data[runtimeKeyMemberHold] != graphMember(name, 2) || data[runtimeKeyReseedRequests] != graphMember(name, 2)+"=tok-0" {
-			t.Fatalf("promotion overwrote rebuild keys: hold=%q reseed=%q", data[runtimeKeyMemberHold], data[runtimeKeyReseedRequests])
+		// failover 는 옛 primary(0)를 더할 뿐 기존 hold·재시드는 그대로다.
+		wantHold := formatHold([]string{graphMember(name, 0), graphMember(name, 2)})
+		if data[runtimeKeyMemberHold] != wantHold || data[runtimeKeyReseedRequests] != graphMember(name, 2)+"=tok-0" {
+			t.Fatalf("promotion overwrote rebuild keys: hold=%q reseed=%q, want hold %q", data[runtimeKeyMemberHold],
+				data[runtimeKeyReseedRequests], wantHold)
 		}
 	})
 }

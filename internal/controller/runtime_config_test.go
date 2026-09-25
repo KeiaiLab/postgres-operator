@@ -756,8 +756,8 @@ func TestStalePrimaryLeavesRuntime(t *testing.T) {
 }
 
 // TestAdoptPrimary 는 발행 전 크래시를 잇는지 본다(§3.2-2): CR epoch E · CM epoch E−1 이고
-// 마커 epoch 이 E 인 실제 primary 가 있으면 CM 을 한 번 쓴다(endpoint·epoch=E). 마커가 E 보다
-// 작으면(승격 exec 실패) 채택하지 않는다.
+// 마커 epoch 이 E 인 실제 primary 가 있으면 CM 을 한 번 쓴다(endpoint·epoch=E · primary 를 보고하지
+// 않는 옛 CM primary hold). 마커가 E 보다 작으면(승격 exec 실패) 채택하지 않는다.
 func TestAdoptPrimary(t *testing.T) {
 	t.Parallel()
 	const epoch = 3
@@ -800,7 +800,7 @@ func TestAdoptPrimary(t *testing.T) {
 					runtimeKeyPrimaryEndpoint:    podDNS(name, promoted.Name),
 					runtimeKeyPromotionEpoch:     strconv.FormatInt(epoch, 10),
 					runtimeKeyClusterInitialized: runtimeFlagOn,
-					runtimeKeyMemberHold:         "",
+					runtimeKeyMemberHold:         old.Name,
 					runtimeKeyReseedRequests:     "",
 				}
 				writes = 1
