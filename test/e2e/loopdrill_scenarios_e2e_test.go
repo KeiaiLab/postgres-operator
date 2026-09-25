@@ -7,7 +7,7 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-package loopdrill
+package e2e
 
 import (
 	"errors"
@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/keiailab/postgres-operator/internal/loopdrill"
 )
 
 // 시나리오 층 — 유발(fault)과 창(수렴 상한 + 관측창) 동안의 표본.
@@ -48,24 +50,24 @@ type fault struct {
 	rounds  int                                                 // S7 = 예산+1
 }
 
-func faultFor(scn Scenario, budget int) (fault, error) {
+func faultFor(scn loopdrill.Scenario, budget int) (fault, error) {
 	switch scn {
-	case ScenarioS1:
+	case loopdrill.ScenarioS1:
 		return fault{inject: deletePrimary(gracefulDelete), rounds: 1}, nil
-	case ScenarioS2:
+	case loopdrill.ScenarioS2:
 		return fault{inject: deletePrimary(forceDelete), rounds: 1}, nil
-	case ScenarioS3:
-		return fault{inject: stopPrimaryManager, hold: FaultPause, rounds: 1}, nil
-	case ScenarioS4:
-		return fault{inject: pauseControlPlane, hold: FaultPause, rounds: 1}, nil
-	case ScenarioS5:
-		return fault{prepare: waitStandbyAge, inject: stopStandbyNode(nodeRBACAsIs), hold: StallStopDuration, rounds: 1}, nil
-	case ScenarioS5b:
-		return fault{prepare: waitStandbyAge, inject: stopStandbyNode(nodeRBACGranted), hold: StallStopDuration, rounds: 1}, nil
-	case ScenarioS6:
-		return fault{inject: freezeStandby, hold: StandbyFreeze, rounds: 1}, nil
-	case ScenarioS7:
-		return fault{inject: freezeStandby, hold: StandbyFreeze, rounds: budget + 1}, nil
+	case loopdrill.ScenarioS3:
+		return fault{inject: stopPrimaryManager, hold: loopdrill.FaultPause, rounds: 1}, nil
+	case loopdrill.ScenarioS4:
+		return fault{inject: pauseControlPlane, hold: loopdrill.FaultPause, rounds: 1}, nil
+	case loopdrill.ScenarioS5:
+		return fault{prepare: waitStandbyAge, inject: stopStandbyNode(nodeRBACAsIs), hold: loopdrill.StallStopDuration, rounds: 1}, nil
+	case loopdrill.ScenarioS5b:
+		return fault{prepare: waitStandbyAge, inject: stopStandbyNode(nodeRBACGranted), hold: loopdrill.StallStopDuration, rounds: 1}, nil
+	case loopdrill.ScenarioS6:
+		return fault{inject: freezeStandby, hold: loopdrill.StandbyFreeze, rounds: 1}, nil
+	case loopdrill.ScenarioS7:
+		return fault{inject: freezeStandby, hold: loopdrill.StandbyFreeze, rounds: budget + 1}, nil
 	}
 	return fault{}, fmt.Errorf("유발이 없는 시나리오 %s", scn)
 }
@@ -146,7 +148,7 @@ func waitStandbyAge(obs observation) error {
 	if err != nil {
 		return err
 	}
-	if wait := StandbyAgeFloor - time.Since(target.Created); wait > 0 {
+	if wait := loopdrill.StandbyAgeFloor - time.Since(target.Created); wait > 0 {
 		time.Sleep(wait)
 	}
 	return nil
@@ -235,18 +237,18 @@ type recorder struct {
 	members       int
 	faults        []time.Time
 	observeFrom   time.Time
-	timeline      []TimelineMark
+	timeline      []loopdrill.TimelineMark
 	statusWrites  []time.Time
 	gauge         []float64
-	graph         []GraphMark
-	ready         map[string]SnapshotMark
+	graph         []loopdrill.GraphMark
+	ready         map[string]loopdrill.SnapshotMark
 	budgetBlocked bool
 	writableAt    time.Time
 	last          observation
 }
 
 func newRecorder(base int64, members int) *recorder {
-	return &recorder{start: time.Now(), base: base, members: members, ready: map[string]SnapshotMark{}}
+	return &recorder{start: time.Now(), base: base, members: members, ready: map[string]loopdrill.SnapshotMark{}}
 }
 
 // sample 은 가벼운 표본 — 멤버·타임라인·그래프·하트비트·CR status 쓰기.
@@ -279,10 +281,10 @@ func (r *recorder) addTimeline(obs observation) {
 	if n := len(r.timeline); n > 0 && r.timeline[n-1].Timeline == top {
 		return
 	}
-	r.timeline = append(r.timeline, TimelineMark{At: obs.At, Timeline: top})
+	r.timeline = append(r.timeline, loopdrill.TimelineMark{At: obs.At, Timeline: top})
 }
 
-func (r *recorder) addGraph(g GraphMark) {
+func (r *recorder) addGraph(g loopdrill.GraphMark) {
 	if n := len(r.graph); n > 0 && r.graph[n-1].Primary == g.Primary && slices.Equal(r.graph[n-1].Connected, g.Connected) {
 		return
 	}
@@ -307,7 +309,7 @@ func (r *recorder) sampleSlow(gauge *gaugeScraper) {
 			if _, seen := r.ready[s.Metadata.Name]; seen || s.Status == nil || s.Status.ReadyToUse == nil || !*s.Status.ReadyToUse {
 				continue
 			}
-			r.ready[s.Metadata.Name] = SnapshotMark{Name: s.Metadata.Name, Member: snapshotMember(s.Metadata.Name), ReadyAt: time.Now()}
+			r.ready[s.Metadata.Name] = loopdrill.SnapshotMark{Name: s.Metadata.Name, Member: snapshotMember(s.Metadata.Name), ReadyAt: time.Now()}
 		}
 	}
 	if gauge == nil {
@@ -319,7 +321,7 @@ func (r *recorder) sampleSlow(gauge *gaugeScraper) {
 }
 
 // window 는 유발부터 관측창 끝까지 돈다. redTargets 가 있으면(RED) 풀린 뒤 그 붉음이 보일 때 끝낸다.
-func (d *drill) window(scn Scenario, f fault, obs observation, before ClusterSnap, rec *recorder) error {
+func (d *drill) window(scn loopdrill.Scenario, f fault, obs observation, before loopdrill.ClusterSnap, rec *recorder) error {
 	tick := 0
 	step := func() {
 		rec.sample()
@@ -327,7 +329,7 @@ func (d *drill) window(scn Scenario, f fault, obs observation, before ClusterSna
 			rec.sampleSlow(d.gauge)
 		}
 		tick++
-		time.Sleep(StatusPollInterval)
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
 
 	// 유발 · 유지 · 되돌림(S7 은 대상 바꿔 되풀이, 사이마다 수렴을 기다린다)
@@ -357,7 +359,7 @@ func (d *drill) window(scn Scenario, f fault, obs observation, before ClusterSna
 				step()
 			}
 		}
-		for settle := time.Now().Add(ConvergeBound); round < f.rounds-1 && time.Now().Before(settle) && !rec.last.converged(rec.members); {
+		for settle := time.Now().Add(loopdrill.ConvergeBound); round < f.rounds-1 && time.Now().Before(settle) && !rec.last.converged(rec.members); {
 			step()
 		}
 	}
@@ -366,39 +368,39 @@ func (d *drill) window(scn Scenario, f fault, obs observation, before ClusterSna
 	released := time.Now()
 	for {
 		step()
-		if rec.observeFrom.IsZero() && (rec.last.converged(rec.members) || time.Since(released) >= ConvergeBound) {
+		if rec.observeFrom.IsZero() && (rec.last.converged(rec.members) || time.Since(released) >= loopdrill.ConvergeBound) {
 			rec.observeFrom = time.Now()
 		}
-		if !rec.observeFrom.IsZero() && time.Since(rec.observeFrom) >= LoopObservationWindow {
+		if !rec.observeFrom.IsZero() && time.Since(rec.observeFrom) >= loopdrill.LoopObservationWindow {
 			return nil
 		}
-		if d.cfg.mode == ModeRed && tick%slowSampleEvery == 0 && d.redShown(scn, before, rec) {
+		if d.cfg.mode == loopdrill.ModeRed && tick%slowSampleEvery == 0 && d.redShown(scn, before, rec) {
 			return nil
 		}
 	}
 }
 
 // redShown 은 RED 의 중간 판정 — 이 시나리오에서 기대한 붉음이 이미 섰나.
-func (d *drill) redShown(scn Scenario, before ClusterSnap, rec *recorder) bool {
+func (d *drill) redShown(scn loopdrill.Scenario, before loopdrill.ClusterSnap, rec *recorder) bool {
 	after, err := d.collect(rec, nil)
 	if err != nil {
 		return false
 	}
-	verdict := Judge(scn, before, after, ExpectFor(scn, d.cfg.mode, rec.members-1))
+	verdict := loopdrill.Judge(scn, before, after, loopdrill.ExpectFor(scn, d.cfg.mode, rec.members-1))
 	return verdict.AnyRed(redTargets(scn)...)
 }
 
 // redTargets 는 RED 에서 붉어야 할 판정 — 정지는 J4, 그 밖(루프·누수)은 J1·J2·J3·J5.
-func redTargets(scn Scenario) []CheckID {
-	if scn == ScenarioS5 || scn == ScenarioS5b {
-		return []CheckID{CheckStall}
+func redTargets(scn loopdrill.Scenario) []loopdrill.CheckID {
+	if scn == loopdrill.ScenarioS5 || scn == loopdrill.ScenarioS5b {
+		return []loopdrill.CheckID{loopdrill.CheckStall}
 	}
-	return []CheckID{CheckTemplate, CheckPVC, CheckPromotions, CheckLeak}
+	return []loopdrill.CheckID{loopdrill.CheckTemplate, loopdrill.CheckPVC, loopdrill.CheckPromotions, loopdrill.CheckLeak}
 }
 
 // collect 는 recorder 의 표본과 지금 클러스터로 ClusterSnap 을 만든다. oldPods = S0 의 옛 오퍼레이터 파드.
-func (d *drill) collect(rec *recorder, oldPods []string) (ClusterSnap, error) {
-	snap := ClusterSnap{
+func (d *drill) collect(rec *recorder, oldPods []string) (loopdrill.ClusterSnap, error) {
+	snap := loopdrill.ClusterSnap{
 		TakenAt:       time.Now(),
 		Timeline:      slices.Clone(rec.timeline),
 		StatusWrites:  slices.Clone(rec.statusWrites),
@@ -407,11 +409,11 @@ func (d *drill) collect(rec *recorder, oldPods []string) (ClusterSnap, error) {
 		Faults:        slices.Clone(rec.faults),
 		ObserveFrom:   rec.observeFrom,
 		BudgetBlocked: rec.budgetBlocked,
-		Writes:        WriteMark{WritableAt: rec.writableAt},
+		Writes:        loopdrill.WriteMark{WritableAt: rec.writableAt},
 	}
 	obs, err := probeCluster()
 	if err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	snap.StsGeneration, snap.UpdateRevision = obs.Generation, obs.UpdateRevision
 	for _, m := range obs.Members {
@@ -420,44 +422,44 @@ func (d *drill) collect(rec *recorder, oldPods []string) (ClusterSnap, error) {
 		}
 	}
 	if snap.Revisions, err = stsRevisions(); err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	if snap.PVCUIDs, err = pvcUIDs(); err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	if snap.ReleasedPVs, err = releasedPVs(); err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	if snap.FailedWatchLines, err = d.operator.failedWatchLines(rec.start); err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	if snap.AuditPVCDeletes, snap.AuditPodDeletes, err = auditDeletes(d.operator.ServiceAccount, rec.start, oldPods); err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	events, err := clusterEvents(rec.start)
 	if err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	snapshots, err := listSnapshots()
 	if err != nil {
-		return ClusterSnap{}, err
+		return loopdrill.ClusterSnap{}, err
 	}
 	snap.Rebuilds = rebuildMarks(events, snapshots)
 	snap.Events = foldEvents(events)
 	for _, mark := range rec.ready {
 		snap.Snapshots = append(snap.Snapshots, mark)
 	}
-	slices.SortFunc(snap.Snapshots, func(a, b SnapshotMark) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(snap.Snapshots, func(a, b loopdrill.SnapshotMark) int { return strings.Compare(a.Name, b.Name) })
 	return snap, nil
 }
 
 // checkMarker 는 창 끝에 표식 행을 본다 — primary 가 여럿이면 전부에 있어야 유지다.
-func checkMarker(id int64) WriteMark {
+func checkMarker(id int64) loopdrill.WriteMark {
 	obs, err := probeCluster()
 	if err != nil {
-		return WriteMark{}
+		return loopdrill.WriteMark{}
 	}
-	mark := WriteMark{MarkerKept: true}
+	mark := loopdrill.WriteMark{MarkerKept: true}
 	for _, p := range obs.primaries() {
 		n, err := markerCount(p.Pod, id)
 		if err != nil {

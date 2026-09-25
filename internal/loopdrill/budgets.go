@@ -5,13 +5,10 @@ Licensed under the MIT License. See the LICENSE file for details.
 */
 
 // Package loopdrill 은 kind 훈련장(설계 2026-09-25 §3.12)의 창 상수와 순수 판정이다.
-// 드라이버는 build tag e2e 파일들이고, 이 두 파일(budgets.go·judge.go)은 태그 없이 컴파일된다.
+// 태그 없이 internal 아래에 둬 land 검사·이미지 test 단계가 판정 시험을 돈다. 드라이버는 test/e2e(build tag e2e).
 package loopdrill
 
 import "time"
-
-// 이 파일은 time 만 import 한다 — internal/controller/loopdrill_budget_test.go 가 이 파일만
-// 따로 타입 검사해 창이 오퍼레이터 상수를 덮는지 교차 확인한다(이미지 시험 단계엔 test/ 가 없다).
 
 // 오퍼레이터 상수를 덮는 경계 — 값은 설계의 수정판 값이고 기점 값 이상이다(교차 확인 시험이 ≥ 를 본다).
 const (

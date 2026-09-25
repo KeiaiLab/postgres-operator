@@ -7,7 +7,7 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-package loopdrill
+package e2e
 
 import (
 	"bufio"
@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/keiailab/postgres-operator/internal/loopdrill"
 )
 
 // 관측 층 — 클러스터를 읽어 판정 재료(ClusterSnap)를 만든다.
@@ -292,12 +294,12 @@ func (o observation) converged(members int) bool {
 	return true
 }
 
-func (o observation) graphMark() (GraphMark, bool) {
+func (o observation) graphMark() (loopdrill.GraphMark, bool) {
 	primary, ok := o.primary()
 	if !ok {
-		return GraphMark{}, false
+		return loopdrill.GraphMark{}, false
 	}
-	mark := GraphMark{At: o.At, Primary: primary.Pod}
+	mark := loopdrill.GraphMark{At: o.At, Primary: primary.Pod}
 	for name, state := range primary.Replication {
 		if slices.Contains(connectedStates, state) {
 			mark.Connected = append(mark.Connected, name)
@@ -314,7 +316,7 @@ func ensureSchema(primary string) error {
 	return err
 }
 
-func insertMarker(primary string, scn Scenario) (int64, error) {
+func insertMarker(primary string, scn loopdrill.Scenario) (int64, error) {
 	out, err := psql(primary, fmt.Sprintf("INSERT INTO loopdrill.marker(scenario) VALUES ('%s') RETURNING id", scn))
 	if err != nil {
 		return 0, err
@@ -341,7 +343,7 @@ func confirmMarker(standbys []member, id int64, deadline time.Time) error {
 			if time.Now().After(deadline) {
 				return fmt.Errorf("표식 행 %d 이 %s 에 재생되지 않았다", id, s.Pod)
 			}
-			time.Sleep(StatusPollInterval)
+			time.Sleep(loopdrill.StatusPollInterval)
 		}
 	}
 	return nil
@@ -438,7 +440,7 @@ func (e eventJSON) at() time.Time {
 	return e.Metadata.CreationTimestamp
 }
 
-func clusterEvents(since time.Time) ([]EventMark, error) {
+func clusterEvents(since time.Time) ([]loopdrill.EventMark, error) {
 	var list struct {
 		Items []eventJSON `json:"items"`
 	}
@@ -446,23 +448,23 @@ func clusterEvents(since time.Time) ([]EventMark, error) {
 	if err := kubectlJSON(&list, "get", "events", "-n", dataNamespace, "--field-selector", selector); err != nil {
 		return nil, err
 	}
-	var out []EventMark
+	var out []loopdrill.EventMark
 	for _, e := range list.Items {
 		if e.at().Before(since) {
 			continue
 		}
-		out = append(out, EventMark{At: e.at(), Type: e.Type, Reason: e.Reason, Message: e.Message, Count: 1})
+		out = append(out, loopdrill.EventMark{At: e.at(), Type: e.Type, Reason: e.Reason, Message: e.Message, Count: 1})
 	}
-	slices.SortFunc(out, func(a, b EventMark) int { return a.At.Compare(b.At) })
+	slices.SortFunc(out, func(a, b loopdrill.EventMark) int { return a.At.Compare(b.At) })
 	return out, nil
 }
 
 // foldEvents 는 판정문 증거용으로 같은 이벤트를 접는다(재구축 셈은 접기 전 목록으로 한다).
-func foldEvents(events []EventMark) []EventMark {
-	var out []EventMark
-	index := map[EventMark]int{}
+func foldEvents(events []loopdrill.EventMark) []loopdrill.EventMark {
+	var out []loopdrill.EventMark
+	index := map[loopdrill.EventMark]int{}
 	for _, e := range events {
-		key := EventMark{Type: e.Type, Reason: e.Reason, Message: e.Message}
+		key := loopdrill.EventMark{Type: e.Type, Reason: e.Reason, Message: e.Message}
 		if i, seen := index[key]; seen {
 			out[i].Count++
 			continue
@@ -474,13 +476,13 @@ func foldEvents(events []EventMark) []EventMark {
 }
 
 // rebuildMarks 는 풀기 이벤트마다 멤버와 그 앞의 마지막 멤버 스냅숏을 잇는다.
-func rebuildMarks(events []EventMark, snapshots []snapshotJSON) []RebuildMark {
-	var out []RebuildMark
+func rebuildMarks(events []loopdrill.EventMark, snapshots []snapshotJSON) []loopdrill.RebuildMark {
+	var out []loopdrill.RebuildMark
 	for _, e := range events {
 		if !slices.Contains(releaseReasons, e.Reason) {
 			continue
 		}
-		mark := RebuildMark{Member: memberPattern.FindString(e.Message), Reason: e.Reason, ReleasedAt: e.At}
+		mark := loopdrill.RebuildMark{Member: memberPattern.FindString(e.Message), Reason: e.Reason, ReleasedAt: e.At}
 		var latest time.Time
 		for _, s := range snapshots {
 			if snapshotMember(s.Metadata.Name) != mark.Member || s.Metadata.CreationTimestamp.After(e.At) {

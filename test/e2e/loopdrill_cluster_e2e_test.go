@@ -7,7 +7,7 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-package loopdrill
+package e2e
 
 import (
 	"context"
@@ -25,9 +25,9 @@ import (
 )
 
 // 드라이버 층 — kind·docker·kubectl·helm 명령과 이미지 싣기를 여기에만 둔다.
-// 위층(설치·시나리오·관측)은 이 함수들로만 클러스터를 만진다. 명령은 test/utils.Run 으로 돈다.
+// 위층(설치·시나리오·관측)은 이 함수들로만 클러스터를 만진다. 명령은 test/utils.Run, 싣기는 helpers.go 로 돈다.
 //
-//	drill_e2e_test.go ─▶ install / scenarios / observe ─▶ cluster(이 파일) ─▶ kind·docker·kubectl·helm
+//	loopdrill_e2e_test.go ─▶ install / scenarios / observe ─▶ cluster(이 파일) ─▶ kind·docker·kubectl·helm
 
 const (
 	clusterName     = "loopdrill"
@@ -296,15 +296,15 @@ func loadImage(ref imageRef, platform string) (imageRef, error) {
 	if _, err := docker("tag", pinned.String(), local.String()); err != nil {
 		return imageRef{}, err
 	}
-	if err := utils.LoadImageToKindClusterWithName(local.String()); err != nil {
+	if err := loadDockerImageToKindForPlatform(local.String(), platform); err != nil {
 		return imageRef{}, err
 	}
 	return local, nil
 }
 
-// loadLocalImage 는 이 맥에서 구운 이미지(P2 거짓 경로)를 싣는다.
-func loadLocalImage(local imageRef) error {
-	return utils.LoadImageToKindClusterWithName(local.String())
+// loadLocalImage 는 이 맥에서 구운 이미지를 그 플랫폼으로 싣는다(helpers.go 의 ctr import).
+func loadLocalImage(local imageRef, platform string) error {
+	return loadDockerImageToKindForPlatform(local.String(), platform)
 }
 
 func drillTag(digest string) string {

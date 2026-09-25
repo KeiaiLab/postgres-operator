@@ -7,39 +7,48 @@ Copyright 2026 keiailab.
 Licensed under the MIT License. See the LICENSE file for details.
 */
 
-package loopdrill
+package e2e
 
 import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/keiailab/postgres-operator/internal/loopdrill"
 )
 
 // 설치 층 — 저장·CRD·data 래퍼 차트와 사전 탐침(P1·P2).
 
 const (
-	testdataDir     = "test/e2e/loopdrill/testdata"
-	releaseName     = "platform-data-postgres-operator"
-	operatorDeploy  = releaseName + "-controller-manager"
-	probeNamespace  = "loopdrill-probe"
-	probeConfigMap  = "p1"
-	probeKey        = "VALUE"
-	amd64Machine    = "x86_64"
-	installBound    = 20 * time.Minute // 설치·수렴 상한 — amd64 에뮬레이션 아래 initdb·basebackup
-	probeBound      = 3 * time.Minute
-	resetBound      = 10 * time.Minute
-	imageShipBuild  = "image-ship" // 이 맥 빌더(buildkit 미러 = Harbor)
-	localOperator   = "loopdrill/operator"
-	localPG         = "loopdrill/pg"
-	operatorBuildFS = "Dockerfile.keiailab"
-	pgBuildFS       = "Dockerfile.pg-drill"
+	testdataDir         = "test/e2e/loopdrill/testdata"
+	releaseName         = "platform-data-postgres-operator"
+	drillOperatorDeploy = releaseName + "-controller-manager"
+	probeNamespace      = "loopdrill-probe"
+	probeConfigMap      = "p1"
+	probeKey            = "VALUE"
+	amd64Machine        = "x86_64"
+	installBound        = 20 * time.Minute // 설치·수렴 상한 — amd64 에뮬레이션 아래 initdb·basebackup
+	probeBound          = 3 * time.Minute
+	resetBound          = 10 * time.Minute
+	imageShipBuild      = "image-ship" // 이 맥 빌더(buildkit 미러 = Harbor)
+	localOperator       = "loopdrill/operator"
+	localPG             = "loopdrill/pg"
+	operatorBuildFS     = "Dockerfile.keiailab"
+	pgBuildFS           = "Dockerfile.pg-drill"
+
+	// pgDrillBase 는 pg-drill 인스턴스 매니저를 굽는 기점 = 운영 beta.11(KEIAILAB.md) — 설계 I26 무변.
+	pgDrillBase = "c7608427b7c059df900ac1003c30316711ae4d17"
 )
+
+// pgDrillSources 는 기점에서 pg-drill 컨텍스트로 푸는 경로(Dockerfile.pg-drill 의 COPY 대상).
+var pgDrillSources = []string{"go.mod", "go.sum", "api", "cmd", "internal"}
 
 func testdataPath(name string) string {
 	return filepath.Join(testdataDir, name)
@@ -168,7 +177,7 @@ func waitConverged(members int, bound time.Duration) (observation, error) {
 		if time.Now().After(deadline) {
 			return obs, fmt.Errorf("%s 안에 수렴하지 않았다(마지막 오류 %v)", bound, err)
 		}
-		time.Sleep(StatusPollInterval)
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
 }
 
@@ -225,7 +234,7 @@ func probeAmd64() (bool, error) {
 		case "Failed":
 			return false, nil
 		}
-		time.Sleep(StatusPollInterval)
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
 	return false, errors.New("P2 파드가 끝나지 않았다(노드 안 Harbor 당기기 확인)")
 }
@@ -265,7 +274,7 @@ func probeConfigMapEnv() (newPod, restart bool, err error) {
 			value, err := probeEnv()
 			return newPod, value == "3", err
 		}
-		time.Sleep(StatusPollInterval)
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
 	return newPod, false, errors.New("P1 컨테이너가 재시작하지 않았다")
 }
@@ -282,44 +291,78 @@ func probeEnv() (string, error) {
 
 // ── 시험 이미지 ──
 
-// prepareImages 는 P2 에 따라 시험 이미지를 노드에 싣는다.
-// 참 = 발행 digest 그대로(amd64 매니페스트) · 거짓 = 같은 sha 를 이 맥에서 노드 아키텍처로 굽는다(push 0).
-func prepareImages(operator, pg imageRef, fidelity Fidelity) (imageRef, imageRef, error) {
+// prepareImages 는 P2 에 따라 시험 이미지를 노드에 싣고 pg-drill 이미지 ID 를 낸다.
+// 오퍼레이터: 참 = 발행 digest 그대로(amd64 매니페스트) · 거짓 = 같은 sha 를 이 맥에서 노드 아키텍처로 굽는다(push 0).
+// pg: 늘 pg-drill — 오퍼레이터와 같은 플랫폼으로 굽는다(참이면 amd64 에뮬레이션 그대로).
+func prepareImages(operator imageRef, fidelity Fidelity) (imageRef, imageRef, string, error) {
+	platform := nodePlatformArm
+	if fidelity == FidelityPublished {
+		platform = nodePlatformAmd
+	}
+	pg, pgID, err := buildPGDrill(platform)
+	if err != nil {
+		return imageRef{}, imageRef{}, "", err
+	}
+	if err := loadLocalImage(pg, platform); err != nil {
+		return imageRef{}, imageRef{}, "", err
+	}
 	if fidelity == FidelityPublished {
 		op, err := loadImage(operator, nodePlatformAmd)
-		if err != nil {
-			return imageRef{}, imageRef{}, err
-		}
-		pgLocal, err := loadImage(pg, nodePlatformAmd)
-		return op, pgLocal, err
+		return op, pg, pgID, err
 	}
 
 	sha, err := run(commandTimeout, "git", "rev-parse", "--short=8", "HEAD")
 	if err != nil {
-		return imageRef{}, imageRef{}, err
+		return imageRef{}, imageRef{}, "", err
 	}
 	op := imageRef{Repo: localOperator, Tag: strings.TrimSpace(sha)}
-	pgLocal := imageRef{Repo: localPG, Tag: strings.TrimSpace(sha)}
-	if err := buildLocal(operatorBuildFS, op); err != nil {
-		return imageRef{}, imageRef{}, err
+	if err := buildLocal(operatorBuildFS, ".", nodePlatformArm, op); err != nil {
+		return imageRef{}, imageRef{}, "", err
 	}
-	if err := buildLocal(testdataPath(pgBuildFS), pgLocal); err != nil {
-		return imageRef{}, imageRef{}, err
-	}
-	if err := loadLocalImage(op); err != nil {
-		return imageRef{}, imageRef{}, err
-	}
-	return op, pgLocal, loadLocalImage(pgLocal)
+	return op, pg, pgID, loadLocalImage(op, nodePlatformArm)
 }
 
-// buildLocal 은 이 맥 빌드 슬롯을 쥔 채 노드 아키텍처로 굽는다.
-func buildLocal(dockerfile string, tag imageRef) error {
+// buildPGDrill 은 기점 트리를 임시 컨텍스트로 풀어 pg-drill 을 굽는다 — 작업 트리의 인스턴스 매니저는 싣지 않는다.
+func buildPGDrill(platform string) (imageRef, string, error) {
+	ctxDir, err := os.MkdirTemp("", "loopdrill-pg-drill-")
+	if err != nil {
+		return imageRef{}, "", err
+	}
+	defer func() { _ = os.RemoveAll(ctxDir) }()
+
+	// 기점 go.mod·go.sum·api·cmd·internal 만 푼다
+	archive := filepath.Join(ctxDir, "base.tar")
+	args := append([]string{"archive", "-o", archive, pgDrillBase}, pgDrillSources...)
+	if _, err := run(commandTimeout, "git", args...); err != nil {
+		return imageRef{}, "", err
+	}
+	if _, err := run(commandTimeout, "tar", "-xf", archive, "-C", ctxDir); err != nil {
+		return imageRef{}, "", err
+	}
+	if err := os.Remove(archive); err != nil {
+		return imageRef{}, "", err
+	}
+
+	dockerfile, err := filepath.Abs(testdataPath(pgBuildFS))
+	if err != nil {
+		return imageRef{}, "", err
+	}
+	tag := imageRef{Repo: localPG, Tag: shortHash(pgDrillBase) + "-" + path.Base(platform)}
+	if err := buildLocal(dockerfile, ctxDir, platform, tag); err != nil {
+		return imageRef{}, "", err
+	}
+	id, err := docker("image", "inspect", "--format", "{{.Id}}", tag.String())
+	return tag, strings.TrimSpace(id), err
+}
+
+// buildLocal 은 이 맥 빌드 슬롯을 쥔 채 platform 으로 굽는다.
+func buildLocal(dockerfile, contextDir, platform string, tag imageRef) error {
 	release, err := holdBuildSlot(time.Now().Add(installBound))
 	if err != nil {
 		return err
 	}
 	defer release()
-	_, err = docker("buildx", "build", "--builder", imageShipBuild, "--platform", nodePlatformArm,
-		"-f", dockerfile, "-t", tag.String(), "--load", ".")
+	_, err = docker("buildx", "build", "--builder", imageShipBuild, "--platform", platform,
+		"-f", dockerfile, "-t", tag.String(), "--load", contextDir)
 	return err
 }
