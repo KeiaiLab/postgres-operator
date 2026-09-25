@@ -56,16 +56,20 @@ type Decision struct {
 	Message string
 
 	// PromotionCandidate 는 promotion.go 가 승격 대상으로 사용할 replica
-	// endpoint. 가장 lag 가 작은 Ready replica 를 선택. Failed=false 또는 후보
+	// endpoint. 수신 위치가 가장 앞선 Ready replica 를 선택. Failed=false 또는 후보
 	// 없음이면 nil.
 	PromotionCandidate *postgresv1alpha1.ShardEndpoint
 }
 
+// positionUnknown 은 모르는 수신 위치다 — 아는 위치(≥ 0)보다 늘 뒤다.
+const positionUnknown int64 = -1
+
 // DetectPrimaryFailure 는 단일 shard 의 primary 실패 여부를 *순수 함수* 로 판정.
+// receive 는 멤버별 수신 위치(bytes)다 — 없거나 음수면 모름.
 //
 // 정책:
 //
-//  1. shard.Primary == nil → ReasonNoPrimary, 승격 후보 = 가장 lag 작은 Ready replica.
+//  1. shard.Primary == nil → ReasonNoPrimary, 승격 후보 = 수신 위치가 가장 앞선 Ready replica.
 //
 //  2. shard.Primary.Ready == false → ReasonPrimaryNotReady, 승격 후보 동일.
 //
@@ -74,7 +78,7 @@ type Decision struct {
 //
 // 본 함수는 *network call 없음* + *side-effect 없음* — election lease 획득 후
 // reconcile 루프가 본 함수를 1회 호출해 입력을 promotion.go 로 전달하는 패턴.
-func DetectPrimaryFailure(shard postgresv1alpha1.ShardStatus) Decision {
+func DetectPrimaryFailure(shard postgresv1alpha1.ShardStatus, receive map[string]int64) Decision {
 	if shard.Primary != nil && shard.Primary.Ready {
 		return Decision{Reason: ReasonNone}
 	}
@@ -89,7 +93,7 @@ func DetectPrimaryFailure(shard postgresv1alpha1.ShardStatus) Decision {
 		msg = fmt.Sprintf("shard %q primary pod %q readiness=false", shard.Name, shard.Primary.Pod)
 	}
 
-	candidate := SelectPromotionCandidate(shard.Replicas)
+	candidate := SelectPromotionCandidate(shard.Replicas, receive)
 	if candidate == nil {
 		return Decision{
 			Failed:  true,
@@ -106,31 +110,43 @@ func DetectPrimaryFailure(shard postgresv1alpha1.ShardStatus) Decision {
 	}
 }
 
-// SelectPromotionCandidate 는 replica 목록에서 *가장 lag 작은 Ready replica* 를
-// 선택한다. 동률 lag 일 때는 Pod 이름 사전순으로 결정적 선택 (재시도 시 일관성).
+// SelectPromotionCandidate 는 Ready replica 중 *수신 위치가 가장 앞선* 것을 고른다
+// (설계 2026-09-25 §3.3). 동률이면 lag 작은 쪽, 그다음 Pod 이름 사전순(재시도 시 일관성).
+// 위치를 모르는 replica 는 아는 replica 가 있으면 밀린다 — 모두 모르면 lag → 이름 순이다.
 //
-// Why: PostgreSQL streaming replication 에서 lag 가 작을수록 데이터 손실 최소.
-// 다만 lag=0 도 트랜잭션 적용 *완료* 와 *디스크 fsync* 사이 race 가 있어 손실
-// 가능성 0 보장은 아님 — sync replica 도입은 별도 ROADMAP 항목.
-func SelectPromotionCandidate(replicas []postgresv1alpha1.ShardEndpoint) *postgresv1alpha1.ShardEndpoint {
+// Why: 끊긴 standby 는 receive == replay 라 lag 가 0 이다. lag 최소를 고르면 가장 낡은
+// standby 가 1순위가 된다(2026-09-14 사고). 수신 위치는 멤버끼리 직접 비교된다.
+func SelectPromotionCandidate(replicas []postgresv1alpha1.ShardEndpoint, receive map[string]int64) *postgresv1alpha1.ShardEndpoint {
 	var best *postgresv1alpha1.ShardEndpoint
 	for i := range replicas {
 		r := &replicas[i]
 		if !r.Ready {
 			continue
 		}
-		if best == nil {
-			best = r
-			continue
-		}
-		if r.LagBytes < best.LagBytes {
-			best = r
-			continue
-		}
-		// 동률 lag → Pod 이름 사전순.
-		if r.LagBytes == best.LagBytes && r.Pod < best.Pod {
+		if best == nil || promotesBefore(r, best, receive) {
 			best = r
 		}
 	}
 	return best
+}
+
+// promotesBefore 는 a 가 b 보다 앞선 후보인지다 — 수신 위치 → lag → 이름.
+func promotesBefore(a, b *postgresv1alpha1.ShardEndpoint, receive map[string]int64) bool {
+	posA, posB := receivePosition(receive, a.Pod), receivePosition(receive, b.Pod)
+	if posA != posB {
+		return posA > posB
+	}
+	if a.LagBytes != b.LagBytes {
+		return a.LagBytes < b.LagBytes
+	}
+	return a.Pod < b.Pod
+}
+
+// receivePosition 은 pod 의 수신 위치다 — 없거나 음수면 positionUnknown.
+func receivePosition(receive map[string]int64, pod string) int64 {
+	pos, ok := receive[pod]
+	if !ok || pos < 0 {
+		return positionUnknown
+	}
+	return pos
 }

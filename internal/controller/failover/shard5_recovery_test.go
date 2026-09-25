@@ -143,7 +143,7 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 	failedCount := 0
 
 	for i, shard := range shards {
-		d := DetectPrimaryFailure(shard)
+		d := DetectPrimaryFailure(shard, nil)
 		decisions[i] = d
 		status := "정상"
 		if d.Failed {
@@ -268,7 +268,7 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 	t.Logf("\n=== [단계 6] 복구 후 전체 재검사 ===")
 	postRecoveryFailed := 0
 	for _, shard := range shards {
-		d := DetectPrimaryFailure(shard)
+		d := DetectPrimaryFailure(shard, nil)
 		status := "✓ 정상"
 		if d.Failed {
 			status = fmt.Sprintf("✗ 장애(%s)", d.Reason)
@@ -294,7 +294,7 @@ func TestShard5_AllShardsHealthy(t *testing.T) {
 		shards[i] = makeHealthyShard(fmt.Sprintf("shard-%d", i))
 	}
 	for _, s := range shards {
-		d := DetectPrimaryFailure(s)
+		d := DetectPrimaryFailure(s, nil)
 		if d.Failed {
 			t.Errorf("%s 가 장애 판정됨 (기대: 정상) reason=%s", s.Name, d.Reason)
 		}
@@ -318,7 +318,7 @@ func TestShard5_MultipleShardFailure(t *testing.T) {
 
 	failedCount := 0
 	for i, shard := range shards {
-		d := DetectPrimaryFailure(shard)
+		d := DetectPrimaryFailure(shard, nil)
 		if failedIndices[i] {
 			if !d.Failed {
 				t.Errorf("shard-%d 는 장애여야 함", i)
@@ -360,7 +360,7 @@ func TestShard5_Shard2NoPrimaryNoReplica(t *testing.T) {
 		},
 	}
 
-	d := DetectPrimaryFailure(shards[2])
+	d := DetectPrimaryFailure(shards[2], nil)
 	if !d.Failed {
 		t.Fatal("장애로 판정되어야 함")
 	}
@@ -386,7 +386,7 @@ func TestShard5_RecoveryDeterminism(t *testing.T) {
 
 	var firstCandidate string
 	for run := 0; run < 100; run++ {
-		d := DetectPrimaryFailure(shards[2])
+		d := DetectPrimaryFailure(shards[2], nil)
 		if d.PromotionCandidate == nil {
 			t.Fatal("복구 후보가 nil")
 		}

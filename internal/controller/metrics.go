@@ -119,7 +119,24 @@ var (
 		},
 		[]string{"namespace", "name"},
 	)
+
+	// MetricPromotions 는 실행된 승격 수다(샤드·경로별) — 짧은 창의 증가가 failover 폭주다.
+	MetricPromotions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "promotions_total",
+			Help:      "Promotions executed, by shard and kind (failover, switchover)",
+		},
+		[]string{"namespace", "name", "shard", "kind"},
+	)
 )
+
+// initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
+// 시계열이 없으면 increase() 가 그 증분을 놓친다(설계 §3.9). 뒤 슬라이스가 자기 것을 더한다.
+func initSeries() {
+	MetricAPIReadDenied.WithLabelValues(apiReadKindNode).Add(0)
+}
 
 func init() {
 	// trio 는 commons 가, 도메인 메트릭은 본 파일이 등록 — 중복 등록 panic 방지를
@@ -131,7 +148,9 @@ func init() {
 		MetricPostgresClusterReplicationLagBytes,
 		MetricAPIReadDenied,
 		MetricStatusWriteTimestamp,
+		MetricPromotions,
 	)
+	initSeries()
 }
 
 // DeleteMetricsFor — CR 삭제 시 cardinality 누적 방지.
@@ -142,6 +161,9 @@ func DeleteMetricsFor(namespace, name string) {
 		"namespace": namespace, "name": name,
 	})
 	MetricStatusWriteTimestamp.DeleteLabelValues(namespace, name)
+	MetricPromotions.DeletePartialMatch(prometheus.Labels{
+		"namespace": namespace, "name": name,
+	})
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.
