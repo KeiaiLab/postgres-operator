@@ -46,6 +46,9 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+// memberSnapshotClassEnv 는 --member-snapshot-class 의 기본값을 주는 env 다(배포 차트가 싣는다).
+const memberSnapshotClassEnv = "MEMBER_SNAPSHOT_CLASS"
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(postgresv1alpha1.AddToScheme(scheme))
@@ -62,6 +65,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var memberSnapshotClass string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -83,6 +87,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&memberSnapshotClass, "member-snapshot-class", os.Getenv(memberSnapshotClassEnv),
+		"VolumeSnapshotClass of the snapshot taken before a member rebuild discards data "+
+			"(default: env "+memberSnapshotClassEnv+"). Empty blocks rebuilds.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -218,10 +225,11 @@ func main() {
 	}
 
 	if err := (&controller.PostgresClusterReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		Plugins:      plugins,
-		FeatureGates: featureGates,
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		Plugins:             plugins,
+		FeatureGates:        featureGates,
+		MemberSnapshotClass: memberSnapshotClass,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "PostgresCluster")
 		os.Exit(1)

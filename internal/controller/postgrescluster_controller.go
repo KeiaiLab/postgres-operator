@@ -110,6 +110,10 @@ type PostgresClusterReconciler struct {
 	// 가 manager rest.Config 기반 production executor 를 주입한다.
 	PromotionPodExecutor BackupSidecarExecutor
 
+	// MemberSnapshotClass 는 멤버 재구축 전 스냅숏의 VolumeSnapshotClass 다(--member-snapshot-class,
+	// 기본 env MEMBER_SNAPSHOT_CLASS). 비면 재구축이 MemberRebuildBlocked(SnapshotClassUnset)에서 멈춘다.
+	MemberSnapshotClass string
+
 	// failoverPending 은 자동 failover 를 debounce 한다 — primary 실패가
 	// failoverDebounceThreshold 동안 *지속* 되어야 executeClusterPromotion 이 실행된다.
 	// 이는 standby join 중 일시적 Primary==nil 같은 single-reconcile status flicker 가
@@ -580,6 +584,9 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// #220 후속: 복제 단절/동결(stale) replica 를 CR condition + Event 로 표면화한다
 		// (원 사고: 7일 동결 replica 가 어떤 신호에도 안 떠 stale 승격을 유발).
 		r.reconcileReplicationHealth(ctx, &cluster, shardStatuses, graphs)
+		// 재구축 엔진(ADR-0031) — 진행 중 항목을 한 걸음씩 옮기고 재구축 스냅숏을 정리한다.
+		r.advanceRebuilds(ctx, &cluster, shardStatuses, graphs, time.Now())
+		r.gcMemberSnapshots(ctx, &cluster, time.Now())
 	}
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision, primaryRoleLabelsSynced)

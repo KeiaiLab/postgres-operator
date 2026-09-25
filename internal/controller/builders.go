@@ -119,6 +119,11 @@ const (
 	// standby 로 강등(→ 옛 primary 로 pg_rewind → post-failover write 손실)하면 안 된다.
 	// #220 failback: 승격 primary 는 절대 stale-env 로 standby 복원 금지.
 	promotedPrimaryMarker = ".keiailab-promoted-primary"
+
+	// reseedPendingMarker·reseedAppliedMarker 는 PVC 루트(PGDATA 밖)의 재시드 토큰 파일이다 —
+	// PGDATA 를 비워도 남는다. pending 은 비우기 직전에, applied 는 basebackup 이 끝나면 쓴다(ADR-0031).
+	reseedPendingMarker = ".keiailab-reseed-pending"
+	reseedAppliedMarker = ".keiailab-reseed-applied"
 )
 
 // pgBinDir 는 base PG image 안 postgres binary 디렉터리. Dockerfile.pg 의
@@ -805,8 +810,8 @@ func buildInstanceRoleBinding(cluster *postgresv1alpha1.PostgresCluster) *rbacv1
 // standby.signal 은 instance manager 가 leader election 결과에 따라 OnStartedLeading
 // 에서 제거하고 OnStoppedLeading 에서 재생성한다 (RFC 0006 R3 Task A).
 //
-// PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED 는 런타임 ConfigMap
-// (runtimeConfigMap) 에서 온다(ADR-0030) — 승격이 파드 템플릿을 바꾸지 않는다.
+// PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED · MEMBER_HOLD · RESEED_REQUESTS 는
+// 런타임 ConfigMap(runtimeConfigMap) 에서 온다(ADR-0030·0031) — 승격이 파드 템플릿을 바꾸지 않는다.
 func buildBootstrapContainer(
 	image, pgMajor string,
 	shardOrdinal int32,
@@ -869,6 +874,7 @@ func primaryRuntimeEnv(runtimeConfigMap string, replica *replicaBootstrapConfig,
 
 // bootstrapPaths 는 부트스트랩 스크립트가 만지는 경로다 — 시험은 임시 루트로 바꾼다.
 type bootstrapPaths struct {
+	Root       string // PVC 루트 — 재시드 토큰 파일
 	Data       string
 	PGPass     string
 	ClientKey  string
@@ -879,6 +885,7 @@ type bootstrapPaths struct {
 // podBootstrapPaths 는 컨테이너 안 경로다.
 func podBootstrapPaths() bootstrapPaths {
 	return bootstrapPaths{
+		Root:       pgDataMountPath,
 		Data:       pgDataSubdir,
 		PGPass:     primaryPGPassFile,
 		ClientKey:  primaryClientKeyFile,
@@ -889,17 +896,21 @@ func podBootstrapPaths() bootstrapPaths {
 
 // renderBootstrapScript 는 bootstrap init 스크립트다(설계 §3.6).
 //
+//	MEMBER_HOLD 에 자기    → exit 1 (파일 변화 0 — 재구축 엔진이 스냅숏을 뜨는 동안)
+//	재시드 토큰 ≠ applied  → 다른 primary 가 있을 때만 pending=token · PGDATA 비움, 없으면 exit 1
 //	기존 PGDATA  standby.signal       → 승격 마커 rm + primary_conninfo 를 CM 값 한 줄로
 //	             마커 epoch > CM epoch → primary 유지(#220)
 //	             그 밖 다른 primary    → 마커 rm + standby.signal·conninfo·restart 마커
-//	빈 PGDATA    다른 primary          → basebackup → standby.signal·conninfo → 마커 rm
-//	             ord-0 ∧ 미초기화      → initdb (초기화된 클러스터면 exit 1, I6)
+//	빈 PGDATA    다른 primary          → basebackup → standby.signal·conninfo → 마커 rm → applied=pending
+//	             ord-0 ∧ 미초기화      → initdb (초기화된 클러스터·재시드 대기면 exit 1, I6)
 //
 // 복제 클러스터 분기는 그대로다. binDir 은 pg_basebackup·initdb 가 있는 곳이다.
 func renderBootstrapScript(paths bootstrapPaths, binDir string) string {
 	marker := `"$DATA/` + promotedPrimaryMarker + `"`
 	return `set -eu
 DATA="` + paths.Data + `"
+PENDING="` + paths.Root + `/` + reseedPendingMarker + `"
+APPLIED="` + paths.Root + `/` + reseedAppliedMarker + `"
 PRIMARY_ENDPOINT="${PRIMARY_ENDPOINT:-}"
 PROMOTION_EPOCH="$(printf '%s' "${PROMOTION_EPOCH:-}" | tr -cd '0-9')"
 PROMOTION_EPOCH="${PROMOTION_EPOCH:-0}"
@@ -923,6 +934,14 @@ if [ -n "$PRIMARY_ENDPOINT" ]; then
     *) PRIMARY_IS_SELF=0 ;;
   esac
 fi
+
+# A member on the hold list stops before touching any file (rebuild snapshot in progress).
+case ",${MEMBER_HOLD:-}," in
+  *",$POD_NAME,"*)
+    echo "member held by operator" >&2
+    exit 1
+    ;;
+esac
 
 escape_pgpass() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/:/\\:/g'
@@ -978,6 +997,27 @@ write_primary_conninfo() {
   chmod 0600 "$AUTO.keiailab-tmp"
   mv "$AUTO.keiailab-tmp" "$AUTO"
 }
+
+# Reseed token for this member (RESEED_REQUESTS = pod=token,...). A token not applied yet
+# empties PGDATA for a fresh basebackup — only when another member is the primary.
+RESEED_REQUESTS=",${RESEED_REQUESTS:-}"
+RESEED_TOKEN=""
+case "$RESEED_REQUESTS" in
+  *",$POD_NAME="*)
+    RESEED_TOKEN="${RESEED_REQUESTS#*,"$POD_NAME"=}"
+    RESEED_TOKEN="${RESEED_TOKEN%%,*}"
+    ;;
+esac
+if [ -n "$RESEED_TOKEN" ] && [ "$RESEED_TOKEN" != "$(cat "$APPLIED" 2>/dev/null || true)" ]; then
+  if [ -z "$PRIMARY_HOST" ] || [ "$PRIMARY_IS_SELF" = "1" ]; then
+    echo "reseed $RESEED_TOKEN refused: no other primary to copy from (PRIMARY_ENDPOINT='$PRIMARY_ENDPOINT')" >&2
+    exit 1
+  fi
+  printf '%s\n' "$RESEED_TOKEN" > "$PENDING.tmp"
+  mv "$PENDING.tmp" "$PENDING"
+  rm -rf "$DATA"
+  echo "reseed $RESEED_TOKEN: PGDATA emptied for a fresh basebackup"
+fi
 
 if [ -f "$DATA/PG_VERSION" ]; then
   chmod 0700 "$DATA"
@@ -1074,9 +1114,16 @@ if [ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]; then
   touch "$DATA/standby.signal"
   write_primary_conninfo
   rm -f ` + marker + `
+  if [ -f "$PENDING" ]; then
+    mv "$PENDING" "$APPLIED"
+    echo "reseed $(cat "$APPLIED") applied"
+  fi
   echo "pg_basebackup completed; standby.signal + primary_conninfo configured"
 elif [ "$POD_ORDINAL" = "0" ] && [ "$CLUSTER_INITIALIZED" = "1" ]; then
   echo "cluster already initialized; $POD_NAME refuses initdb on empty PGDATA (PRIMARY_ENDPOINT='$PRIMARY_ENDPOINT')" >&2
+  exit 1
+elif [ "$POD_ORDINAL" = "0" ] && [ -f "$PENDING" ]; then
+  echo "reseed $(cat "$PENDING") pending; $POD_NAME refuses initdb on empty PGDATA" >&2
   exit 1
 elif [ "$POD_ORDINAL" = "0" ]; then
   mkdir -p "$DATA"

@@ -130,6 +130,51 @@ var (
 		},
 		[]string{"namespace", "name", "shard", "kind"},
 	)
+
+	// MetricMemberRebuilds 는 결정된 멤버 재구축 수다(ADR-0031) — 해제(파괴 허가)·취소·포기마다 1.
+	// outcome=data_bearing 증가는 앞선 데이터를 스냅숏에만 남기고 버렸다는 뜻이다.
+	MetricMemberRebuilds = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "member_rebuilds_total",
+			Help:      "Member rebuilds decided, by shard, reason and outcome",
+		},
+		[]string{"namespace", "name", "shard", "reason", "outcome"},
+	)
+
+	// MetricMemberRebuildBudget 은 1h 창에 남은 재구축 해제 수다.
+	MetricMemberRebuildBudget = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "member_rebuild_budget_remaining",
+			Help:      "Member rebuild releases left in the budget window",
+		},
+		[]string{"namespace", "name"},
+	)
+
+	// MetricMembersHeld 는 런타임 ConfigMap MEMBER_HOLD 의 멤버 수다 — 오래 0 이 아니면 재구축이 멈췄다.
+	MetricMembersHeld = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "members_held",
+			Help:      "Members on the runtime ConfigMap hold list",
+		},
+		[]string{"namespace", "name", "shard"},
+	)
+
+	// MetricMemberSnapshots 는 남아 있는 재구축 스냅숏 수다 — data-bearing 은 자동으로 지우지 않는다.
+	MetricMemberSnapshots = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "member_snapshots",
+			Help:      "Member rebuild snapshots kept, by data-bearing",
+		},
+		[]string{"namespace", "name", "data_bearing"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -149,6 +194,10 @@ func init() {
 		MetricAPIReadDenied,
 		MetricStatusWriteTimestamp,
 		MetricPromotions,
+		MetricMemberRebuilds,
+		MetricMemberRebuildBudget,
+		MetricMembersHeld,
+		MetricMemberSnapshots,
 	)
 	initSeries()
 }
@@ -164,6 +213,11 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricPromotions.DeletePartialMatch(prometheus.Labels{
 		"namespace": namespace, "name": name,
 	})
+	rebuildLabels := prometheus.Labels{"namespace": namespace, "name": name}
+	MetricMemberRebuilds.DeletePartialMatch(rebuildLabels)
+	MetricMemberRebuildBudget.DeletePartialMatch(rebuildLabels)
+	MetricMembersHeld.DeletePartialMatch(rebuildLabels)
+	MetricMemberSnapshots.DeletePartialMatch(rebuildLabels)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

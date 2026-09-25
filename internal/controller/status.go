@@ -61,6 +61,9 @@ const (
 	// primary 이고 다른 primary 관측이 없는지다(§3.2). CM 파드가 실제 primary 가 아니면 그
 	// 샤드의 rw 라벨은 0 이다.
 	ConditionPrimaryEndpointConsistent = "PrimaryEndpointConsistent"
+	// ConditionMemberRebuildBlocked 는 멤버 재구축이 예산·스냅숏·재합류 문제로 멈춘 상태다
+	// (ADR-0031). 같은 이름이 Warning 이벤트 사유다.
+	ConditionMemberRebuildBlocked = "MemberRebuildBlocked"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -101,6 +104,15 @@ const (
 	// Reasons — rw 권위(§3.2). Disagrees 는 같은 이름의 Warning 이벤트 사유이기도 하다.
 	ReasonPrimaryEndpointAgrees    = "PrimaryEndpointAgrees"
 	ReasonPrimaryEndpointDisagrees = "PrimaryEndpointDisagrees"
+
+	// Reasons — 멤버 재구축(ADR-0031)
+	ReasonBudgetExhausted     = "BudgetExhausted"     // 1h 창 해제 수가 예산(replicas)에 닿았다
+	ReasonSnapshotClassUnset  = "SnapshotClassUnset"  // --member-snapshot-class 가 비었다
+	ReasonSnapshotUnavailable = "SnapshotUnavailable" // VolumeSnapshot API 가 없다
+	ReasonSnapshotFailed      = "SnapshotFailed"      // status.error 또는 스냅숏이 사라졌다
+	ReasonSnapshotTimeout     = "SnapshotTimeout"     // snapshotReadyTimeout 안에 readyToUse 가 아니다
+	ReasonNotRejoined         = "NotRejoined"         // 해제 뒤 staleStandbyReseedTimeout 넘게 복제 그래프에 없다
+	ReasonRebuildClear        = "RebuildClear"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"
