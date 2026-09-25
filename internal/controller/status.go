@@ -54,6 +54,9 @@ const (
 	// 중인지 보고한다 — 단절/동결(stale) replica 를 status 로 표면화(#220 RCA: 7일
 	// 동결 replica 가 status/알림에 안 떠 stale 승격을 유발).
 	ConditionReplicationHealthy = "ReplicationHealthy"
+	// ConditionRuntimeConfigPending 은 런타임 ConfigMap 이 없고 건강한 primary 가 정확히
+	// 하나가 아니라 CM 을 만들지 못해 그 shard 의 StatefulSet 을 옛 템플릿으로 둔 상태다(ADR-0030).
+	ConditionRuntimeConfigPending = "RuntimeConfigPending"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -86,6 +89,10 @@ const (
 	ReasonReplicasHealthy      = "ReplicasHealthy"
 	ReasonReplicaDisconnected  = "ReplicaDisconnected"
 	ReasonReplicationNotApplic = "NoReplicas"
+
+	// Reasons — 런타임 ConfigMap (ADR-0030)
+	ReasonRuntimeConfigPublished = "RuntimeConfigPublished"
+	ReasonPrimaryNotUnique       = "PrimaryNotUnique"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"

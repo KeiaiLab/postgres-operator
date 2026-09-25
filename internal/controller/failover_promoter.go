@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,12 +44,6 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 	if r.PromotionPodExecutor == nil {
 		return errors.New("promotion pod executor is not configured")
 	}
-	promoter := &clusterPodPromoter{
-		Namespace:   cluster.Namespace,
-		Client:      r.Client,
-		PodExecutor: r.PromotionPodExecutor,
-		Now:         time.Now,
-	}
 	oldPrimary := shardPrimaryPod(cluster, shardName)
 	if oldPrimary != "" && decision.PromotionCandidate != nil &&
 		oldPrimary != decision.PromotionCandidate.Pod &&
@@ -62,8 +57,12 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 			return err
 		}
 	}
-	if err := failover.PromoteFromDecision(ctx, shardName, decision, promoter); err != nil {
-		return err
+	plan, err := failover.BuildPromotionPlan(shardName, decision.PromotionCandidate)
+	if err != nil {
+		return fmt.Errorf("build plan: %w", err)
+	}
+	if err := r.promoteAndPublish(ctx, cluster, shardName, plan.Target, oldPrimary, promotionFailover); err != nil {
+		return fmt.Errorf("execute promotion plan for shard %q pod %q: %w", shardName, plan.Target.Pod, err)
 	}
 	// #220: reseed the FAILED old primary so it can only return as a fresh
 	// pg_basebackup standby of the new primary — never as a rogue primary booting
@@ -176,6 +175,10 @@ type clusterPodPromoter struct {
 	Client      client.Client
 	PodExecutor BackupSidecarExecutor
 	Now         func() time.Time
+	// Epoch 은 승격 마커에 쓸 CR 정본 epoch 이다(ADR-0030).
+	Epoch int64
+	// promoted 는 마지막 Execute 가 실제 승격(PROMOTE_RESULT=promoted)이었는지다.
+	promoted bool
 }
 
 func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.PromotionPlan) error {
@@ -197,10 +200,11 @@ func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.Promotio
 		Namespace: p.Namespace,
 		Pod:       plan.Target.Pod,
 		Container: pgContainerName,
-	}, postgresPromotionCommand())
+	}, postgresPromotionCommand(p.Epoch))
 	if err != nil {
 		return err
 	}
+	p.promoted = promotionActuallyHappened(out)
 	if p.Client == nil {
 		return nil
 	}
@@ -210,7 +214,7 @@ func (p *clusterPodPromoter) Execute(ctx context.Context, plan failover.Promotio
 	// election-settle window, where the running primary momentarily reports a
 	// non-Primary role and is mis-listed as a Ready replica candidate) must NOT
 	// fence: it would fence the healthy standby (#220 live-drill RCA).
-	if !promotionActuallyHappened(out) {
+	if !p.promoted {
 		return nil
 	}
 	// Fence every other shard member so a former primary that boots back before
@@ -450,8 +454,20 @@ func promotionActuallyHappened(execOutput []byte) bool {
 	return strings.Contains(string(execOutput), "PROMOTE_RESULT=promoted")
 }
 
-func postgresPromotionCommand() []string {
-	const script = `set -eu
+// pgPromoteWait·pgPromotePoll 은 승격 스크립트가 primary 도달을 기다리는 상한·걸음이다.
+const (
+	pgPromoteWait = 30 * time.Second
+	pgPromotePoll = time.Second
+)
+
+// postgresPromotionCommand 는 승격 exec 다 — epoch($1)을 승격 마커에 쓴다. 부트스트랩은
+// 마커 epoch 이 PROMOTION_EPOCH 보다 크면 primary 로 두고 아니면 강등한다(ADR-0030).
+func postgresPromotionCommand(epoch int64) []string {
+	waitSeconds := strconv.FormatInt(int64(pgPromoteWait/time.Second), 10)
+	pollSteps := strconv.FormatInt(int64(pgPromoteWait/pgPromotePoll), 10)
+	pollSeconds := strconv.FormatInt(int64(pgPromotePoll/time.Second), 10)
+	script := `set -eu
+EPOCH="$1"
 BIN="${POSTGRES_BIN_DIR:-/usr/lib/postgresql/18/bin}"
 DATA="${POSTGRES_DATA_DIR:-/var/lib/postgresql/data/pgdata}"
 DSN="${POSTGRES_LOCAL_DSN:-host=/var/run/postgresql user=postgres dbname=postgres}"
@@ -465,10 +481,10 @@ if is_primary; then
   exit 0
 fi
 
-PROMOTED="$("$BIN/psql" "$DSN" -v ON_ERROR_STOP=1 -Atqc "SELECT pg_promote(true, 30)")"
+PROMOTED="$("$BIN/psql" "$DSN" -v ON_ERROR_STOP=1 -Atqc "SELECT pg_promote(true, ` + waitSeconds + `)")"
 PROMOTED="$(printf "%s" "$PROMOTED" | tr -d '[:space:]')"
 if [ "$PROMOTED" != "t" ] && ! is_primary; then
-  echo "pg_promote did not reach primary state within 30s (result=$PROMOTED)" >&2
+  echo "pg_promote did not reach primary state within ` + waitSeconds + `s (result=$PROMOTED)" >&2
   exit 1
 fi
 
@@ -476,28 +492,28 @@ fi
 # standby.signal and the promoted marker untouched; otherwise a restarted standby
 # enters the Real elector branch and can rejoin the lease race before promotion.
 rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
-# #220: durable marker — this PGDATA is now an operator-promoted primary. The
-# bootstrap init container (builders.go) reads it on restart and refuses to restore
-# standby.signal from a stale PRIMARY_ENDPOINT, so the new primary never rewinds
-# itself back to the old timeline. A former primary that must leave the role is
-# fenced (fail-closed) and reseeded, never silently demoted. Name must match
-# builders.go promotedPrimaryMarker.
-touch "$DATA/.keiailab-promoted-primary"
+# #220: durable marker — this PGDATA is now an operator-promoted primary of epoch
+# $EPOCH. The bootstrap init container (builders.go) keeps a primary whose marker
+# epoch is newer than the runtime ConfigMap PROMOTION_EPOCH (publish not landed yet),
+# so the new primary never rewinds itself back to the old timeline; an older marker
+# is a superseded primary and is demoted. Written via rename — never half a number.
+printf '%s\n' "$EPOCH" > "$DATA/` + promotedPrimaryMarker + `.tmp"
+mv "$DATA/` + promotedPrimaryMarker + `.tmp" "$DATA/` + promotedPrimaryMarker + `"
 
 i=0
-while [ "$i" -lt 30 ]; do
+while [ "$i" -lt ` + pollSteps + ` ]; do
   if is_primary; then
     echo "PROMOTE_RESULT=promoted"
     exit 0
   fi
   i=$((i + 1))
-  sleep 1
+  sleep ` + pollSeconds + `
 done
 
-echo "promotion did not reach primary state within 30s" >&2
+echo "promotion did not reach primary state within ` + waitSeconds + `s" >&2
 exit 1
 `
-	return []string{"sh", "-ec", script}
+	return []string{"sh", "-ec", script, "sh", strconv.FormatInt(epoch, 10)}
 }
 
 const AnnotationSwitchoverTarget = "postgres.keiailab.io/switchover-target"
@@ -518,7 +534,7 @@ func (r *PostgresClusterReconciler) handleSwitchover(
 		return errors.New("promotion pod executor not configured for switchover")
 	}
 
-	var targetEndpoint string
+	var targetEndpoint, shardName, oldPrimary string
 	for _, ss := range shardStatuses {
 		if ss.Primary != nil && ss.Primary.Pod == targetPod {
 			return fmt.Errorf("switchover target %s is already primary", targetPod)
@@ -526,6 +542,8 @@ func (r *PostgresClusterReconciler) handleSwitchover(
 		for _, rep := range ss.Replicas {
 			if rep.Pod == targetPod && rep.Ready {
 				targetEndpoint = rep.Endpoint
+				shardName = ss.Name
+				oldPrimary = shardPrimaryPod(cluster, ss.Name)
 			}
 		}
 	}
@@ -533,19 +551,8 @@ func (r *PostgresClusterReconciler) handleSwitchover(
 		return fmt.Errorf("switchover target %s not found or not ready", targetPod)
 	}
 
-	promoter := &clusterPodPromoter{
-		Namespace:   cluster.Namespace,
-		Client:      r.Client,
-		PodExecutor: r.PromotionPodExecutor,
-		Now:         time.Now,
-	}
-	plan := failover.PromotionPlan{
-		Target: failover.PromotionTarget{
-			Pod:      targetPod,
-			Endpoint: targetEndpoint,
-		},
-	}
-	if err := promoter.Execute(ctx, plan); err != nil {
+	target := failover.PromotionTarget{ShardName: shardName, Pod: targetPod, Endpoint: targetEndpoint}
+	if err := r.promoteAndPublish(ctx, cluster, shardName, target, oldPrimary, promotionSwitchover); err != nil {
 		return fmt.Errorf("switchover promotion of %s failed: %w", targetPod, err)
 	}
 

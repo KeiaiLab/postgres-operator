@@ -60,13 +60,14 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 		t.Fatalf("executeClusterPromotion: %v", err)
 	}
 
-	if executor.called != 1 {
-		t.Fatalf("Exec called %d times, want 1", executor.called)
+	// 승격 exec 1회 + 새 타임라인 분기점 읽기 1회(ADR-0030).
+	if executor.called != 2 {
+		t.Fatalf("Exec called %d times, want 2 (promote + timeline history)", executor.called)
 	}
 	if executor.target.Namespace != namespace || executor.target.Pod != podName || executor.target.Container != pgContainerName {
 		t.Fatalf("target = %+v, want promotion candidate postgres container", executor.target)
 	}
-	command := strings.Join(executor.command, " ")
+	command := strings.Join(executor.commands[0], " ")
 	for _, want := range []string{"standby.signal", ".keiailab-restart-primary-as-standby", "pg_promote", "promote", "pg_is_in_recovery"} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("promotion command %q missing %q", command, want)
@@ -96,7 +97,12 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) {
 	t.Parallel()
 
-	command := strings.Join(postgresPromotionCommand(), "\n")
+	const epoch = 7
+	argv := postgresPromotionCommand(epoch)
+	if got := argv[len(argv)-1]; got != "7" {
+		t.Fatalf("promotion exec must carry the epoch as its last argument, got %q", got)
+	}
+	command := strings.Join(argv, "\n")
 	promoteIdx := strings.Index(command, "pg_promote(true, 30)")
 	if promoteIdx < 0 {
 		t.Fatalf("promotion command must use PostgreSQL SQL promotion API: %s", command)
@@ -106,7 +112,8 @@ func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) 
 	}
 	for _, mutation := range []string{
 		`rm -f "$DATA/standby.signal"`,
-		`touch "$DATA/.keiailab-promoted-primary"`,
+		`printf '%s\n' "$EPOCH" > "$DATA/.keiailab-promoted-primary.tmp"`,
+		`mv "$DATA/.keiailab-promoted-primary.tmp" "$DATA/.keiailab-promoted-primary"`,
 	} {
 		mutationIdx := strings.Index(command, mutation)
 		if mutationIdx < 0 {
@@ -119,12 +126,13 @@ func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) 
 }
 
 type fakePromotionPodExecutor struct {
-	called  int
-	target  BackupSidecarTarget
-	command []string
-	out     []byte
-	err     error
-	onExec  func(context.Context) error
+	called   int
+	target   BackupSidecarTarget
+	command  []string
+	commands [][]string
+	out      []byte
+	err      error
+	onExec   func(context.Context) error
 }
 
 func (f *fakePromotionPodExecutor) Exec(
@@ -135,6 +143,7 @@ func (f *fakePromotionPodExecutor) Exec(
 	f.called++
 	f.target = target
 	f.command = append([]string{}, command...)
+	f.commands = append(f.commands, f.command)
 	if f.onExec != nil {
 		if err := f.onExec(ctx); err != nil {
 			return nil, err

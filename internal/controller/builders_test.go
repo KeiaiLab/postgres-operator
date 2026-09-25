@@ -210,7 +210,7 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		1,
 		postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
 		corev1.ResourceRequirements{},
-		"demo-shard-3-2.demo-shard-3-headless.ns1.svc.cluster.local:5432",
+		ShardRuntimeConfigMapName("demo", "shard-3"),
 		"test-config-hash",
 		"",
 	)
@@ -233,7 +233,6 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 		"POSTGRES_CONFIG_FILE":   "/etc/postgres-operator/conf/postgresql.conf",
 		"POSTGRES_HBA_FILE":      "/etc/postgres-operator/conf/pg_hba.conf",
 		"POSTGRES_LOCAL_DSN":     "host=/var/run/postgresql user=postgres dbname=postgres",
-		"PRIMARY_ENDPOINT":       "demo-shard-3-2.demo-shard-3-headless.ns1.svc.cluster.local:5432",
 	}
 	for name, want := range expectedValues {
 		got, ok := envByName[name]
@@ -245,6 +244,8 @@ func TestBuildPGStatefulSet_InjectsInstanceEnv(t *testing.T) {
 			t.Errorf("env %s = %q, want %q", name, got.Value, want)
 		}
 	}
+	// PRIMARY_ENDPOINT 는 런타임 CM 에서 온다(ADR-0030) — 승격이 템플릿을 바꾸지 않는다.
+	assertRuntimeEnv(t, envByName, "demo-shard-3-runtime", runtimeKeyPrimaryEndpoint)
 	// downward API — POD_NAME / POD_NAMESPACE 는 ValueFrom.FieldRef 만 검증.
 	for _, name := range []string{"POD_NAME", "POD_NAMESPACE", "POD_UID"} {
 		e, ok := envByName[name]
@@ -564,7 +565,7 @@ func TestBuildBootstrapContainer_ExistingPGDATA_NormalizesPermissions(t *testing
 func TestBuildBootstrapContainer_ExistingPGDATAMarksAnyOldPrimaryAsStandby(t *testing.T) {
 	t.Parallel()
 
-	c := buildBootstrapContainer("img:18", "18", 0, "demo-shard-0-1.demo-shard-0.default.svc.cluster.local:5432", 2, false, "", "", "", nil)
+	c := buildBootstrapContainer("img:18", "18", 0, ShardRuntimeConfigMapName("demo", "shard-0"), 2, false, "", "", "", nil)
 	script := c.Args[0]
 
 	for _, want := range []string{
@@ -591,7 +592,7 @@ func TestBuildBootstrapContainer_ExistingPGDATAMarksAnyOldPrimaryAsStandby(t *te
 func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
 	t.Parallel()
 
-	c := buildBootstrapContainer("img:18", "18", 1, "primary.svc:5432", 2, false, "", "", "", nil)
+	c := buildBootstrapContainer("img:18", "18", 1, ShardRuntimeConfigMapName("demo", "shard-1"), 2, false, "", "", "", nil)
 	if c.Name != bootstrapContainerName {
 		t.Errorf("Name = %q, want bootstrap", c.Name)
 	}
@@ -618,9 +619,7 @@ func TestBuildBootstrapContainer_NonZero_RunsBasebackup(t *testing.T) {
 	if got := envByName["SHARD_ORDINAL"].Value; got != "1" {
 		t.Errorf("SHARD_ORDINAL env = %q, want 1", got)
 	}
-	if got := envByName["PRIMARY_ENDPOINT"].Value; got != "primary.svc:5432" {
-		t.Errorf("PRIMARY_ENDPOINT env = %q, want primary.svc:5432", got)
-	}
+	assertRuntimeEnv(t, envByName, "demo-shard-1-runtime", bootstrapRuntimeKeys...)
 	if got := envByName["POSTGRES_MEMBER_COUNT"].Value; got != "2" {
 		t.Errorf("POSTGRES_MEMBER_COUNT env = %q, want 2", got)
 	}

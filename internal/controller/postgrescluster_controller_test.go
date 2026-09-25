@@ -63,7 +63,7 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 	})
 
 	Context("when shardingMode=none with single shard and no router", func() {
-		It("sets deterministic ordinal-zero PRIMARY_ENDPOINT on initial HA bootstrap", func() {
+		It("publishes deterministic ordinal-zero PRIMARY_ENDPOINT through the runtime ConfigMap on initial HA bootstrap", func() {
 			cluster := &postgresv1alpha1.PostgresCluster{
 				ObjectMeta: metav1.ObjectMeta{Name: "ha-bootstrap", Namespace: namespace},
 				Spec: postgresv1alpha1.PostgresClusterSpec{
@@ -84,16 +84,26 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 			svcName := ShardServiceName("ha-bootstrap", 0)
 			wantEndpoint := fmt.Sprintf("%s-0.%s.%s.svc.cluster.local:5432", stsName, svcName, namespace)
 
+			runtimeName := ShardRuntimeConfigMapName("ha-bootstrap", "shard-0")
 			Eventually(func(g Gomega) {
 				var sts appsv1.StatefulSet
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts)).To(Succeed())
 				g.Expect(*sts.Spec.Replicas).To(Equal(int32(2)), "primary 1 + async 1")
 
+				// 승격 상태는 템플릿이 아니라 런타임 CM 에 있다(ADR-0030).
 				initEnv := envMap(sts.Spec.Template.Spec.InitContainers[0].Env)
-				g.Expect(initEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+				g.Expect(cmRefName(initEnv["PRIMARY_ENDPOINT"])).To(Equal(runtimeName))
+				g.Expect(cmRefName(initEnv["PROMOTION_EPOCH"])).To(Equal(runtimeName))
+				g.Expect(cmRefName(initEnv["CLUSTER_INITIALIZED"])).To(Equal(runtimeName))
 
 				mainEnv := envMap(sts.Spec.Template.Spec.Containers[0].Env)
-				g.Expect(mainEnv["PRIMARY_ENDPOINT"].Value).To(Equal(wantEndpoint))
+				g.Expect(cmRefName(mainEnv["PRIMARY_ENDPOINT"])).To(Equal(runtimeName))
+
+				var runtimeCM corev1.ConfigMap
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: runtimeName}, &runtimeCM)).To(Succeed())
+				g.Expect(runtimeCM.Data).To(HaveKeyWithValue("PRIMARY_ENDPOINT", wantEndpoint))
+				g.Expect(runtimeCM.Data).To(HaveKeyWithValue("PROMOTION_EPOCH", "0"))
+				g.Expect(runtimeCM.Data).To(HaveKeyWithValue("CLUSTER_INITIALIZED", "0"))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 
@@ -465,7 +475,11 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 				g.Expect(*targetSTS.Spec.Replicas).To(Equal(int32(2)), "active target STS must match cluster members")
 				mainEnv := envMap(targetSTS.Spec.Template.Spec.Containers[0].Env)
 				g.Expect(mainEnv["POSTGRES_MEMBER_COUNT"].Value).To(Equal("2"))
-				g.Expect(mainEnv["PRIMARY_ENDPOINT"].Value).To(Equal(targetEndpoint))
+				targetRuntime := ShardRuntimeConfigMapName(clusterName, targetShard)
+				g.Expect(cmRefName(mainEnv["PRIMARY_ENDPOINT"])).To(Equal(targetRuntime))
+				var runtimeCM corev1.ConfigMap
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: targetRuntime}, &runtimeCM)).To(Succeed())
+				g.Expect(runtimeCM.Data).To(HaveKeyWithValue("PRIMARY_ENDPOINT", targetEndpoint))
 			}, envtestTimeout, envtestInterval).Should(Succeed())
 		})
 	})
@@ -851,6 +865,14 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 		})
 	})
 })
+
+// cmRefName 은 env 가 참조하는 ConfigMap 이름이다(인라인이면 "").
+func cmRefName(e corev1.EnvVar) string {
+	if e.ValueFrom == nil || e.ValueFrom.ConfigMapKeyRef == nil {
+		return ""
+	}
+	return e.ValueFrom.ConfigMapKeyRef.Name
+}
 
 func envMap(env []corev1.EnvVar) map[string]corev1.EnvVar {
 	out := make(map[string]corev1.EnvVar, len(env))

@@ -36,6 +36,13 @@ func ShardConfigMapName(cluster string, ordinal int32) string {
 	return fmt.Sprintf("%s-shard-%d-config", cluster, ordinal)
 }
 
+// ShardRuntimeConfigMapName 은 shard 의 승격 상태(PRIMARY_ENDPOINT · PROMOTION_EPOCH ·
+// CLUSTER_INITIALIZED)를 담는 런타임 ConfigMap 이름이다(ADR-0030). shardName 은
+// ordinal("shard-0")·named("t1") 공통이다.
+func ShardRuntimeConfigMapName(cluster, shardName string) string {
+	return fmt.Sprintf("%s-%s-runtime", cluster, shardName)
+}
+
 // ShardPrimaryServiceName 은 shard 의 *현재 primary* 를 가리키는 안정 Service 이름이다.
 // operator 가 failover 시 이 Service(ExternalName)를 새 primary 로 갱신하므로, 라우터/
 // 클라이언트가 status polling 없이 이 DNS 이름만으로 현재 primary 에 접속한다(§6 백로그).

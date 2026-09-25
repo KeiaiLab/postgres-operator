@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -797,10 +798,13 @@ func buildInstanceRoleBinding(cluster *postgresv1alpha1.PostgresCluster) *rbacv1
 //
 // standby.signal 은 instance manager 가 leader election 결과에 따라 OnStartedLeading
 // 에서 제거하고 OnStoppedLeading 에서 재생성한다 (RFC 0006 R3 Task A).
+//
+// PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED 는 런타임 ConfigMap
+// (runtimeConfigMap) 에서 온다(ADR-0030) — 승격이 파드 템플릿을 바꾸지 않는다.
 func buildBootstrapContainer(
 	image, pgMajor string,
 	shardOrdinal int32,
-	primaryEndpoint string,
+	runtimeConfigMap string,
 	members int32,
 	replicaClusterEnabled bool,
 	primaryUser string,
@@ -808,14 +812,92 @@ func buildBootstrapContainer(
 	primarySSLMode string,
 	primaryCredentialConfig *replicaBootstrapConfig,
 ) corev1.Container {
-	binDir := pgBinDir(pgMajor)
 	replicaClusterValue := "0"
 	if replicaClusterEnabled {
 		replicaClusterValue = "1"
 	}
-	script := `set -eu
-DATA="` + pgDataSubdir + `"
+	env := slices.Concat(
+		[]corev1.EnvVar{{Name: "SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)}},
+		primaryRuntimeEnv(runtimeConfigMap, primaryCredentialConfig, bootstrapRuntimeKeys...),
+		[]corev1.EnvVar{
+			{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
+			{Name: "REPLICA_CLUSTER_ENABLED", Value: replicaClusterValue},
+			{Name: "PRIMARY_USER", Value: primaryUser},
+			{Name: "PRIMARY_DBNAME", Value: primaryDBName},
+			{Name: "PRIMARY_SSLMODE", Value: primarySSLMode},
+			{
+				Name: "POD_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+				},
+			},
+		},
+		externalClusterCredentialEnv(primaryCredentialConfig),
+	)
+	return corev1.Container{
+		Name:            bootstrapContainerName,
+		Image:           image,
+		Command:         []string{"sh", "-c"},
+		Args:            []string{renderBootstrapScript(podBootstrapPaths(), pgBinDir(pgMajor))},
+		Env:             env,
+		SecurityContext: dataplaneContainerSecurityContext(),
+		VolumeMounts: append(append([]corev1.VolumeMount{
+			{Name: "data", MountPath: pgDataMountPath},
+		}, dataplaneEphemeralVolumeMounts()...), externalClusterCredentialVolumeMounts(primaryCredentialConfig)...),
+	}
+}
+
+// primaryRuntimeEnv 는 승격 상태 env 다.
+//   - 복제 클러스터: 외부 원천 endpoint 인라인(로컬 승격 없음)
+//   - 런타임 CM 있음: 같은 이름 키 참조(Optional=false)
+//   - 그 밖(리샤드 타깃): PRIMARY_ENDPOINT 인라인 빈 문자열 — pod-0 initdb 로 빈 primary
+func primaryRuntimeEnv(runtimeConfigMap string, replica *replicaBootstrapConfig, keys ...string) []corev1.EnvVar {
+	if replica != nil {
+		return []corev1.EnvVar{{Name: runtimeKeyPrimaryEndpoint, Value: replica.Endpoint}}
+	}
+	if runtimeConfigMap == "" {
+		return []corev1.EnvVar{{Name: runtimeKeyPrimaryEndpoint, Value: ""}}
+	}
+	return runtimeEnvVars(runtimeConfigMap, keys...)
+}
+
+// bootstrapPaths 는 부트스트랩 스크립트가 만지는 경로다 — 시험은 임시 루트로 바꾼다.
+type bootstrapPaths struct {
+	Data       string
+	PGPass     string
+	ClientKey  string
+	ClientCert string
+	RootCert   string
+}
+
+// podBootstrapPaths 는 컨테이너 안 경로다.
+func podBootstrapPaths() bootstrapPaths {
+	return bootstrapPaths{
+		Data:       pgDataSubdir,
+		PGPass:     primaryPGPassFile,
+		ClientKey:  primaryClientKeyFile,
+		ClientCert: primaryClientCertFile,
+		RootCert:   primaryRootCertFile,
+	}
+}
+
+// renderBootstrapScript 는 bootstrap init 스크립트다(설계 §3.6).
+//
+//	기존 PGDATA  standby.signal       → 승격 마커 rm + primary_conninfo 를 CM 값 한 줄로
+//	             마커 epoch > CM epoch → primary 유지(#220)
+//	             그 밖 다른 primary    → 마커 rm + standby.signal·conninfo·restart 마커
+//	빈 PGDATA    다른 primary          → basebackup → standby.signal·conninfo → 마커 rm
+//	             ord-0 ∧ 미초기화      → initdb (초기화된 클러스터면 exit 1, I6)
+//
+// 복제 클러스터 분기는 그대로다. binDir 은 pg_basebackup·initdb 가 있는 곳이다.
+func renderBootstrapScript(paths bootstrapPaths, binDir string) string {
+	marker := `"$DATA/` + promotedPrimaryMarker + `"`
+	return `set -eu
+DATA="` + paths.Data + `"
 PRIMARY_ENDPOINT="${PRIMARY_ENDPOINT:-}"
+PROMOTION_EPOCH="$(printf '%s' "${PROMOTION_EPOCH:-}" | tr -cd '0-9')"
+PROMOTION_EPOCH="${PROMOTION_EPOCH:-0}"
+CLUSTER_INITIALIZED="${CLUSTER_INITIALIZED:-0}"
 PRIMARY_USER="${PRIMARY_USER:-postgres}"
 PRIMARY_DBNAME="${PRIMARY_DBNAME:-postgres}"
 PRIMARY_SSLMODE="${PRIMARY_SSLMODE:-prefer}"
@@ -850,25 +932,45 @@ prepare_primary_conninfo() {
       printf '%s:' "$(escape_pgpass "$PRIMARY_DBNAME")"
       printf '%s:' "$(escape_pgpass "$PRIMARY_USER")"
       printf '%s\n' "$(escape_pgpass "$PRIMARY_PASSWORD")"
-    } > "` + primaryPGPassFile + `"
-    chmod 0600 "` + primaryPGPassFile + `"
-    PRIMARY_CONNINFO="$PRIMARY_CONNINFO passfile=` + primaryPGPassFile + `"
+    } > "` + paths.PGPass + `"
+    chmod 0600 "` + paths.PGPass + `"
+    PRIMARY_CONNINFO="$PRIMARY_CONNINFO passfile=` + paths.PGPass + `"
   fi
   if [ -n "$PRIMARY_SSLKEY_FILE" ]; then
-    cp "$PRIMARY_SSLKEY_FILE" "` + primaryClientKeyFile + `"
-    chmod 0600 "` + primaryClientKeyFile + `"
-    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslkey=` + primaryClientKeyFile + `"
+    cp "$PRIMARY_SSLKEY_FILE" "` + paths.ClientKey + `"
+    chmod 0600 "` + paths.ClientKey + `"
+    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslkey=` + paths.ClientKey + `"
   fi
   if [ -n "$PRIMARY_SSLCERT_FILE" ]; then
-    cp "$PRIMARY_SSLCERT_FILE" "` + primaryClientCertFile + `"
-    chmod 0600 "` + primaryClientCertFile + `"
-    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslcert=` + primaryClientCertFile + `"
+    cp "$PRIMARY_SSLCERT_FILE" "` + paths.ClientCert + `"
+    chmod 0600 "` + paths.ClientCert + `"
+    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslcert=` + paths.ClientCert + `"
   fi
   if [ -n "$PRIMARY_SSLROOTCERT_FILE" ]; then
-    cp "$PRIMARY_SSLROOTCERT_FILE" "` + primaryRootCertFile + `"
-    chmod 0600 "` + primaryRootCertFile + `"
-    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslrootcert=` + primaryRootCertFile + `"
+    cp "$PRIMARY_SSLROOTCERT_FILE" "` + paths.RootCert + `"
+    chmod 0600 "` + paths.RootCert + `"
+    PRIMARY_CONNINFO="$PRIMARY_CONNINFO sslrootcert=` + paths.RootCert + `"
   fi
+}
+
+# Promotion epoch recorded in the promoted marker; an empty legacy marker or none is 0.
+marker_epoch() {
+  EPOCH="$(head -n 1 ` + marker + ` 2>/dev/null | tr -cd '0-9')"
+  printf '%s' "${EPOCH:-0}"
+}
+
+# Rewrite every primary_conninfo line of postgresql.auto.conf as one line (no pile-up).
+# Same-directory temp file then rename, so a crash never leaves a half-written file.
+write_primary_conninfo() {
+  AUTO="$DATA/postgresql.auto.conf"
+  if [ -f "$AUTO" ]; then
+    sed '/^[[:space:]]*primary_conninfo[[:space:]]*=/d' "$AUTO" > "$AUTO.keiailab-tmp"
+  else
+    : > "$AUTO.keiailab-tmp"
+  fi
+  printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$AUTO.keiailab-tmp"
+  chmod 0600 "$AUTO.keiailab-tmp"
+  mv "$AUTO.keiailab-tmp" "$AUTO"
 }
 
 if [ -f "$DATA/PG_VERSION" ]; then
@@ -898,13 +1000,21 @@ if [ -f "$DATA/PG_VERSION" ]; then
     touch "$DATA/standby.signal"
     printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$DATA/postgresql.auto.conf"
     echo "existing PGDATA marked for standalone replica continuous recovery"
-  elif [ "$MEMBER_COUNT" -gt 1 ] && [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ] && [ ! -f "$DATA/standby.signal" ] && [ -f "$DATA/` + promotedPrimaryMarker + `" ]; then
-    # #220 failback: this pod was promoted to primary by the operator (it carries the
-    # promoted-primary marker) but PRIMARY_ENDPOINT is still the STALE old primary.
-    # Restoring standby.signal here would demote the real primary and pg_rewind it back
-    # to the old timeline, losing post-failover writes. Keep it a primary; the operator
-    # fence is the single authority that stops an illegitimate primary.
-    echo "promoted-primary marker present with stale PRIMARY_ENDPOINT; keeping primary (no standby.signal restore) — #220"
+  elif [ "$REPLICA_CLUSTER_ENABLED" != "1" ] && [ -f "$DATA/standby.signal" ]; then
+    # A standby never keeps the promoted marker (basebackup copies it). Its upstream is
+    # the runtime ConfigMap primary, written as a single primary_conninfo line.
+    rm -f ` + marker + `
+    if [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ]; then
+      prepare_primary_conninfo
+      write_primary_conninfo
+    fi
+    echo "existing standby: promoted marker cleared; primary_conninfo follows the runtime ConfigMap"
+  elif [ "$MEMBER_COUNT" -gt 1 ] && [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ] && [ ! -f "$DATA/standby.signal" ] && [ "$(marker_epoch)" -gt "$PROMOTION_EPOCH" ]; then
+    # #220 failback: this pod was promoted after the epoch the runtime ConfigMap still
+    # names (publish did not land yet). Restoring standby.signal here would demote the
+    # real primary and pg_rewind it back to the old timeline, losing post-failover
+    # writes. Keep it a primary; the operator fence stops an illegitimate primary.
+    echo "promoted-primary marker epoch $(marker_epoch) > PROMOTION_EPOCH $PROMOTION_EPOCH; keeping primary (no standby.signal restore) — #220"
   elif [ "$MEMBER_COUNT" -gt 1 ] && [ -n "$PRIMARY_HOST" ] && [ "$PRIMARY_IS_SELF" = "0" ] && [ ! -f "$DATA/standby.signal" ]; then
     # split-brain fix (fix/ha-replica-standby-signal-restore): an HA replica whose
     # PGDATA is already initialized but has no standby.signal must boot as a *standby*,
@@ -913,9 +1023,11 @@ if [ -f "$DATA/PG_VERSION" ]; then
     # observes a standby and never acquires the primary lease. The marker is still
     # emitted so the instance manager can pg_rewind on timeline divergence. Without
     # this both pods boot primary → split-brain (live RCA 2026-06-04, pg-e2e).
+    # A promoted marker no newer than PROMOTION_EPOCH belongs to a superseded primary.
+    rm -f ` + marker + `
     prepare_primary_conninfo
     touch "$DATA/standby.signal"
-    printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$DATA/postgresql.auto.conf"
+    write_primary_conninfo
     touch "$DATA/` + restartPrimaryAsStandbyMarker + `"
     echo "existing PGDATA in HA cluster has a different primary endpoint; standby.signal restored + marked for standby restart"
   fi
@@ -941,22 +1053,25 @@ if [ "$REPLICA_CLUSTER_ENABLED" = "1" ]; then
 fi
 
 # Bootstrap decision (deterministic, #221). PRIMARY_ENDPOINT is one shared value
-# for every pod of the shard and is empty on the cluster's first reconcile (no
-# primary observed yet). A replica (ordinal != 0) created in that window must
+# for every pod of the shard (runtime ConfigMap). A replica (ordinal != 0) must
 # NEVER initdb — that produced an independent second primary with no
 # standby.signal → split-brain (both pods read-write, no streaming). Decision:
 #   1. live primary elsewhere (PRIMARY_ENDPOINT set, not self) → basebackup standby
-#   2. ordinal 0 with no/other-self primary → initdb (the cluster seed)
-#   3. replica with no usable primary yet → fail closed, let the StatefulSet retry
-#      once the operator propagates the primary endpoint into the pod template.
+#   2. ordinal 0 of a never-initialized cluster → initdb (the cluster seed)
+#   3. ordinal 0 of an initialized cluster → fail closed (I6: never an empty primary)
+#   4. replica with no usable primary yet → fail closed, let the StatefulSet retry
 if [ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]; then
   prepare_primary_conninfo
   mkdir -p "$DATA"
   chmod 0700 "$DATA"
   ` + binDir + `/pg_basebackup -D "$DATA" -d "$PRIMARY_CONNINFO" --no-password --wal-method=stream --checkpoint=fast
   touch "$DATA/standby.signal"
-  printf "primary_conninfo = '%s'\n" "$PRIMARY_CONNINFO" >> "$DATA/postgresql.auto.conf"
+  write_primary_conninfo
+  rm -f ` + marker + `
   echo "pg_basebackup completed; standby.signal + primary_conninfo configured"
+elif [ "$POD_ORDINAL" = "0" ] && [ "$CLUSTER_INITIALIZED" = "1" ]; then
+  echo "cluster already initialized; $POD_NAME refuses initdb on empty PGDATA (PRIMARY_ENDPOINT='$PRIMARY_ENDPOINT')" >&2
+  exit 1
 elif [ "$POD_ORDINAL" = "0" ]; then
   mkdir -p "$DATA"
   chmod 0700 "$DATA"
@@ -967,42 +1082,17 @@ else
   exit 1
 fi
 `
-	return corev1.Container{
-		Name:    bootstrapContainerName,
-		Image:   image,
-		Command: []string{"sh", "-c"},
-		Args:    []string{script},
-		Env: append([]corev1.EnvVar{
-			{Name: "SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
-			{Name: "PRIMARY_ENDPOINT", Value: primaryEndpoint},
-			{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
-			{Name: "REPLICA_CLUSTER_ENABLED", Value: replicaClusterValue},
-			{Name: "PRIMARY_USER", Value: primaryUser},
-			{Name: "PRIMARY_DBNAME", Value: primaryDBName},
-			{Name: "PRIMARY_SSLMODE", Value: primarySSLMode},
-			{
-				Name: "POD_NAME",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
-				},
-			},
-		}, externalClusterCredentialEnv(primaryCredentialConfig)...),
-		SecurityContext: dataplaneContainerSecurityContext(),
-		VolumeMounts: append(append([]corev1.VolumeMount{
-			{Name: "data", MountPath: pgDataMountPath},
-		}, dataplaneEphemeralVolumeMounts()...), externalClusterCredentialVolumeMounts(primaryCredentialConfig)...),
-	}
 }
 
 // buildInstanceEnv 는 instance manager (PID 1) 에 주입할 환경 변수 집합을 만든다.
-// downward API + spec 매개변수 + current primary endpoint + 고정 경로의 합산.
+// downward API + spec 매개변수 + current primary endpoint(런타임 CM 참조) + 고정 경로의 합산.
 func buildInstanceEnv(
 	clusterName string,
 	serviceName string,
 	shardOrdinal int32,
 	pgMajor string,
 	members int32,
-	primaryEndpoint string,
+	primaryEndpoint corev1.EnvVar,
 	replicaClusterEnabled bool,
 ) []corev1.EnvVar {
 	env := []corev1.EnvVar{
@@ -1031,7 +1121,7 @@ func buildInstanceEnv(
 		{Name: "POSTGRES_ROLE", Value: "shard"},
 		{Name: "POSTGRES_SHARD_ORDINAL", Value: fmt.Sprintf("%d", shardOrdinal)},
 		{Name: "POSTGRES_MEMBER_COUNT", Value: fmt.Sprintf("%d", members)},
-		{Name: "PRIMARY_ENDPOINT", Value: primaryEndpoint},
+		primaryEndpoint,
 		// supervise.Config — image 안 표준 경로 + ConfigMap mount + Unix socket.
 		{Name: "POSTGRES_BIN_DIR", Value: pgBinDir(pgMajor)},
 		{Name: "POSTGRES_DATA_DIR", Value: pgDataSubdir},
@@ -1059,7 +1149,7 @@ func buildPGStatefulSet(
 	members int32,
 	storage postgresv1alpha1.StorageSpec,
 	resources corev1.ResourceRequirements,
-	primaryEndpoint string,
+	runtimeConfigMap string,
 	configHash string,
 	reshardTargetID string,
 ) *appsv1.StatefulSet {
@@ -1121,7 +1211,8 @@ func buildPGStatefulSet(
 	// instance manager 환경 변수. reshard target 이면 POSTGRES_RESHARD_TARGET 를
 	// 추가 주입 → cmd/instance 가 ordinal lease (PrimaryLeaseName) 대신 격리된
 	// ReshardTargetLeaseName 을 사용해 실 shard election 침범을 차단한다 (ADR-0027).
-	instanceEnv := buildInstanceEnv(cluster.Name, serviceName, shardOrdinal, pgMajor, members, primaryEndpoint, replicaClusterEnabled)
+	primaryEnv := primaryRuntimeEnv(runtimeConfigMap, replicaConfig, runtimeKeyPrimaryEndpoint)[0]
+	instanceEnv := buildInstanceEnv(cluster.Name, serviceName, shardOrdinal, pgMajor, members, primaryEnv, replicaClusterEnabled)
 	if reshardTargetID != "" {
 		instanceEnv = append(instanceEnv, corev1.EnvVar{Name: "POSTGRES_RESHARD_TARGET", Value: reshardTargetID})
 	}
@@ -1151,7 +1242,7 @@ func buildPGStatefulSet(
 				Spec: corev1.PodSpec{
 					SecurityContext:    dataplanePodSecurityContext(),
 					ServiceAccountName: InstanceServiceAccountName(cluster.Name),
-					InitContainers:     []corev1.Container{buildBootstrapContainer(image, pgMajor, shardOrdinal, primaryEndpoint, members, replicaClusterEnabled, primaryUser, primaryDBName, primarySSLMode, replicaConfig)},
+					InitContainers:     []corev1.Container{buildBootstrapContainer(image, pgMajor, shardOrdinal, runtimeConfigMap, members, replicaClusterEnabled, primaryUser, primaryDBName, primarySSLMode, replicaConfig)},
 					Containers: []corev1.Container{{
 						Name:            pgContainerName,
 						Image:           image,
@@ -1221,9 +1312,9 @@ func buildPGStatefulSet(
 //   - 이름/Service: `<cluster>-rsd-<shardID>` (names.go, ordinal `-shard-` 와 분리)
 //   - label: ReshardTargetSelectorLabels (ordinal `shard` label 미부여 →
 //     aggregateShardStatus/failover 가 blind, #220-class 차단)
-//   - members=1 + primaryEndpoint="" → pod-0 (`...-0`) 가 buildBootstrapContainer 의
-//     `POD_ORDINAL=="0"` + 빈 endpoint 분기로 *initdb 빈 primary* 부팅 (잃을 데이터
-//     0, #220 standby.signal 로직 무관)
+//   - members=1 + 런타임 CM 없음(PRIMARY_ENDPOINT 인라인 빈 문자열) → pod-0 (`...-0`) 가
+//     buildBootstrapContainer 의 `POD_ORDINAL=="0"` + 빈 endpoint 분기로 *initdb 빈
+//     primary* 부팅 (잃을 데이터 0, #220 standby.signal 로직 무관)
 //   - POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용
 //     (충돌-불가 lease, 실 shard election 침범 차단)
 //
@@ -1250,7 +1341,7 @@ func buildTargetShardStatefulSetWithMembers(
 	shardID string,
 	image, pgMajor string,
 	members int32,
-	primaryEndpoint string,
+	runtimeConfigMap string,
 	storage postgresv1alpha1.StorageSpec,
 	resources corev1.ResourceRequirements,
 	configMapName, configHash string,
@@ -1263,7 +1354,7 @@ func buildTargetShardStatefulSetWithMembers(
 		image, configMapName, pgMajor,
 		members,
 		storage, resources,
-		primaryEndpoint,
+		runtimeConfigMap,
 		configHash,
 		shardID, // reshardTargetID → 격리 label + POSTGRES_RESHARD_TARGET env
 	)
