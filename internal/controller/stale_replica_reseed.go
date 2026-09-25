@@ -37,6 +37,10 @@ const (
 	// terminationGracePeriodSeconds(30s)+API 지연을 넉넉히 넘기되, reseedCooldown
 	// (10분)보다 훨씬 짧게 잡아 다음 reseed 시도에서 반드시 감지되도록 한다.
 	stuckTerminatingForceDeleteThreshold = 2 * time.Minute
+
+	// nodeReadDeniedReason 은 Node 를 못 읽었을 때(거부·시한) 클러스터에 남기는
+	// Warning 이벤트 사유다.
+	nodeReadDeniedReason = "NodeReadDenied"
 )
 
 // reconcileStaleReplicas re-seeds a standby that failed to rejoin after a
@@ -135,7 +139,7 @@ func (r *PostgresClusterReconciler) reseedStandby(
 		// 로 승격하지 않는다 — podAbsentOrNotReady 재확인이 이 함수 호출 시점의
 		// "genuinely down" 불변식을 한 번 더 강제한다(promotionCandidateReadyForExec
 		// 와 동일한 방어적 재확인 스타일).
-		if r.stuckTerminatingOnDeadNode(ctx, &pod, now) && r.podAbsentOrNotReady(ctx, cluster.Namespace, podName) {
+		if r.stuckTerminatingOnDeadNode(ctx, cluster, &pod, now) && r.podAbsentOrNotReady(ctx, cluster.Namespace, podName) {
 			if err := r.forceDeleteStuckPod(ctx, &pod); err != nil {
 				return fmt.Errorf("force delete stuck standby pod %q: %w", podName, err)
 			}
@@ -155,23 +159,32 @@ func (r *PostgresClusterReconciler) reseedStandby(
 // force-deleted, since the StatefulSet could recreate it on another node
 // while the healthy node still holds the volume attached (multi-attach risk,
 // see internal/controller/failover/pvc_fence_runbook.go MultiAttach).
-func (r *PostgresClusterReconciler) stuckTerminatingOnDeadNode(ctx context.Context, pod *corev1.Pod, now time.Time) bool {
+func (r *PostgresClusterReconciler) stuckTerminatingOnDeadNode(ctx context.Context, cluster *postgresv1alpha1.PostgresCluster, pod *corev1.Pod, now time.Time) bool {
 	if pod.DeletionTimestamp == nil || now.Sub(pod.DeletionTimestamp.Time) < stuckTerminatingForceDeleteThreshold {
 		return false
 	}
-	return r.nodeNotReady(ctx, pod.Spec.NodeName)
+	return r.nodeNotReady(ctx, cluster, pod.Spec.NodeName, now)
 }
 
 // nodeNotReady reports whether the named Node reports its Ready condition as
 // anything other than True. An unresolvable node (not found, or the Ready
 // condition absent) returns false — conservative default, never force-delete
 // on an unconfirmed signal.
-func (r *PostgresClusterReconciler) nodeNotReady(ctx context.Context, nodeName string) bool {
+//
+// Node 는 캐시 밖 live GET 이다(cmd/main.go managerClientOptions). 무응답은
+// nodeReadTimeout 에서 끊고, 거부·시한도 false 로 두되 지표·이벤트로 드러낸다.
+func (r *PostgresClusterReconciler) nodeNotReady(ctx context.Context, cluster *postgresv1alpha1.PostgresCluster, nodeName string, now time.Time) bool {
 	if nodeName == "" {
 		return false
 	}
+
+	readCtx, cancel := context.WithTimeout(ctx, nodeReadTimeout)
+	defer cancel()
 	var node corev1.Node
-	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, &node); err != nil {
+	if err := r.Get(readCtx, client.ObjectKey{Name: nodeName}, &node); err != nil {
+		if !apierrors.IsNotFound(err) {
+			r.recordNodeReadDenied(cluster, nodeName, err, now)
+		}
 		return false
 	}
 	for i := range node.Status.Conditions {
@@ -180,6 +193,31 @@ func (r *PostgresClusterReconciler) nodeNotReady(ctx context.Context, nodeName s
 		}
 	}
 	return false
+}
+
+// recordNodeReadDenied 는 Node 를 못 읽은 사실(거부·시한)을 세고, 클러스터당
+// statusStaleThresh 에 한 번 Warning 이벤트로 남긴다 — 매 reconcile 반복 방지.
+func (r *PostgresClusterReconciler) recordNodeReadDenied(cluster *postgresv1alpha1.PostgresCluster, nodeName string, err error, now time.Time) {
+	MetricAPIReadDenied.WithLabelValues(apiReadKindNode).Inc()
+	if !r.nodeReadDeniedDue(cluster.Namespace+"/"+cluster.Name, now) {
+		return
+	}
+	commonsevents.EmitWarningf(r.Recorder, cluster, nodeReadDeniedReason,
+		"node %s unreadable (%v); stuck pod force delete withheld", nodeName, err)
+}
+
+// nodeReadDeniedDue 는 key 클러스터의 NodeReadDenied 이벤트를 지금 내도 되는지 본다.
+func (r *PostgresClusterReconciler) nodeReadDeniedDue(key string, now time.Time) bool {
+	r.nodeReadDeniedMu.Lock()
+	defer r.nodeReadDeniedMu.Unlock()
+	if last, ok := r.nodeReadDeniedAt[key]; ok && now.Sub(last) < statusStaleThresh {
+		return false
+	}
+	if r.nodeReadDeniedAt == nil {
+		r.nodeReadDeniedAt = map[string]time.Time{}
+	}
+	r.nodeReadDeniedAt[key] = now
+	return true
 }
 
 // forceDeleteStuckPod mirrors `kubectl delete pod --grace-period=0 --force`:
