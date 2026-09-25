@@ -35,7 +35,8 @@ const replicationLagUnhealthyBytes int64 = 1 << 30
 // is flagged when it is not Ready (fenced/rogue/stale/pod-not-ready) OR when its
 // reported WAL position lags the primary's by >= replicationLagUnhealthyBytes —
 // the latter catches a fully disconnected replica whose relative LagBytes reads 0
-// because both receive and replay froze at the same old position.
+// because both receive and replay froze at the same old position. 복제 그래프(§3.4)가 연결을
+// 못 찾은 Ready replica 도 끊김이다 — graphs 가 그 샤드를 모르면 이 기준은 쓰지 않는다.
 //
 // Best-effort and side-effect-light: it only mutates cluster.Status.Conditions
 // (persisted by the caller's Status().Update) and emits an event; failures here
@@ -44,6 +45,7 @@ func (r *PostgresClusterReconciler) reconcileReplicationHealth(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
 	shards []postgresv1alpha1.ShardStatus,
+	graphs map[string]replicationGraph,
 ) {
 	healthy := true
 	sawReplica := false
@@ -54,6 +56,7 @@ func (r *PostgresClusterReconciler) reconcileReplicationHealth(
 		if shard.Primary == nil || !shard.Primary.Ready || len(shard.Replicas) == 0 {
 			continue
 		}
+		graph := graphs[shard.Name]
 		primaryWAL := r.reportedWALPosition(ctx, cluster.Namespace, shard.Primary.Pod)
 		for j := range shard.Replicas {
 			rep := &shard.Replicas[j]
@@ -67,6 +70,13 @@ func (r *PostgresClusterReconciler) reconcileReplicationHealth(
 					reason = "not-ready"
 				}
 				issues = append(issues, fmt.Sprintf("%s/%s: %s", shard.Name, rep.Pod, reason))
+				healthy = false
+				continue
+			}
+			// readyz 는 단절을 못 본다 — 그래프가 연결을 못 찾은 Ready replica 는 끊김이다(§3.4).
+			if graph.detached(rep.Pod) {
+				issues = append(issues, fmt.Sprintf("%s/%s: absent from the replication graph of %s",
+					shard.Name, rep.Pod, endpointPod(graph.root)))
 				healthy = false
 				continue
 			}

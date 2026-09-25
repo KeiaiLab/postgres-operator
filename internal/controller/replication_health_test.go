@@ -107,7 +107,7 @@ func TestReconcileReplicationHealth(t *testing.T) {
 			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 			r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
 
-			r.reconcileReplicationHealth(ctx, cluster, tc.shards)
+			r.reconcileReplicationHealth(ctx, cluster, tc.shards, nil)
 
 			cond := meta.FindStatusCondition(cluster.Status.Conditions, ConditionReplicationHealthy)
 			if cond == nil {

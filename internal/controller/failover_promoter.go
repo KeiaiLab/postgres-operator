@@ -269,9 +269,15 @@ func (p *clusterPodPromoter) unfenceTargetPVC(ctx context.Context, podName strin
 	if p.Client == nil {
 		return nil
 	}
-	pvcName := "data-" + podName
+	return unfencePVC(ctx, p.Client, p.Namespace, podName)
+}
+
+// unfencePVC 는 멤버 데이터 PVC 의 fence 라벨을 뗀다 — 승격 대상(#200)과 복제 그래프가 연결을
+// 확인한 멤버(§3.4)가 같이 쓴다.
+func unfencePVC(ctx context.Context, c client.Client, ns, pod string) error {
+	pvcName := "data-" + pod
 	var pvc corev1.PersistentVolumeClaim
-	if err := p.Client.Get(ctx, client.ObjectKey{Namespace: p.Namespace, Name: pvcName}, &pvc); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: pvcName}, &pvc); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -282,7 +288,7 @@ func (p *clusterPodPromoter) unfenceTargetPVC(ctx context.Context, podName strin
 	}
 	before := pvc.DeepCopy()
 	delete(pvc.Labels, fencing.FenceLabelKey)
-	return p.Client.Patch(ctx, &pvc, client.MergeFrom(before))
+	return c.Patch(ctx, &pvc, client.MergeFrom(before))
 }
 
 // fenceNonTargetMembers fences the data PVC of every member of the target's

@@ -100,6 +100,12 @@ const (
 	primaryClientCertFile = "/tmp/primary-client.crt"
 	primaryRootCertFile   = "/tmp/primary-root.crt"
 
+	// primaryConninfoUser·DBName·SSLMode 는 HA standby primary_conninfo 의 기본값이다 — 부트스트랩
+	// 스크립트와 복제 그래프 재지정(standbyConninfo)이 같은 값을 쓴다.
+	primaryConninfoUser    = "postgres"
+	primaryConninfoDBName  = "postgres"
+	primaryConninfoSSLMode = "prefer"
+
 	// postgresUserUID는 PostgreSQL 표준 postgres user의 UID/GID다.
 	// ADR 0006에 의해 동결된 데이터플레인 Pod의 runAsUser/runAsGroup/fsGroup 기본값.
 	postgresUserUID int64 = 70
@@ -898,9 +904,9 @@ PRIMARY_ENDPOINT="${PRIMARY_ENDPOINT:-}"
 PROMOTION_EPOCH="$(printf '%s' "${PROMOTION_EPOCH:-}" | tr -cd '0-9')"
 PROMOTION_EPOCH="${PROMOTION_EPOCH:-0}"
 CLUSTER_INITIALIZED="${CLUSTER_INITIALIZED:-0}"
-PRIMARY_USER="${PRIMARY_USER:-postgres}"
-PRIMARY_DBNAME="${PRIMARY_DBNAME:-postgres}"
-PRIMARY_SSLMODE="${PRIMARY_SSLMODE:-prefer}"
+PRIMARY_USER="${PRIMARY_USER:-` + primaryConninfoUser + `}"
+PRIMARY_DBNAME="${PRIMARY_DBNAME:-` + primaryConninfoDBName + `}"
+PRIMARY_SSLMODE="${PRIMARY_SSLMODE:-` + primaryConninfoSSLMode + `}"
 PRIMARY_PASSWORD="${PRIMARY_PASSWORD:-}"
 PRIMARY_SSLKEY_FILE="${PRIMARY_SSLKEY_FILE:-}"
 PRIMARY_SSLCERT_FILE="${PRIMARY_SSLCERT_FILE:-}"
