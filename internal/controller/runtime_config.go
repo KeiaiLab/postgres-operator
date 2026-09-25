@@ -9,7 +9,7 @@ package controller
 // 본 파일은 승격 상태를 파드 템플릿 밖에 둔다(ADR-0030, 설계 2026-09-25 §3.2).
 //
 //	CR 애노테이션 shard-runtime ── 정본: epoch(단조) · initialized(끈적) · promotionLSN
-//	      │ promoteAndPublish(승격) · ensureRuntime(생성만)
+//	      │ promoteAndPublish(승격) · adoptPrimary(발행 전 크래시 채택) · ensureRuntime(생성만)
 //	      ▼
 //	ConfigMap <cluster>-<shard>-runtime ── 사본: PRIMARY_ENDPOINT · PROMOTION_EPOCH · CLUSTER_INITIALIZED
 //	      │ configMapKeyRef(Optional=false) — 컨테이너를 만들 때마다 읽힌다
@@ -58,6 +58,31 @@ const (
 
 	// timelineHistoryQuery 는 새 타임라인 history 파일을 읽는다 — 마지막 줄이 이번 분기점.
 	timelineHistoryQuery = "SELECT pg_read_file('pg_wal/' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8) || '.history')"
+
+	// pgBoolTrue·pgBoolFalse 는 psql -At 의 boolean 표기다.
+	pgBoolTrue  = "t"
+	pgBoolFalse = "f"
+
+	// recoveryQuery 는 실제 primary 판정의 질의다 — f 면 primary.
+	recoveryQuery = "SELECT pg_is_in_recovery()"
+
+	// recoveryProbeTimeout 은 실제 primary 확인 exec 1회의 상한이다 — 무응답 exec 가
+	// reconcile 을 붙잡지 않는다.
+	recoveryProbeTimeout = statusPollInterval
+)
+
+// primaryCheck 는 멤버가 실제 primary 인지의 판정이다 — pg_is_in_recovery=f ∧ 하트비트 신선 ∧
+// unfenced 일 때만 확인이다(§3.2). 값은 Warning·condition 메시지에 그대로 쓰는 사유다.
+type primaryCheck string
+
+const (
+	primaryConfirmed  primaryCheck = "confirmed"
+	primaryAbsent     primaryCheck = "pod absent"
+	primaryFenced     primaryCheck = "pvc fenced"
+	primaryStale      primaryCheck = "heartbeat stale"
+	primaryNotRunning primaryCheck = "pod not running"
+	primaryInRecovery primaryCheck = "in recovery"
+	primaryUnknown    primaryCheck = "recovery state unknown"
 )
 
 // bootstrapRuntimeKeys 는 init 컨테이너가 받는 런타임 키다(main 은 PRIMARY_ENDPOINT 만).
@@ -123,6 +148,14 @@ func namedShardRef(cluster *postgresv1alpha1.PostgresCluster, shardID string) sh
 		fallback: primaryEndpointForNamedShard(cluster, shardID, service),
 		member:   func(pod *corev1.Pod) bool { return podMatchesNamedShardIdentity(pod, shardID) },
 	}
+}
+
+// shardRefFor 는 관측된 샤드 상태의 런타임 CM 샤드다.
+func shardRefFor(cluster *postgresv1alpha1.PostgresCluster, ss *postgresv1alpha1.ShardStatus) shardRef {
+	if isOrdinalShardID(cluster, ss.Name) {
+		return ordinalShardRef(cluster, ss.Ordinal)
+	}
+	return namedShardRef(cluster, ss.Name)
 }
 
 // loadRuntimeState 는 CR 정본을 읽는다 — 없으면 빈 v1, 깨졌으면 오류(덮어써서 epoch 을 잃지 않는다).
@@ -451,6 +484,144 @@ func (r *PostgresClusterReconciler) promoteAndPublish(
 		logger.Info("promotion LSN not recorded", "error", err)
 	}
 	return promoteErr
+}
+
+// adoptPrimary 는 발행 전 크래시를 잇는다(§3.2-2): CM epoch 이 CR epoch 보다 작고 마커 epoch 이
+// CR epoch 인 실제 primary 가 정확히 하나면 그 파드로 CM 을 한 번 쓴다(endpoint·epoch). 마커가
+// 모자라면(승격 exec 실패) 채택하지 않는다 — 다음 승격이 epoch 을 더 올린다(단조).
+func (r *PostgresClusterReconciler) adoptPrimary(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	ref shardRef,
+) error {
+	state, err := loadRuntimeState(cluster)
+	if err != nil {
+		return err
+	}
+	canon, ok := state.Shards[ref.name]
+	if !ok {
+		return nil
+	}
+	rt, found, err := r.readRuntime(ctx, cluster, ref.name)
+	if err != nil || !found || rt.PromotionEpoch >= canon.Epoch {
+		return err
+	}
+
+	// 그 epoch 으로 승격된 실제 primary — 마커는 승격 exec 만 쓴다.
+	pods, err := r.shardMembers(ctx, cluster, ref.member)
+	if err != nil {
+		return err
+	}
+	fenced, err := r.fencedPVCs(ctx, cluster.Namespace)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	var actual []corev1.Pod
+	for i := range pods {
+		// 관측으로 먼저 거른다 — epoch 이 앞선 채 남아도 standby 에는 exec 하지 않는다.
+		if !claimsPrimary(&pods[i], fenced, now) || r.checkPrimary(ctx, &pods[i], fenced, now) != primaryConfirmed {
+			continue
+		}
+		actual = append(actual, pods[i])
+	}
+	markers := r.markerEpochs(ctx, actual)
+	var adopted []*corev1.Pod
+	for i := range actual {
+		if epoch, read := markers[actual[i].Name]; !read || epoch != canon.Epoch {
+			continue
+		}
+		adopted = append(adopted, &actual[i])
+	}
+	logger := log.FromContext(ctx).WithValues("shard", ref.name, "epoch", canon.Epoch)
+	if len(adopted) != 1 {
+		if len(adopted) > 1 {
+			logger.Info("primary adoption withheld: several primaries carry the epoch", "count", len(adopted))
+		}
+		return nil
+	}
+
+	published := shardRuntime{
+		PrimaryEndpoint:    memberEndpoint(adopted[0], ref.service),
+		PromotionEpoch:     canon.Epoch,
+		ClusterInitialized: canon.Initialized || rt.ClusterInitialized,
+	}
+	if err := r.publishRuntime(ctx, cluster, ref.name, published); err != nil {
+		return fmt.Errorf("adopt primary %q epoch %d: %w", adopted[0].Name, canon.Epoch, err)
+	}
+	logger.Info("primary adopted", "pod", adopted[0].Name, "previous", rt.PrimaryEndpoint)
+	return nil
+}
+
+// checkPrimary 는 멤버가 실제 primary 인지 본다 — 싼 판정(fence·하트비트·파드 상태) 뒤 exec 한 번.
+func (r *PostgresClusterReconciler) checkPrimary(
+	ctx context.Context,
+	pod *corev1.Pod,
+	fenced map[string]bool,
+	now time.Time,
+) primaryCheck {
+	if pod == nil {
+		return primaryAbsent
+	}
+	if fenced[fencing.PVCName(pod.Name)] {
+		return primaryFenced
+	}
+	if st, ok := parsePodStatus(pod); !ok || st.IsStale(now, statusStaleThresh) {
+		return primaryStale
+	}
+	// 죽은 노드의 파드에 exec 하면 시한까지 붙잡힌다.
+	if pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return primaryNotRunning
+	}
+	inRecovery, err := r.inRecovery(ctx, pod)
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("recovery state unreadable", "pod", pod.Name, "error", err)
+		return primaryUnknown
+	}
+	if inRecovery {
+		return primaryInRecovery
+	}
+	return primaryConfirmed
+}
+
+// claimsPrimary 는 파드가 신선한 하트비트로 Role=Primary 를 보고하고 unfenced 인지다(관측만, exec 없음).
+func claimsPrimary(pod *corev1.Pod, fenced map[string]bool, now time.Time) bool {
+	if fenced[fencing.PVCName(pod.Name)] {
+		return false
+	}
+	st, ok := parsePodStatus(pod)
+	return ok && st.Role == statusapi.RolePrimary && !st.IsStale(now, statusStaleThresh)
+}
+
+// inRecovery 는 pg_is_in_recovery() 를 로컬 소켓 exec 로 묻는다.
+func (r *PostgresClusterReconciler) inRecovery(ctx context.Context, pod *corev1.Pod) (bool, error) {
+	if r.PromotionPodExecutor == nil {
+		return false, errors.New("pod executor is not configured")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, recoveryProbeTimeout)
+	defer cancel()
+	out, err := r.PromotionPodExecutor.Exec(probeCtx, BackupSidecarTarget{
+		Namespace: pod.Namespace,
+		Pod:       pod.Name,
+		Container: pgContainerName,
+	}, []string{"psql", "-U", "postgres", "-d", "postgres", "-Atqc", recoveryQuery})
+	if err != nil {
+		return false, err
+	}
+	switch answer := strings.TrimSpace(string(out)); answer {
+	case pgBoolTrue:
+		return true, nil
+	case pgBoolFalse:
+		return false, nil
+	default:
+		return false, fmt.Errorf("pg_is_in_recovery answered %q", answer)
+	}
+}
+
+// endpointPod 는 PRIMARY_ENDPOINT(<pod>.<svc>.<ns>.svc.cluster.local:5432)의 파드 이름이다.
+func endpointPod(endpoint string) string {
+	pod, _, _ := strings.Cut(primaryEndpointHost(endpoint), ".")
+	return pod
 }
 
 // promotionLSN 은 새 타임라인 history 의 마지막 분기점이다(pg_read_file).
