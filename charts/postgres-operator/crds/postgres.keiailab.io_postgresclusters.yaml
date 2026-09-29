@@ -406,6 +406,14 @@ spec:
                   PostgreSQL is the PostgreSQL runtime configuration. GUCs that may not be set directly,
                   such as synchronous_standby_names, are generated only via this structured surface.
                 properties:
+                  hostAuthCIDRs:
+                    description: |-
+                      HostAuthCIDRs are the client address ranges pg_hba.conf admits over TCP, always with
+                      scram-sha-256. Empty means 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16.
+                    items:
+                      format: cidr
+                      type: string
+                    type: array
                   synchronous:
                     description: Synchronous is the physical synchronous-replication
                       configuration. nil disables it.
@@ -1843,6 +1851,25 @@ spec:
                 - initialCount
                 - storage
                 type: object
+              superuserSecretRef:
+                description: |-
+                  SuperuserSecretRef names a Secret in the cluster namespace with keys username (postgres)
+                  and password. The operator keeps the postgres role's SCRAM verifier equal to that password,
+                  and members use it for replication, pg_rewind and pg_basebackup: pg_hba.conf trusts no
+                  network range. Until the password is verified on a running shard, that shard's config and
+                  pod template are not changed (condition SuperuserAuthPending).
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               tls:
                 description: |-
                   TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).

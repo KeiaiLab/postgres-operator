@@ -552,17 +552,18 @@ func TestRuntimeCreatedFromHealthyPrimary(t *testing.T) {
 	t.Parallel()
 	const name = "first"
 	cluster := withRecordedPrimary(haCluster(name, postgresv1alpha1.ShardingModeNone), ShardStatefulSetName(name, 0)+"-0")
-	primary := shardMember(name, 0, statusapi.RolePrimary)
+	secret := withSuperuserRef(cluster)
+	primary, replica := shardMember(name, 0, statusapi.RolePrimary), shardMember(name, 1, statusapi.RoleReplica)
 	log := &writeLog{}
 	scheme := runtimeScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(cluster, oldTemplateSTS(cluster), primary, shardMember(name, 1, statusapi.RoleReplica)).
+		WithObjects(cluster, secret, oldTemplateSTS(cluster), primary, replica).
 		WithStatusSubresource(&postgresv1alpha1.PostgresCluster{}).
 		WithInterceptorFuncs(log.funcs()).Build()
-	markers := map[string]string{primary.Name: "2\n"}
-	exec := &funcExecutor{log: log, respond: func(target BackupSidecarTarget, _ []string) ([]byte, error) {
-		return []byte(markers[target.Pod]), nil
-	}}
+	// L1 첫 reconcile — postgres 비밀번호는 이미 Secret 것이다(ADR-0034 이 템플릿 upsert 앞에 대조한다).
+	exec := newPGSim(log, primary.Name, replica.Name)
+	exec.markers[primary.Name] = "2\n"
+	exec.stored = knownVerifier(t, testSuperuserPassword)
 	r := &PostgresClusterReconciler{Client: c, Scheme: scheme, PromotionPodExecutor: exec}
 	defer DeleteMetricsFor(runtimeTestNS, name)
 

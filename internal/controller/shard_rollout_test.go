@@ -498,6 +498,7 @@ func TestRolloutOnDelete(t *testing.T) {
 	t.Parallel()
 	const name = "ro-ondelete"
 	cluster, cm := runtimeCluster(name)
+	secret := withSuperuserRef(cluster)
 	old := oldTemplateSTS(cluster)
 	partition := int32(0)
 	old.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
@@ -506,8 +507,9 @@ func TestRolloutOnDelete(t *testing.T) {
 	}
 	var updates []appsv1.StatefulSet
 	scheme := runtimeScheme(t)
+	primary, replica := shardMember(name, 0, statusapi.RolePrimary), shardMember(name, 1, statusapi.RoleReplica)
 	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(cluster, cm, old, shardMember(name, 0, statusapi.RolePrimary), shardMember(name, 1, statusapi.RoleReplica)).
+		WithObjects(cluster, secret, cm, old, primary, replica).
 		WithStatusSubresource(&postgresv1alpha1.PostgresCluster{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Update: func(ctx context.Context, cli client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
@@ -517,7 +519,10 @@ func TestRolloutOnDelete(t *testing.T) {
 				return cli.Update(ctx, obj, opts...)
 			},
 		}).Build()
-	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
+	// postgres 비밀번호는 이미 Secret 것이다 — 템플릿 upsert 앞 대조(ADR-0034)가 통과한다.
+	pg := newPGSim(&writeLog{}, primary.Name, replica.Name)
+	pg.stored = knownVerifier(t, testSuperuserPassword)
+	r := &PostgresClusterReconciler{Client: c, Scheme: scheme, PromotionPodExecutor: pg}
 	t.Cleanup(func() { DeleteMetricsFor(runtimeTestNS, name) })
 
 	reconcileCluster(t, r, cluster)

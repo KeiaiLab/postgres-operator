@@ -209,6 +209,18 @@ var (
 		},
 		[]string{"namespace", "name", "shard"},
 	)
+
+	// MetricHBANetworkTrustRules 는 멤버가 적재한 pg_hba 의 비-local trust 줄 수다(ADR-0034) — 0 이어야 한다.
+	// −1 은 모름이다: 적재가 파일보다 이르거나, 파일 오류이거나, 판정 exec 실패. 0 을 기본값으로 두지 않는다.
+	MetricHBANetworkTrustRules = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "hba_network_trust_rules",
+			Help:      "Non-local trust rules in the member's loaded pg_hba; -1 when the load is stale, the file has errors or the check failed",
+		},
+		[]string{"namespace", "name", "pod"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -235,6 +247,7 @@ func init() {
 		MetricSwitchoverDuration,
 		MetricRolloutSteps,
 		MetricRolloutPendingMembers,
+		MetricHBANetworkTrustRules,
 	)
 	initSeries()
 }
@@ -258,6 +271,7 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricSwitchoverDuration.DeletePartialMatch(rebuildLabels)
 	MetricRolloutSteps.DeletePartialMatch(rebuildLabels)
 	MetricRolloutPendingMembers.DeletePartialMatch(rebuildLabels)
+	MetricHBANetworkTrustRules.DeletePartialMatch(rebuildLabels)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

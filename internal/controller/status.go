@@ -67,6 +67,9 @@ const (
 	// ConditionRolloutBlocked 는 샤드 단계화 롤아웃의 다음 단계 선결이 memberConvergeBudget 넘게 안 선 상태다
 	// (ADR-0033). 다음 단계를 실행하거나 롤아웃이 끝나면 False(RolloutClear) 다.
 	ConditionRolloutBlocked = "RolloutBlocked"
+	// ConditionSuperuserAuthPending 은 postgres 비밀번호를 superuser Secret 에 맞췄다고 확인하지 못한 상태다
+	// (ADR-0034). 멤버가 도는 샤드는 확인될 때까지 설정 ConfigMap·파드 템플릿을 바꾸지 않는다.
+	ConditionSuperuserAuthPending = "SuperuserAuthPending"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -125,6 +128,13 @@ const (
 	ReasonImagePull            = "ImagePull"            // 기다리는 멤버가 이미지를 못 받는다
 	ReasonConnectionSlots      = "ConnectionSlots"      // primary exec 가 연결 슬롯이 없어 실패했다(모름)
 	ReasonRolloutClear         = "RolloutClear"
+
+	// Reasons — superuser 인증(ADR-0034)
+	ReasonSuperuserSecretUnset    = "SuperuserSecretUnset"    // spec.superuserSecretRef 가 비었다
+	ReasonSuperuserSecretMissing  = "SuperuserSecretMissing"  // 그 Secret 이 없다
+	ReasonSuperuserSecretInvalid  = "SuperuserSecretInvalid"  // username 이 postgres 가 아니거나 password 가 비었거나 인쇄 가능 ASCII 가 아니다
+	ReasonSuperuserAuthUnverified = "SuperuserAuthUnverified" // 실제 primary 가 없거나 verifier 를 읽고 쓰지 못했다
+	ReasonSuperuserAuthVerified   = "SuperuserAuthVerified"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"

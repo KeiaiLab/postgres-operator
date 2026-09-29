@@ -378,35 +378,6 @@ func TestBuildConfigMap_PreferredSynchronousReplicationLowersQuorumToAvailableRe
 	}
 }
 
-func TestRenderPGHBAConf_AllowsPgRewindNormalConnectionBeforeScram(t *testing.T) {
-	t.Parallel()
-
-	conf := renderPGHBAConf(false)
-	rewindLine := "host    all             postgres        10.0.0.0/8              trust"
-	scramLine := "host    all             all             10.0.0.0/8              scram-sha-256"
-	rewindIndex := strings.Index(conf, rewindLine)
-	if rewindIndex < 0 {
-		t.Fatalf("pg_hba.conf must allow pg_rewind normal source connection for postgres, got:\n%s", conf)
-	}
-	scramIndex := strings.Index(conf, scramLine)
-	if scramIndex < 0 {
-		t.Fatalf("pg_hba.conf missing default scram host line, got:\n%s", conf)
-	}
-	if rewindIndex > scramIndex {
-		t.Fatalf("pg_rewind trust line must appear before default scram line, got:\n%s", conf)
-	}
-}
-
-func TestRenderPGHBAConf_TLSUsesHostSSLForPgRewindNormalConnection(t *testing.T) {
-	t.Parallel()
-
-	conf := renderPGHBAConf(true)
-	want := "hostssl all             postgres        10.0.0.0/8              trust"
-	if !strings.Contains(conf, want) {
-		t.Fatalf("TLS pg_hba.conf must use hostssl for pg_rewind source connection, want %q, got:\n%s", want, conf)
-	}
-}
-
 func TestRenderPostgresConf_EnablesWalLogHintsForPgRewind(t *testing.T) {
 	t.Parallel()
 
