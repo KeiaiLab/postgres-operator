@@ -87,7 +87,7 @@ make bundle VERSION=X.Y.Z  # OLM bundle 재생성
 - 파일 라이선스 헤더: MIT (`Licensed under the MIT License. See the LICENSE file for details.`).
   Apache 헤더 발견 시 보고 후 교체 (pg-router 정리 선례).
 - 의존성 갱신: `renovate.json` (mongodb-operator 와 동일 기준 — k8s.io 그룹 / major 분리).
-- CI (`.gitlab-ci.yml`): golang 이미지 버전은 `go.mod` 의 go directive 와 정합 유지.
+- CI·빌드 (`Dockerfile*` 의 `FROM golang:`): golang 이미지 버전은 `go.mod` 의 go directive 와 정합 유지.
 
 ### 문서 작성 (`docs/`)
 
