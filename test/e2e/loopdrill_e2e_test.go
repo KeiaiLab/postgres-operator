@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,14 +29,20 @@ import (
 
 // kind 훈련장 진입점 — make test-e2e-loopdrill(설계 2026-09-25 §3.12).
 //
-//	kind 기동(KEEP=1 재사용) ─ 저장·CRD ─ 탐침 P1·P2 ─ 시험 이미지 싣기
-//	  └ 시나리오마다: (RED 는 새로 설치) 수렴 ─ 표식 행 ─ before ─ 유발 ─ 창 ─ after ─ Judge ─ 체크포인트
-//	  └ 판정문(LOOPDRILL_REPORT) ─ RED: S4 J1∨J2∨J3∨J5 ∧ S5 J4 붉음 · GREEN: 전부 초록
+//	kind 기동(KEEP=1 재사용) ─ 오조준 차단 ─ 저장·CRD·적격 라벨 ─ 탐침 P1·P2 ─ 시험 이미지 싣기 ─ 선풀
+//	  └ 시나리오마다: (RED 는 새로 설치) 수렴 ─ 쓰기 탐침 ─ 표식 행 ─ before ─ 유발 ─ 창 ─ after ─ Judge ─ 체크포인트
+//	  └ 판정문(LOOPDRILL_REPORT) ─ RED: S3·S5 각 2판 모두 붉음 · GREEN: S0–S10 전부 초록
+//
+// S0 전환(GREEN 첫 시나리오):
+//
+//	사전(ST0 부모 트리 + beta.11 · 0-0·0-1 은 W4, 0-2 는 적격) ─ 정지 재현(J4 붉음) ─ 운영 누적물 ─ before
+//	  ─ ST0 트리(C1 부모, 오퍼레이터 0) ─ C1(CRD CreateReplace · helm upgrade · 확인) ─ C2(오퍼레이터 2) ─ 단계화 ─ after
 
 const (
 	envExpect       = "LOOPDRILL_EXPECT"
 	envChartDir     = "LOOPDRILL_CHART_DIR"
 	envBaseChartDir = "LOOPDRILL_BASE_CHART_DIR"
+	envC1Ref        = "LOOPDRILL_C1_REF"
 	envOperator     = "LOOPDRILL_OPERATOR_IMAGE"
 	envReport       = "LOOPDRILL_REPORT"
 	envScenarios    = "LOOPDRILL_SCENARIOS"
@@ -44,7 +51,6 @@ const (
 
 	// S0 의 기점 = 운영이 도는 ghcr v0.4.0-beta.11(e997c262) 인덱스, Harbor ghcr-proxy.
 	baselineOperatorImage = "harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:v0.4.0-beta.11@sha256:29c503ffc16c3347d9b6912a9994d17c069667c89efe0a738e6e472ae551869d"
-	baseChartRef          = "origin/stable"
 	verdictDir            = "test/e2e/loopdrill/verdicts"
 	drillDir              = "test/e2e/loopdrill"
 	judgeDir              = "internal/loopdrill"
@@ -53,9 +59,18 @@ const (
 	kindConfig            = "kind-config.yaml"
 	storageNote           = "csi-driver-nfs v4.13.4 · nfs-retain(Retain) · VolumeSnapshotClass nfs-snapshot(Delete)"
 
-	// preHoldDataCommit 은 data ST0(fe7c2ba) 의 부모 — RED 차트 트리 핀.
+	// defaultC1Ref 는 C1(D1) — 차트 저장소 HEAD(= C2, D1s)의 부모. D1s 는 D1 위 커밋 하나다(설계 §6).
+	defaultC1Ref = "HEAD~1"
+
+	// preHoldDataCommit 은 data ST0(fe7c2ba) 의 부모 — RED·S0 사전 차트 트리 핀.
 	// ST0 뒤 data stable 은 오퍼레이터 0 복제라 기점 루프·정지가 재현되지 않는다.
 	preHoldDataCommit = "56d79387a723284b99f3899420a5daf86161113b"
+
+	// 운영 누적물(S0) — auto.conf primary_conninfo 줄 수(운영 "수백 줄") · wal_keep_size(메인 루프 5GB).
+	conninfoPadding     = 300
+	alterWalKeep        = "ALTER SYSTEM SET wal_keep_size = '5GB'"
+	alterLogConnections = "ALTER SYSTEM SET log_connections = 'on'"
+	reloadConf          = "SELECT pg_reload_conf()"
 )
 
 // 판정문 결과.
@@ -68,10 +83,11 @@ const (
 	resultScenarioMissed = "incomplete"
 )
 
-var (
-	redScenarios   = []loopdrill.Scenario{loopdrill.ScenarioS4, loopdrill.ScenarioS5}
-	greenScenarios = []loopdrill.Scenario{loopdrill.ScenarioS0, loopdrill.ScenarioS1, loopdrill.ScenarioS2, loopdrill.ScenarioS3, loopdrill.ScenarioS4, loopdrill.ScenarioS5, loopdrill.ScenarioS5b, loopdrill.ScenarioS6, loopdrill.ScenarioS7}
-)
+var greenScenarios = []loopdrill.Scenario{
+	loopdrill.ScenarioS0, loopdrill.ScenarioS1, loopdrill.ScenarioS2, loopdrill.ScenarioS3, loopdrill.ScenarioS4,
+	loopdrill.ScenarioS5, loopdrill.ScenarioS5a, loopdrill.ScenarioS6, loopdrill.ScenarioS6b, loopdrill.ScenarioS7,
+	loopdrill.ScenarioS8, loopdrill.ScenarioS9, loopdrill.ScenarioS10,
+}
 
 // Fidelity 는 시험 이미지가 운영과 얼마나 같은가.
 type Fidelity string
@@ -85,14 +101,16 @@ const (
 var fidelityNotes = []string{
 	"amd64 이미지는 arm64 노드에서 binfmt 에뮬레이션",
 	"저장은 NFS CSI(운영 Ceph RBD 아님)",
-	"CiliumNetworkPolicy 는 CRD 만 — 집행 0",
+	"CiliumNetworkPolicy 는 CRD 만 — 집행 0 · NetworkPolicy 는 kindnet",
 	"kubeadm kind(운영 k3s 아님) · control-plane 1대",
+	"-rw Service 는 testdata 흉내(운영은 오퍼레이터·GitOps 밖)",
 }
 
 type drillConfig struct {
 	mode         loopdrill.Mode
 	chartDir     string
 	baseChartDir string
+	c1Ref        string
 	operator     imageRef
 	report       string
 	scenarios    []loopdrill.Scenario
@@ -113,7 +131,7 @@ func loadConfig() (drillConfig, error) {
 	if cfg.operator, err = parseImageRef(os.Getenv(envOperator)); err != nil {
 		return cfg, fmt.Errorf("%s: %w", envOperator, err)
 	}
-	cfg.scenarios = redScenarios
+	cfg.scenarios = loopdrill.RedScenarios()
 	if cfg.mode == loopdrill.ModeGreen {
 		cfg.scenarios = greenScenarios
 	}
@@ -122,6 +140,10 @@ func loadConfig() (drillConfig, error) {
 		for _, s := range strings.Split(raw, ",") {
 			cfg.scenarios = append(cfg.scenarios, loopdrill.Scenario(strings.TrimSpace(s)))
 		}
+	}
+	cfg.c1Ref = os.Getenv(envC1Ref)
+	if cfg.c1Ref == "" {
+		cfg.c1Ref = defaultC1Ref
 	}
 	cfg.baseChartDir = os.Getenv(envBaseChartDir)
 	cfg.report = os.Getenv(envReport)
@@ -132,20 +154,32 @@ func loadConfig() (drillConfig, error) {
 	return cfg, nil
 }
 
-// Inputs 는 판정문이 결속하는 입력(설계 §3.12 — digest · pg-drill 과 인스턴스 매니저 기점 · fidelity · data 커밋 · 트리 · kind 노드 판 · 저장).
+// Inputs 는 판정문이 결속하는 입력(설계 §3.12 — S · D · 실제 돈 imageID · P2 · pg-drill 과 인스턴스 매니저 기점 ·
+// data C1/C2/T1/T2/사전 트리 · kind 판·라벨 · 저장 · 탐침 간격).
 type Inputs struct {
-	OperatorImage    string   `json:"operatorImage"`
-	OperatorRun      string   `json:"operatorRun"`
-	PGImage          string   `json:"pgImage"` // pg-drill 이미지 ID
+	OperatorImage    string   `json:"operatorImage"`              // 입력 참조
+	OperatorRevision string   `json:"operatorRevision,omitempty"` // S — revision 라벨
+	OperatorDigest   string   `json:"operatorDigest,omitempty"`   // D — 입력 참조의 digest
+	OperatorRun      string   `json:"operatorRun"`                // 노드에 실은 태그
+	OperatorImageID  string   `json:"operatorImageID,omitempty"`  // 오퍼레이터 파드가 실제 돈 imageID
+	PGImage          string   `json:"pgImage"`                    // pg-drill 이미지 ID
 	PGRun            string   `json:"pgRun"`
 	PGInstanceCommit string   `json:"pgInstanceCommit"` // pg-drill 인스턴스 매니저를 구운 기점
 	Fidelity         Fidelity `json:"fidelity"`
-	DataCommit       string   `json:"dataCommit"`
-	DataTree         string   `json:"dataTree"`
-	BaseDataTree     string   `json:"baseDataTree,omitempty"`
+	Amd64            bool     `json:"amd64"`                    // P2
+	DataCommit       string   `json:"dataCommit"`               // RED = 사전 · GREEN = C2
+	DataTree         string   `json:"dataTree"`                 // RED = 사전 · GREEN = T2
+	C1Commit         string   `json:"c1Commit,omitempty"`       // GREEN C1(D1)
+	C1Tree           string   `json:"c1Tree,omitempty"`         // T1
+	HoldCommit       string   `json:"holdCommit,omitempty"`     // ST0 트리 = C1 부모
+	HoldTree         string   `json:"holdTree,omitempty"`       //
+	BaseDataCommit   string   `json:"baseDataCommit,omitempty"` // S0 사전 = ST0 부모 핀
+	BaseDataTree     string   `json:"baseDataTree,omitempty"`   //
 	KindNode         string   `json:"kindNode"`
 	KindVersion      string   `json:"kindVersion"`
+	NodeLabels       []string `json:"nodeLabels"` // 적격·W4 노드 분류
 	Storage          string   `json:"storage"`
+	ProbeInterval    string   `json:"probeInterval"`
 	DrillDigest      string   `json:"drillDigest"`
 	Notes            []string `json:"notes"`
 }
@@ -153,6 +187,7 @@ type Inputs struct {
 // ScenarioRun 은 시나리오 하나의 기록.
 type ScenarioRun struct {
 	loopdrill.Verdict
+	Round  int                   `json:"round"`
 	Expect loopdrill.Expect      `json:"expect"`
 	Before loopdrill.ClusterSnap `json:"before"`
 	After  loopdrill.ClusterSnap `json:"after"`
@@ -169,7 +204,7 @@ type DrillReport struct {
 	FinishedAt time.Time      `json:"finishedAt"`
 }
 
-// checkpoint 는 KEEP=1 재개용 — 같은 입력일 때만 이어 쓴다.
+// checkpoint 는 KEEP=1 재개용 — 같은 입력일 때만 이어 쓴다. Runs[i] 는 계획의 i 번째 시나리오다(RED 는 되풀이).
 type checkpoint struct {
 	Key    string        `json:"key"`
 	Probes *ProbeResult  `json:"probes,omitempty"`
@@ -177,7 +212,7 @@ type checkpoint struct {
 }
 
 type drill struct {
-	t          *testing.T
+	t          testing.TB
 	cfg        drillConfig
 	kubeconfig string
 	inputs     Inputs
@@ -186,6 +221,11 @@ type drill struct {
 	apiCIDR    string
 	operator   operatorRef
 	gauge      *gaugeScraper
+	secrets    secrets
+	eligible   []string // J11 적격 노드
+	avoid      []string // J11 W4
+	c1Faults   []string // S0 C1 확인 실패
+	emergency  loopdrill.EmergencyRecord
 }
 
 func TestLoopDrill(t *testing.T) {
@@ -215,6 +255,13 @@ func TestLoopDrill(t *testing.T) {
 	}
 }
 
+// mustTarget 은 훈련장 kubeconfig 가 kind 루프백이 아니면 곧바로 멈춘다(훈련 시작 · 유발 직전).
+func (d *drill) mustTarget() {
+	if err := guardTarget(); err != nil {
+		d.t.Fatalf("훈련장 오조준 — 멈춘다: %v", err)
+	}
+}
+
 func (d *drill) run() (*DrillReport, error) {
 	started := time.Now()
 	if err := d.prepareState(); err != nil {
@@ -223,8 +270,12 @@ func (d *drill) run() (*DrillReport, error) {
 	if err := d.ensureCluster(); err != nil {
 		return nil, err
 	}
+	d.mustTarget()
 	if !d.cfg.keep {
 		d.t.Cleanup(func() { _ = teardownCluster(d.kubeconfig) })
+	}
+	if err := d.prepareInfra(); err != nil {
+		return nil, err
 	}
 	if err := d.bindInputs(); err != nil {
 		return nil, err
@@ -246,31 +297,43 @@ func (d *drill) run() (*DrillReport, error) {
 		return report, errors.New("P1 거짓 — 새 파드가 ConfigMap 최신 값을 env 로 받지 않는다(설계 재검토)")
 	}
 
-	if err := d.loadImages(*cp.Probes); err != nil {
+	if err := d.loadImages(cp.Probes); err != nil {
 		return nil, err
 	}
-	report.Inputs = d.inputs
+	report.Probes = *cp.Probes
 
-	for _, scn := range d.cfg.scenarios {
-		if slices.ContainsFunc(cp.Runs, func(r ScenarioRun) bool { return r.Scenario == scn }) {
+	for i, scn := range d.cfg.scenarios {
+		if i < len(cp.Runs) {
 			continue
 		}
 		run, err := d.scenario(scn)
 		if err != nil {
-			report.Scenarios, report.FinishedAt = cp.Runs, time.Now()
+			report.Inputs, report.Scenarios, report.FinishedAt = d.inputs, cp.Runs, time.Now()
 			return report, fmt.Errorf("%s: %w", scn, err)
 		}
+		run.Round = rounds(cp.Runs, scn) + 1
 		cp.Runs = append(cp.Runs, run)
 		d.saveCheckpoint(cp)
-		d.t.Logf("%s 판정 %s", scn, summarize(run.Verdict))
+		d.t.Logf("%s(%d판) 판정 %s", scn, run.Round, summarize(run.Verdict))
 	}
-	report.Scenarios = cp.Runs
+	report.Inputs, report.Scenarios = d.inputs, cp.Runs
 	report.Result = d.result(cp.Runs)
 	report.FinishedAt = time.Now()
 	return report, nil
 }
 
-// prepareState 는 저장소 루트로 옮기고 드라이버 전용 kubeconfig·kind 이름을 환경에 둔다(사용자 kubeconfig 무변).
+// rounds 는 이미 돈 scn 판 수다.
+func rounds(runs []ScenarioRun, scn loopdrill.Scenario) int {
+	n := 0
+	for _, r := range runs {
+		if r.Scenario == scn {
+			n++
+		}
+	}
+	return n
+}
+
+// prepareState 는 저장소 루트로 옮기고 드라이버 전용 kubeconfig·kind 이름을 정한다(사용자 kubeconfig 무변).
 func (d *drill) prepareState() error {
 	root, err := repoRoot()
 	if err != nil {
@@ -283,6 +346,7 @@ func (d *drill) prepareState() error {
 		return err
 	}
 	d.kubeconfig = filepath.Join(d.cfg.stateDir, "kubeconfig")
+	drillKubeconfig = d.kubeconfig
 	d.t.Setenv("KUBECONFIG", d.kubeconfig)
 	d.t.Setenv("KIND_CLUSTER", clusterName)
 	return nil
@@ -330,10 +394,18 @@ func (d *drill) ensureCluster() error {
 	if err != nil {
 		return err
 	}
-	if d.apiCIDR, err = kindSubnetV4(); err != nil {
+	d.apiCIDR, err = kindSubnetV4()
+	return err
+}
+
+// prepareInfra 는 저장·CRD·적격 라벨을 올리고 J11 노드 분류를 읽는다.
+func (d *drill) prepareInfra() error {
+	if err := installInfra(); err != nil {
 		return err
 	}
-	return installInfra()
+	var err error
+	d.eligible, d.avoid, err = nodeSets()
+	return err
 }
 
 // bindInputs 는 차트 트리·kind 판·드라이버 digest 를 판정문 입력에 묶는다(차트 디렉터리가 더러우면 멈춘다).
@@ -356,16 +428,35 @@ func (d *drill) bindInputs() error {
 	}
 	d.inputs = Inputs{
 		OperatorImage:    d.cfg.operator.String(),
+		OperatorDigest:   d.cfg.operator.Digest,
 		PGInstanceCommit: pgDrillBase,
 		DataCommit:       commit,
 		DataTree:         tree,
 		KindNode:         node,
 		KindVersion:      strings.TrimSpace(version),
+		NodeLabels:       []string{"eligible=" + strings.Join(d.eligible, ","), "w4=" + strings.Join(d.avoid, ",")},
 		Storage:          storageNote,
+		ProbeInterval:    loopdrill.WriteProbeInterval.String(),
 		DrillDigest:      digest,
 		Notes:            fidelityNotes,
 	}
+	if d.cfg.mode == loopdrill.ModeGreen {
+		return d.bindTransition()
+	}
 	return nil
+}
+
+// bindTransition 은 GREEN S0 의 C1·ST0·사전 트리를 결속한다(판정문 T1 · 보류 · 사전 트리).
+func (d *drill) bindTransition() error {
+	var err error
+	if d.inputs.C1Commit, d.inputs.C1Tree, err = d.chartRef(d.cfg.c1Ref); err != nil {
+		return fmt.Errorf("C1 %s: %w", d.cfg.c1Ref, err)
+	}
+	if d.inputs.HoldCommit, d.inputs.HoldTree, err = d.chartRef(d.inputs.C1Commit + "~1"); err != nil {
+		return fmt.Errorf("ST0 트리(C1 부모): %w", err)
+	}
+	d.inputs.BaseDataCommit, d.inputs.BaseDataTree, err = d.chartRef(preHoldDataCommit)
+	return err
 }
 
 // dataTree 는 판정문이 결속할 data 커밋·트리 — RED 는 차트 저장소에서 ST0 부모 트리를 풀어 쓴다.
@@ -387,16 +478,26 @@ func chartTree(dir string) (commit, tree string, err error) {
 	if out, err := run(commandTimeout, "git", "-C", dir, "status", "--porcelain", "--", "."); err != nil || strings.TrimSpace(out) != "" {
 		return "", "", fmt.Errorf("차트 디렉터리 %s 가 git 체크아웃이 아니거나 커밋 안 된 변경이 있다: %v %s", dir, err, out)
 	}
-	out, err := run(commandTimeout, "git", "-C", dir, "rev-parse", "HEAD")
+	return chartRefIn(dir, "HEAD")
+}
+
+// chartRef 는 차트 저장소의 ref 커밋과 차트 경로 트리다.
+func (d *drill) chartRef(ref string) (string, string, error) {
+	return chartRefIn(d.cfg.chartDir, ref)
+}
+
+func chartRefIn(dir, ref string) (string, string, error) {
+	out, err := run(commandTimeout, "git", "-C", dir, "rev-parse", ref+"^{commit}")
 	if err != nil {
 		return "", "", err
 	}
-	commit = strings.TrimSpace(out)
+	commit := strings.TrimSpace(out)
 	prefix, err := run(commandTimeout, "git", "-C", dir, "rev-parse", "--show-prefix")
 	if err != nil {
 		return "", "", err
 	}
-	out, err = run(commandTimeout, "git", "-C", dir, "rev-parse", "HEAD:"+strings.TrimSuffix(strings.TrimSpace(prefix), "/"))
+	path := strings.TrimSuffix(strings.TrimSpace(prefix), "/")
+	out, err = run(commandTimeout, "git", "-C", dir, "rev-parse", commit+":"+path)
 	if err != nil {
 		return "", "", err
 	}
@@ -453,8 +554,8 @@ func drillDigest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum.Sum(nil)), nil
 }
 
-// loadImages 는 P2 에 따라 시험 이미지를 싣는다.
-func (d *drill) loadImages(probes ProbeResult) error {
+// loadImages 는 P2 에 따라 시험 이미지를 싣고 S(revision 라벨)·선풀을 기록한다.
+func (d *drill) loadImages(probes *ProbeResult) error {
 	fidelity := FidelityLocal
 	if probes.Amd64 {
 		fidelity = FidelityPublished
@@ -465,17 +566,40 @@ func (d *drill) loadImages(probes ProbeResult) error {
 	}
 	d.operatorOn, d.pgOn = op, pg
 	d.inputs.OperatorRun, d.inputs.PGRun, d.inputs.Fidelity = op.String(), pg.String(), fidelity
-	d.inputs.PGImage = pgID
-	return nil
+	d.inputs.PGImage, d.inputs.Amd64 = pgID, probes.Amd64
+	d.inputs.OperatorRevision = imageRevision(op)
+
+	// 선풀 — kubelet 은 막 실은 이미지를 노드 status 에 늦게 올린다(상한 probeBound)
+	deadline := time.Now().Add(probeBound)
+	for {
+		if probes.Unpulled, err = prepulled(op, pg); err != nil {
+			return err
+		}
+		if len(probes.Unpulled) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("선풀 안 됨: %v", probes.Unpulled)
+		}
+		time.Sleep(loopdrill.StatusPollInterval)
+	}
 }
 
 func (d *drill) target() release {
-	return release{ChartDir: d.cfg.chartDir, Operator: d.operatorOn, PG: d.pgOn, APICIDR: d.apiCIDR}
+	r := release{ChartDir: d.cfg.chartDir, Operator: d.operatorOn, PG: d.pgOn, APICIDR: d.apiCIDR}
+	if d.cfg.mode == loopdrill.ModeRed {
+		r.Overlays = []string{redValuesFile}
+	}
+	return r
 }
 
 // install 은 새로 설치하고 수렴까지 기다린 뒤 멤버 수를 낸다.
 func (d *drill) install(r release) (observation, int, error) {
 	if err := resetRelease(); err != nil {
+		return observation{}, 0, err
+	}
+	var err error
+	if d.secrets, err = ensureSecrets(); err != nil {
 		return observation{}, 0, err
 	}
 	if err := installRelease(r, d.cfg.stateDir); err != nil {
@@ -484,7 +608,7 @@ func (d *drill) install(r release) (observation, int, error) {
 	return d.settle()
 }
 
-// settle 은 수렴을 기다리고 오퍼레이터 참조를 새로 읽는다.
+// settle 은 수렴을 기다리고 오퍼레이터 참조·실제 돈 imageID 를 새로 읽는다.
 func (d *drill) settle() (observation, int, error) {
 	replicas, err := waitReplicas()
 	if err != nil {
@@ -498,12 +622,33 @@ func (d *drill) settle() (observation, int, error) {
 	if d.operator, err = readOperator(drillOperatorDeploy); err != nil {
 		return obs, members, err
 	}
+	if d.secrets.probe == "" {
+		if d.secrets, err = ensureSecrets(); err != nil {
+			return obs, members, err
+		}
+	}
+	d.noteImageID()
 	if d.cfg.mode == loopdrill.ModeGreen && d.gauge == nil {
 		if d.gauge, err = newGaugeScraper(d.operator); err != nil {
 			return obs, members, err
 		}
 	}
 	return obs, members, nil
+}
+
+// noteImageID 는 오퍼레이터 파드가 실제 돈 imageID 를 판정문 입력에 적는다(마지막 값 — GREEN 은 S0 C2 뒤 시험 이미지).
+func (d *drill) noteImageID() {
+	pods, err := d.operator.running()
+	if err != nil {
+		return
+	}
+	for _, p := range pods {
+		i := slices.IndexFunc(p.Status.ContainerStatuses, func(c containerStatus) bool { return c.Name == managerContainer })
+		if i >= 0 && p.Status.ContainerStatuses[i].ImageID != "" {
+			d.inputs.OperatorImageID = p.Status.ContainerStatuses[i].ImageID
+			return
+		}
+	}
 }
 
 func waitReplicas() (int, error) {
@@ -536,7 +681,8 @@ func (d *drill) scenario(scn loopdrill.Scenario) (ScenarioRun, error) {
 	if err != nil {
 		return ScenarioRun{}, err
 	}
-	f, err := faultFor(scn, members-1)
+	d.emergency = loopdrill.EmergencyRecord{}
+	f, err := d.faultFor(scn, members-1)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
@@ -548,7 +694,7 @@ func (d *drill) scenario(scn loopdrill.Scenario) (ScenarioRun, error) {
 	return d.observeScenario(scn, f, members, nil)
 }
 
-// observeScenario 는 표식 행 · before · 창 · after · 판정.
+// observeScenario 는 쓰기 탐침 · 표식 행 · before · 창 · after · 판정.
 func (d *drill) observeScenario(scn loopdrill.Scenario, f fault, members int, oldPods []string) (ScenarioRun, error) {
 	obs, err := probeCluster()
 	if err != nil {
@@ -561,6 +707,13 @@ func (d *drill) observeScenario(scn loopdrill.Scenario, f fault, members int, ol
 	if err := ensureSchema(primary.Pod); err != nil {
 		return ScenarioRun{}, err
 	}
+	warm, err := ensureWriteProbe(primary.Pod, d.secrets)
+	if err != nil {
+		return ScenarioRun{}, err
+	}
+	if !warm {
+		d.t.Logf("%s 쓰기 탐침이 연속 %d 개에 못 이르렀다 — J10·J15 가 붉게 남긴다", scn, loopdrill.WriteProbeWarmup)
+	}
 	marker, err := insertMarker(primary.Pod, scn)
 	if err != nil {
 		return ScenarioRun{}, err
@@ -569,27 +722,32 @@ func (d *drill) observeScenario(scn loopdrill.Scenario, f fault, members int, ol
 		return ScenarioRun{}, err
 	}
 
-	// before — 유발 직전 한 표본
-	seed := newRecorder(0, members)
+	// before — 유발 직전 한 표본(S0 는 사전 trust 양성 대조 · 운영 누적물 기준)
+	seed := newRecorder(0, members, primary)
 	seed.sample()
-	before, err := d.collect(seed, oldPods)
+	seed.sampleSlow(nil)
+	before, err := d.collect(scn, seed, oldPods, loopdrill.ClusterSnap{}, collectBefore)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
+	if scn == loopdrill.ScenarioS0 {
+		before.HBA.PreTrust = connectAs(connectNoPassword, "")
+		before.Settings = settingsOf(obs)
+	}
 
-	rec := newRecorder(lastTimeline(before), members)
+	d.mustTarget()
+	rec := newRecorder(lastTimeline(before), members, primary)
 	rec.timeline = slices.Clone(before.Timeline)
+	exp := loopdrill.ExpectFor(scn, d.cfg.mode, members-1)
+	rec.follow = exp.Promotion == loopdrill.PromotionSwitchover || exp.Promotion == loopdrill.PromotionEmergency
 	if err := d.window(scn, f, obs, before, rec); err != nil {
 		return ScenarioRun{}, err
 	}
-	after, err := d.collect(rec, oldPods)
+	after, err := d.collect(scn, rec, oldPods, before, collectAfter)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
 	after.Writes = checkMarker(marker)
-	after.Writes.WritableAt = rec.writableAt
-
-	exp := loopdrill.ExpectFor(scn, d.cfg.mode, members-1)
 	return ScenarioRun{Verdict: loopdrill.Judge(scn, before, after, exp), Expect: exp, Before: before, After: after}, nil
 }
 
@@ -601,12 +759,19 @@ func lastTimeline(s loopdrill.ClusterSnap) int64 {
 	return s.Timeline[len(s.Timeline)-1].Timeline
 }
 
-// transition 은 S0 — 기점(beta.11 + 운영 차트) 설치 → S5 로 정지 재현 확인 → 수정판으로 helm upgrade.
+// transitionCharts 는 S0 이 차례로 설치하는 차트 디렉터리다 — C2 는 LOOPDRILL_CHART_DIR 그대로.
+type transitionCharts struct {
+	pre  string // ST0 부모(사전)
+	hold string // ST0 트리 = C1 부모(오퍼레이터 0)
+	c1   string // D1
+}
+
+// transition 은 S0 — 사전(beta.11 + ST0 부모 트리) → 정지 재현 → 운영 누적물 → ST0 트리 → C1 → C1 확인 → C2 → 단계화.
 func (d *drill) transition() (ScenarioRun, error) {
 	if d.inputs.Fidelity != FidelityPublished {
 		return ScenarioRun{}, errors.New("S0 기점 이미지는 발행 amd64 뿐이다(P2 거짓이면 S0 를 못 돈다)")
 	}
-	baseChart, err := d.baseChart()
+	charts, err := d.transitionCharts()
 	if err != nil {
 		return ScenarioRun{}, err
 	}
@@ -618,8 +783,8 @@ func (d *drill) transition() (ScenarioRun, error) {
 	if err != nil {
 		return ScenarioRun{}, err
 	}
-	base := release{ChartDir: baseChart, Operator: baseOp, PG: d.pgOn, APICIDR: d.apiCIDR}
-	obs, members, err := d.install(base)
+	pre := release{ChartDir: charts.pre, Operator: baseOp, PG: d.pgOn, APICIDR: d.apiCIDR}
+	obs, members, err := d.installPlaced(pre)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
@@ -628,21 +793,111 @@ func (d *drill) transition() (ScenarioRun, error) {
 	if err := d.reproduceStall(obs); err != nil {
 		return ScenarioRun{}, err
 	}
+	if obs, err = waitConverged(members, installBound); err != nil {
+		return ScenarioRun{}, fmt.Errorf("정지 재현 뒤 수렴: %w", err)
+	}
+	if err := accumulate(obs); err != nil {
+		return ScenarioRun{}, fmt.Errorf("운영 누적물: %w", err)
+	}
 	oldPods, err := d.operator.pods()
 	if err != nil {
 		return ScenarioRun{}, err
 	}
-	upgrade := fault{rounds: 1, inject: func(observation, int) (injection, error) {
-		return injection{}, installRelease(d.target(), d.cfg.stateDir)
+	stsGen := obs.Generation
+	cutover := fault{rounds: 1, inject: func(observation, int) (injection, error) {
+		return injection{}, d.cutover(charts, baseOp, stsGen)
 	}}
-	run, err := d.observeScenario(loopdrill.ScenarioS0, upgrade, members, oldPods)
+	run, err := d.observeScenario(loopdrill.ScenarioS0, cutover, members, oldPods)
 	if err != nil {
 		return ScenarioRun{}, err
 	}
 	if d.operator, err = readOperator(drillOperatorDeploy); err != nil {
 		return ScenarioRun{}, err
 	}
+	d.noteImageID()
 	return run, nil
+}
+
+// transitionCharts 는 사전·ST0·C1 트리를 상태 디렉터리에 푼다(LOOPDRILL_BASE_CHART_DIR 가 있으면 사전은 그것).
+func (d *drill) transitionCharts() (transitionCharts, error) {
+	var ch transitionCharts
+	var err error
+	if ch.pre = d.cfg.baseChartDir; ch.pre == "" {
+		if ch.pre, _, err = d.archiveChart(preHoldDataCommit, "pre-chart"); err != nil {
+			return ch, err
+		}
+	}
+	if ch.hold, _, err = d.archiveChart(d.inputs.HoldCommit, "hold-chart"); err != nil {
+		return ch, err
+	}
+	ch.c1, _, err = d.archiveChart(d.inputs.C1Commit, "c1-chart")
+	return ch, err
+}
+
+// installPlaced 는 사전 배치로 설치한다 — 0-0·0-1 은 W4, 0-2 는 적격 워커(운영 e21 에 두 멤버가 몰린 모양).
+// 적격 워커를 cordon 해 둘을 W4 에 세우고, 0-1 이 자리 잡으면 W4 를 cordon 해 0-2 를 적격 워커로 보낸다.
+func (d *drill) installPlaced(r release) (observation, int, error) {
+	eligible, err := nodesWithRole(nodeRolePG)
+	if err != nil {
+		return observation{}, 0, err
+	}
+	w4, err := nodesWithRole(nodeRoleW4)
+	if err != nil || len(w4) == 0 {
+		return observation{}, 0, fmt.Errorf("W4 노드 없음: %v", err)
+	}
+	all := append(slices.Clone(eligible), w4...)
+	defer func() {
+		for _, n := range all {
+			_ = uncordonNode(n)
+		}
+	}()
+	if err := resetRelease(); err != nil {
+		return observation{}, 0, err
+	}
+	if d.secrets, err = ensureSecrets(); err != nil {
+		return observation{}, 0, err
+	}
+	for _, n := range eligible {
+		if err := cordonNode(n); err != nil {
+			return observation{}, 0, err
+		}
+	}
+	if err := installRelease(r, d.cfg.stateDir); err != nil {
+		return observation{}, 0, err
+	}
+	if err := waitScheduled(memberName(1)); err != nil {
+		return observation{}, 0, err
+	}
+	for _, n := range eligible {
+		if err := uncordonNode(n); err != nil {
+			return observation{}, 0, err
+		}
+	}
+	if err := cordonNode(w4[0]); err != nil {
+		return observation{}, 0, err
+	}
+	if err := waitScheduled(memberName(2)); err != nil {
+		return observation{}, 0, err
+	}
+	return d.settle()
+}
+
+// memberName 은 샤드 멤버 파드 이름.
+func memberName(ordinal int) string {
+	return shardSTS + "-" + strconv.Itoa(ordinal)
+}
+
+// waitScheduled 는 파드가 노드에 배정될 때까지 기다린다.
+func waitScheduled(pod string) error {
+	deadline := time.Now().Add(installBound)
+	for time.Now().Before(deadline) {
+		out, err := kubectl("get", "pod", pod, "-n", dataNamespace, "-o", "jsonpath={.spec.nodeName}")
+		if err == nil && strings.TrimSpace(out) != "" {
+			return nil
+		}
+		time.Sleep(loopdrill.StatusPollInterval)
+	}
+	return fmt.Errorf("%s 가 %s 안에 배정되지 않았다", pod, installBound)
 }
 
 // reproduceStall 은 기점 오퍼레이터를 S5 로 세우고 'Failed to watch' 가 섰는지 본다.
@@ -651,6 +906,7 @@ func (d *drill) reproduceStall(obs observation) error {
 		return err
 	}
 	since := time.Now()
+	d.mustTarget()
 	inj, err := stopStandbyNode(nodeRBACAsIs)(obs, 0)
 	if err != nil {
 		return err
@@ -669,67 +925,95 @@ func (d *drill) reproduceStall(obs observation) error {
 	return nil
 }
 
-// baseChart 는 S0 기점 차트 — 주어지면 그것, 아니면 차트 저장소의 origin/stable 트리를 풀어 쓴다.
-func (d *drill) baseChart() (string, error) {
-	if d.cfg.baseChartDir != "" {
-		return d.cfg.baseChartDir, nil
+// accumulate 는 운영 누적물을 사전 상태에 얹는다(설계 §3.12 S0) — 세 멤버 wal_keep_size·log_connections ALTER SYSTEM,
+// auto.conf primary_conninfo 수백 줄, 복제본에 복사된 승격 마커.
+func accumulate(obs observation) error {
+	for _, m := range obs.Members {
+		if _, err := psql(m.Pod, alterWalKeep, alterLogConnections, reloadConf); err != nil {
+			return err
+		}
+		dir, err := psql(m.Pod, "SHOW data_directory")
+		if err != nil {
+			return err
+		}
+		if err := padConninfo(m.Pod, firstLine(dir)); err != nil {
+			return err
+		}
+		if m.Role != roleStandby {
+			continue
+		}
+		touch := `touch "$1/` + promotedMarker + `"`
+		args := []string{"exec", "-n", dataNamespace, m.Pod, "-c", pgContainer, "--", "sh", "-c", touch, "sh", firstLine(dir)}
+		if _, err := kubectl(args...); err != nil {
+			return err
+		}
 	}
-	dir, tree, err := d.archiveChart(baseChartRef, "base-chart")
-	if err != nil {
-		return "", err
-	}
-	d.inputs.BaseDataTree = tree
-	return dir, nil
+	return nil
 }
 
-// archiveChart 는 차트 저장소의 ref 트리를 상태 디렉터리 name 에 풀고 차트 경로와 트리 해시를 낸다.
-func (d *drill) archiveChart(ref, name string) (string, string, error) {
-	prefix, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-prefix")
-	if err != nil {
-		return "", "", err
+// padConninfo 는 auto.conf 의 마지막 primary_conninfo 줄(없으면 빈 값)을 conninfoPadding 번 덧붙인다.
+func padConninfo(pod, dataDir string) error {
+	script := `f="$1/postgresql.auto.conf"; line=$(grep '^primary_conninfo' "$f" | tail -n 1); ` +
+		`[ -n "$line" ] || line="primary_conninfo = ''"; i=0; ` +
+		`while [ "$i" -lt "$2" ]; do printf '%s\n' "$line" >> "$f"; i=$((i+1)); done`
+	_, err := kubectl("exec", "-n", dataNamespace, pod, "-c", pgContainer, "--",
+		"sh", "-c", script, "sh", dataDir, strconv.Itoa(conninfoPadding))
+	return err
+}
+
+// cutover 는 ST0 트리(오퍼레이터 0) → C1(CRD CreateReplace · helm upgrade · 확인) → C2(helm upgrade)다.
+func (d *drill) cutover(ch transitionCharts, baseOp imageRef, stsGen int64) error {
+	if err := guardTarget(); err != nil {
+		return err
 	}
-	path := strings.TrimSuffix(strings.TrimSpace(prefix), "/")
-	top, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", "", err
+	hold := release{ChartDir: ch.hold, Operator: baseOp, PG: d.pgOn, APICIDR: d.apiCIDR}
+	if err := installRelease(hold, d.cfg.stateDir); err != nil {
+		return fmt.Errorf("ST0 트리: %w", err)
 	}
-	dest := filepath.Join(d.cfg.stateDir, name)
-	archive := filepath.Join(d.cfg.stateDir, name+".tar")
-	if err := os.RemoveAll(dest); err != nil {
-		return "", "", err
+	if err := waitOperatorGone(d.operator); err != nil {
+		return err
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return "", "", err
+	c1 := release{ChartDir: ch.c1, Operator: d.operatorOn, PG: d.pgOn, APICIDR: d.apiCIDR}
+	if err := installRelease(c1, d.cfg.stateDir); err != nil {
+		return fmt.Errorf("C1: %w", err)
 	}
-	if _, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "archive", "-o", archive, ref, path); err != nil {
-		return "", "", err
+	d.c1Faults = verifyC1(stsGen, d.operatorOn)
+	if err := installRelease(d.target(), d.cfg.stateDir); err != nil {
+		return fmt.Errorf("C2: %w", err)
 	}
-	if _, err := run(commandTimeout, "tar", "-xf", archive, "-C", dest); err != nil {
-		return "", "", err
+	return nil
+}
+
+// waitOperatorGone 은 오퍼레이터 파드가 0 이 될 때까지 기다린다(ST0 — 옛 리더 없이 새 파드가 리스를 잡는다).
+func waitOperatorGone(op operatorRef) error {
+	deadline := time.Now().Add(probeBound)
+	for time.Now().Before(deadline) {
+		if pods, err := op.pods(); err == nil && len(pods) == 0 {
+			return nil
+		}
+		time.Sleep(loopdrill.StatusPollInterval)
 	}
-	tree, err := run(commandTimeout, "git", "-C", strings.TrimSpace(top), "rev-parse", ref+":"+path)
-	if err != nil {
-		return "", "", err
-	}
-	return filepath.Join(dest, path), strings.TrimSpace(tree), nil
+	return fmt.Errorf("ST0 트리 뒤 %s 안에 오퍼레이터 파드가 0 이 되지 않았다", probeBound)
 }
 
 // result 는 모드의 통과 조건으로 판정문 결과를 낸다.
 func (d *drill) result(runs []ScenarioRun) string {
-	byScenario := map[loopdrill.Scenario]loopdrill.Verdict{}
-	for _, r := range runs {
-		byScenario[r.Scenario] = r.Verdict
+	if len(runs) < len(d.cfg.scenarios) {
+		return resultScenarioMissed
 	}
 	if d.cfg.mode == loopdrill.ModeRed {
-		s4, ok4 := byScenario[loopdrill.ScenarioS4]
-		s5, ok5 := byScenario[loopdrill.ScenarioS5]
-		if !ok4 || !ok5 {
-			return resultScenarioMissed
+		verdicts := make([]loopdrill.Verdict, 0, len(runs))
+		for _, r := range runs {
+			verdicts = append(verdicts, r.Verdict)
 		}
-		if loopdrill.RedReproduced(s4, s5) {
+		if loopdrill.RedReproduced(verdicts) {
 			return resultRedAsExpected
 		}
 		return resultRedMissing
+	}
+	byScenario := map[loopdrill.Scenario]loopdrill.Verdict{}
+	for _, r := range runs {
+		byScenario[r.Scenario] = r.Verdict
 	}
 	for _, scn := range greenScenarios {
 		v, ok := byScenario[scn]
@@ -753,6 +1037,39 @@ func summarize(v loopdrill.Verdict) string {
 		parts = append(parts, fmt.Sprintf("%s%s(%s)", c.ID, mark, c.Detail))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// archiveChart 는 차트 저장소의 ref 트리를 상태 디렉터리 name 에 풀고 차트 경로와 트리 해시를 낸다.
+func (d *drill) archiveChart(ref, name string) (string, string, error) {
+	prefix, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-prefix")
+	if err != nil {
+		return "", "", err
+	}
+	path := strings.TrimSuffix(strings.TrimSpace(prefix), "/")
+	top, err := run(commandTimeout, "git", "-C", d.cfg.chartDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", "", err
+	}
+	dest := filepath.Join(d.cfg.stateDir, name)
+	archive := filepath.Join(d.cfg.stateDir, name+".tar")
+	if err := os.RemoveAll(dest); err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", "", err
+	}
+	repo := strings.TrimSpace(top)
+	if _, err := run(commandTimeout, "git", "-C", repo, "archive", "-o", archive, ref, path); err != nil {
+		return "", "", err
+	}
+	if _, err := run(commandTimeout, "tar", "-xf", archive, "-C", dest); err != nil {
+		return "", "", err
+	}
+	tree, err := run(commandTimeout, "git", "-C", repo, "rev-parse", ref+":"+path)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(dest, path), strings.TrimSpace(tree), nil
 }
 
 // ── 판정문 · 체크포인트 ──
@@ -787,7 +1104,8 @@ func (d *drill) writeReport(r *DrillReport) error {
 
 func (d *drill) checkpointKey() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		string(d.cfg.mode), d.inputs.OperatorImage, d.inputs.PGInstanceCommit, d.inputs.DataTree, d.inputs.DrillDigest,
+		string(d.cfg.mode), d.inputs.OperatorImage, d.inputs.PGInstanceCommit,
+		d.inputs.DataTree, d.inputs.C1Tree, d.inputs.DrillDigest,
 	}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

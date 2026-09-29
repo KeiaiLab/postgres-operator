@@ -1,0 +1,16 @@
+# postgres-prod-shard-0-rw 흉내 — 운영에서 이 Service 는 오퍼레이터·GitOps 밖에 있다(role_label_sync.go 주석:
+# 2026-07-11 실측 셀렉터 postgres.keiailab.io/role=primary). 쓰기 탐침이 여기로 붙고 J19 가 ready 주소 수를 센다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-prod-shard-0-rw
+  namespace: data
+spec:
+  type: ClusterIP
+  selector:
+    postgres.keiailab.io/role: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

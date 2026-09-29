@@ -1,0 +1,13 @@
+# RED 전용 덮어쓰기 — 기점(ST0 부모) 차트의 TSC 셀렉터는 PVC 전용 라벨이라 파드와 안 맞는다(설계 §2.1 스프레드).
+# 그 결함은 그대로 두고 멤버 셋을 서로 다른 워커에 세운다 — S5 가 standby 만 있는 노드를 세워야 한다.
+# GREEN 은 이 파일을 쓰지 않는다(차트의 적격 affinity·TSC 를 판정한다).
+cluster:
+  shards:
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: postgres-prod
+                app.kubernetes.io/component: shard

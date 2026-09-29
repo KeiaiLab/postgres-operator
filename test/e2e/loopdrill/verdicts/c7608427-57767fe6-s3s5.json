@@ -1,0 +1,3080 @@
+{
+  "expect": "red",
+  "result": "red-as-expected",
+  "inputs": {
+    "operatorImage": "harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:v0.4.0-beta.11@sha256:29c503ffc16c3347d9b6912a9994d17c069667c89efe0a738e6e472ae551869d",
+    "operatorDigest": "sha256:29c503ffc16c3347d9b6912a9994d17c069667c89efe0a738e6e472ae551869d",
+    "operatorRun": "harbor.keiailab.com/ghcr-proxy/keiailab/postgres-operator:loopdrill-72f16f25",
+    "operatorImageID": "sha256:74169d5e0682e691101e36c7a376487da510ea95e1bed5a281e8bb4f97b47717",
+    "pgImage": "sha256:4848e2a32a9d56241a761ad72b2bc06be357b28316f0b77f8e8baf2b3c4e649b",
+    "pgRun": "loopdrill/pg:c7608427-amd64",
+    "pgInstanceCommit": "c7608427b7c059df900ac1003c30316711ae4d17",
+    "fidelity": "published-amd64",
+    "amd64": true,
+    "dataCommit": "56d79387a723284b99f3899420a5daf86161113b",
+    "dataTree": "57767fe64f8d2d31cacac4b35496562f48ed2780",
+    "kindNode": "harbor.keiailab.com/dockerhub-proxy/kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+    "kindVersion": "kind v0.33.0 go1.27.0 darwin/arm64",
+    "nodeLabels": [
+      "eligible=loopdrill-control-plane,loopdrill-worker,loopdrill-worker2,loopdrill-worker3",
+      "w4=loopdrill-worker4"
+    ],
+    "storage": "csi-driver-nfs v4.13.4 · nfs-retain(Retain) · VolumeSnapshotClass nfs-snapshot(Delete)",
+    "probeInterval": "5s",
+    "drillDigest": "sha256:966a94a7bcf34a7c093a65385d86b391afae5d694bdd6f2c95b1992c1d20f074",
+    "notes": [
+      "amd64 이미지는 arm64 노드에서 binfmt 에뮬레이션",
+      "저장은 NFS CSI(운영 Ceph RBD 아님)",
+      "CiliumNetworkPolicy 는 CRD 만 — 집행 0 · NetworkPolicy 는 kindnet",
+      "kubeadm kind(운영 k3s 아님) · control-plane 1대",
+      "-rw Service 는 testdata 흉내(운영은 오퍼레이터·GitOps 밖)"
+    ]
+  },
+  "probes": {
+    "newPodLatest": true,
+    "restartLatest": true,
+    "amd64": true
+  },
+  "scenarios": [
+    {
+      "scenario": "S3",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": false,
+          "detail": "STS generation 1→3(기대 +0)"
+        },
+        {
+          "id": "J2",
+          "pass": false,
+          "detail": "PVC UID map[data-postgres-prod-shard-0-0:2312c2d2-ebb4-4d36-8043-c87f6c01db22 data-postgres-prod-shard-0-1:edc6cdd6-011d-49e1-8f6d-a3a270e80acd data-postgres-prod-shard-0-2:1f80ae04-f09f-4c26-9ac0-4a18bdf5d767]→map[data-postgres-prod-shard-0-0:8060a54c-11da-4ae1-87dd-4e423c12b8e0 data-postgres-prod-shard-0-1:edc6cdd6-011d-49e1-8f6d-a3a270e80acd data-postgres-prod-shard-0-2:1f80ae04-f09f-4c26-9ac0-4a18bdf5d767]"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→2(기대 +0~+1)"
+        },
+        {
+          "id": "J4",
+          "pass": true,
+          "detail": "관측창 status 쓰기 전진 10"
+        },
+        {
+          "id": "J5",
+          "pass": false,
+          "detail": "Released PV 12→13"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "PodReady False 부터 승격까지 12s · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-2 가 40s 안에 postgres-prod-shard-0-1 에 붙지 않음"
+        },
+        {
+          "id": "J10",
+          "pass": false,
+          "detail": "10s 넘는 공백 2(허용 1)"
+        },
+        {
+          "id": "J11",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-2 가 W4(loopdrill-worker4)에"
+        },
+        {
+          "id": "J13",
+          "pass": false,
+          "detail": "updateStrategy \"RollingUpdate\"(기대 OnDelete)"
+        },
+        {
+          "id": "J14",
+          "pass": false,
+          "detail": "풀림 2026-09-29T12:01:50Z · 수렴 없음"
+        },
+        {
+          "id": "J15",
+          "pass": false,
+          "detail": "최종 primary 에서 대조 못 함"
+        },
+        {
+          "id": "J16",
+          "pass": true,
+          "detail": "data-bearing 표본 0 보존"
+        },
+        {
+          "id": "J17",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-0 network trust 6줄"
+        }
+      ],
+      "round": 1,
+      "expect": {
+        "promotion": "failover",
+        "promotionsAllowed": 1,
+        "promotionsRequired": 0,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "deniedReads": false,
+        "members": 3,
+        "gapBound": 115000000000,
+        "longGaps": 1,
+        "lossAllowed": 1,
+        "convergeWithin": 1560000000000,
+        "rolloutBlock": false,
+        "trustControl": false,
+        "detachedData": false
+      },
+      "before": {
+        "takenAt": "2026-09-29T21:01:03.285355+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "2312c2d2-ebb4-4d36-8043-c87f6c01db22",
+          "data-postgres-prod-shard-0-1": "edc6cdd6-011d-49e1-8f6d-a3a270e80acd",
+          "data-postgres-prod-shard-0-2": "1f80ae04-f09f-4c26-9ac0-4a18bdf5d767"
+        },
+        "releasedPVs": 12,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:01:02.413185+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:00:53Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-29T21:01:02.413185+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {},
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker",
+            "postgres-prod-shard-0-2": "loopdrill-worker4"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {},
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      },
+      "after": {
+        "takenAt": "2026-09-29T21:02:15.02537+09:00",
+        "stsGeneration": 3,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-67c5d65578",
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "8060a54c-11da-4ae1-87dd-4e423c12b8e0",
+          "data-postgres-prod-shard-0-1": "edc6cdd6-011d-49e1-8f6d-a3a270e80acd",
+          "data-postgres-prod-shard-0-2": "1f80ae04-f09f-4c26-9ac0-4a18bdf5d767"
+        },
+        "releasedPVs": 13,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:01:02.413185+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          },
+          {
+            "at": "2026-09-29T21:01:27.879738+09:00",
+            "timeline": 2,
+            "primary": "postgres-prod-shard-0-1"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:01:04Z",
+          "2026-09-29T12:01:16Z",
+          "2026-09-29T12:01:22Z",
+          "2026-09-29T12:01:23Z",
+          "2026-09-29T12:01:29Z",
+          "2026-09-29T12:01:35Z",
+          "2026-09-29T12:01:40Z",
+          "2026-09-29T12:01:50Z",
+          "2026-09-29T12:01:56Z",
+          "2026-09-29T12:01:59Z",
+          "2026-09-29T12:02:08Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 1,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 3,
+        "events": [
+          {
+            "at": "2026-09-29T12:01:14.616627Z",
+            "type": "Normal",
+            "reason": "ClusterReady",
+            "message": "PostgresCluster 1/1 shards primary ready, router=false",
+            "count": 619
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-29T21:01:04.295458+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-29T21:01:27.879738+09:00",
+            "primary": "postgres-prod-shard-0-1",
+            "connected": null
+          },
+          {
+            "at": "2026-09-29T21:01:50.647113+09:00",
+            "primary": "postgres-prod-shard-0-1",
+            "connected": [
+              "postgres-prod-shard-0-0"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-0"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-29T21:01:04.295448+09:00"
+        ],
+        "unreadyAt": "2026-09-29T21:01:16.112131+09:00",
+        "releasedAt": "2026-09-29T21:01:50.647105+09:00",
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 0,
+        "probe": {
+          "from": "2026-09-29T21:01:03.285355+09:00",
+          "to": "2026-09-29T21:02:15.02537+09:00",
+          "acks": [
+            {
+              "id": 13,
+              "at": "2026-09-29T12:01:06.789045Z"
+            },
+            {
+              "id": 14,
+              "at": "2026-09-29T12:01:11.79296Z"
+            },
+            {
+              "id": 15,
+              "at": "2026-09-29T12:01:16.793528Z"
+            },
+            {
+              "id": 16,
+              "at": "2026-09-29T12:01:21.795561Z"
+            },
+            {
+              "id": 17,
+              "at": "2026-09-29T12:01:26.798183Z"
+            },
+            {
+              "id": 18,
+              "at": "2026-09-29T12:01:31.801813Z"
+            },
+            {
+              "id": 19,
+              "at": "2026-09-29T12:01:36.805245Z"
+            },
+            {
+              "id": 20,
+              "at": "2026-09-29T12:01:41.808549Z"
+            },
+            {
+              "id": 21,
+              "at": "2026-09-29T12:01:46.810007Z"
+            },
+            {
+              "id": 34,
+              "at": "2026-09-29T12:01:57.899099Z"
+            },
+            {
+              "id": 35,
+              "at": "2026-09-29T12:02:02.822311Z"
+            }
+          ]
+        },
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker",
+            "postgres-prod-shard-0-2": "loopdrill-worker4"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "operator": "system:serviceaccount:data:platform-data-postgres-operator",
+          "oldPrimary": "postgres-prod-shard-0-0",
+          "steps": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "deletedAt": "2026-09-29T12:01:23.062683Z",
+              "by": "system:serviceaccount:data:platform-data-postgres-operator",
+              "detached": false,
+              "streaming": true,
+              "readyAt": "2026-09-29T21:02:02.377371+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "deletedAt": "2026-09-29T12:01:49.79752Z",
+              "by": "system:node:loopdrill-worker2",
+              "detached": true,
+              "streaming": false,
+              "readyAt": "2026-09-29T21:02:02.377371+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:01:57.854305Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:01:58.814963Z",
+              "by": "system:node:loopdrill-worker4",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:02:05.884676Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": false,
+              "streaming": false
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:02:06.828605Z",
+              "by": "system:node:loopdrill-worker",
+              "detached": false,
+              "streaming": false
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:02:14.934007Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": true,
+              "streaming": true
+            }
+          ],
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {
+          "members": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "fresh": false,
+              "trust": -1,
+              "errors": -1
+            }
+          ],
+          "noPassword": "accepted",
+          "probe": "accepted",
+          "superuser": "accepted"
+        },
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      }
+    },
+    {
+      "scenario": "S5",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": true,
+          "detail": "generation·updateRevision·ControllerRevision 불변"
+        },
+        {
+          "id": "J2",
+          "pass": false,
+          "detail": "PVC UID map[data-postgres-prod-shard-0-0:e7d7f49b-6253-455f-9217-fe674ba447ab data-postgres-prod-shard-0-1:637a3191-b0b8-4a84-b9c7-a164f2912feb data-postgres-prod-shard-0-2:91227198-f1dd-470f-b314-72cb0f8b3bdc]→map[data-postgres-prod-shard-0-0:e7d7f49b-6253-455f-9217-fe674ba447ab data-postgres-prod-shard-0-1:61947f75-28be-4801-b783-883e6f080b18 data-postgres-prod-shard-0-2:91227198-f1dd-470f-b314-72cb0f8b3bdc]"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→1(기대 +0~+0)"
+        },
+        {
+          "id": "J4",
+          "pass": false,
+          "detail": "'Failed to watch' 12줄"
+        },
+        {
+          "id": "J5",
+          "pass": false,
+          "detail": "Released PV 16→17"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "승격 없음 · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": true,
+          "detail": "승격 없음"
+        },
+        {
+          "id": "J10",
+          "pass": true,
+          "detail": "ack 155(하한 153) · 가장 긴 공백 5s"
+        },
+        {
+          "id": "J11",
+          "pass": true,
+          "detail": "멤버 3 가 서로 다른 적격 노드"
+        },
+        {
+          "id": "J13",
+          "pass": false,
+          "detail": "updateStrategy \"RollingUpdate\"(기대 OnDelete)"
+        },
+        {
+          "id": "J14",
+          "pass": true,
+          "detail": "풀림 뒤 수렴까지 17s"
+        },
+        {
+          "id": "J15",
+          "pass": true,
+          "detail": "ack 155개 중 소실 0(허용 0) · postgres-prod-shard-0-0"
+        },
+        {
+          "id": "J16",
+          "pass": true,
+          "detail": "data-bearing 표본 0 보존"
+        },
+        {
+          "id": "J17",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-0 network trust 6줄"
+        }
+      ],
+      "round": 1,
+      "expect": {
+        "promotion": "none",
+        "promotionsAllowed": 0,
+        "promotionsRequired": 0,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "deniedReads": false,
+        "members": 3,
+        "gapBound": 10000000000,
+        "longGaps": 0,
+        "lossAllowed": 0,
+        "convergeWithin": 1560000000000,
+        "rolloutBlock": false,
+        "trustControl": false,
+        "detachedData": false
+      },
+      "before": {
+        "takenAt": "2026-09-29T21:11:57.956332+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "e7d7f49b-6253-455f-9217-fe674ba447ab",
+          "data-postgres-prod-shard-0-1": "637a3191-b0b8-4a84-b9c7-a164f2912feb",
+          "data-postgres-prod-shard-0-2": "91227198-f1dd-470f-b314-72cb0f8b3bdc"
+        },
+        "releasedPVs": 16,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:11:57.064215+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:11:35Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-29T21:11:57.064215+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {},
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker4",
+            "postgres-prod-shard-0-2": "loopdrill-worker"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {},
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      },
+      "after": {
+        "takenAt": "2026-09-29T21:24:53.827047+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "e7d7f49b-6253-455f-9217-fe674ba447ab",
+          "data-postgres-prod-shard-0-1": "61947f75-28be-4801-b783-883e6f080b18",
+          "data-postgres-prod-shard-0-2": "91227198-f1dd-470f-b314-72cb0f8b3bdc"
+        },
+        "releasedPVs": 17,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:11:57.064215+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:12:39Z",
+          "2026-09-29T12:12:57Z",
+          "2026-09-29T12:13:03Z",
+          "2026-09-29T12:13:14Z",
+          "2026-09-29T12:13:19Z",
+          "2026-09-29T12:13:25Z",
+          "2026-09-29T12:13:30Z",
+          "2026-09-29T12:13:36Z",
+          "2026-09-29T12:13:41Z",
+          "2026-09-29T12:13:47Z",
+          "2026-09-29T12:13:52Z",
+          "2026-09-29T12:13:58Z",
+          "2026-09-29T12:14:03Z",
+          "2026-09-29T12:14:09Z",
+          "2026-09-29T12:14:14Z",
+          "2026-09-29T12:14:20Z",
+          "2026-09-29T12:14:25Z",
+          "2026-09-29T12:14:36Z",
+          "2026-09-29T12:14:41Z",
+          "2026-09-29T12:14:47Z",
+          "2026-09-29T12:14:58Z",
+          "2026-09-29T12:15:04Z",
+          "2026-09-29T12:15:09Z",
+          "2026-09-29T12:15:15Z",
+          "2026-09-29T12:15:21Z",
+          "2026-09-29T12:15:26Z",
+          "2026-09-29T12:15:32Z",
+          "2026-09-29T12:15:38Z",
+          "2026-09-29T12:15:43Z",
+          "2026-09-29T12:15:54Z",
+          "2026-09-29T12:15:59Z",
+          "2026-09-29T12:16:05Z",
+          "2026-09-29T12:16:10Z",
+          "2026-09-29T12:16:16Z",
+          "2026-09-29T12:16:21Z",
+          "2026-09-29T12:16:32Z",
+          "2026-09-29T12:16:37Z",
+          "2026-09-29T12:16:43Z",
+          "2026-09-29T12:16:48Z",
+          "2026-09-29T12:16:54Z",
+          "2026-09-29T12:16:59Z",
+          "2026-09-29T12:17:05Z",
+          "2026-09-29T12:17:10Z",
+          "2026-09-29T12:17:16Z",
+          "2026-09-29T12:17:27Z",
+          "2026-09-29T12:17:32Z",
+          "2026-09-29T12:17:38Z",
+          "2026-09-29T12:17:39Z",
+          "2026-09-29T12:17:50Z",
+          "2026-09-29T12:17:55Z",
+          "2026-09-29T12:18:01Z",
+          "2026-09-29T12:18:07Z",
+          "2026-09-29T12:18:13Z",
+          "2026-09-29T12:18:18Z",
+          "2026-09-29T12:18:29Z",
+          "2026-09-29T12:18:34Z",
+          "2026-09-29T12:18:40Z",
+          "2026-09-29T12:18:45Z",
+          "2026-09-29T12:18:51Z",
+          "2026-09-29T12:18:56Z",
+          "2026-09-29T12:19:07Z",
+          "2026-09-29T12:19:13Z",
+          "2026-09-29T12:19:18Z",
+          "2026-09-29T12:19:24Z",
+          "2026-09-29T12:19:29Z",
+          "2026-09-29T12:19:35Z",
+          "2026-09-29T12:19:46Z",
+          "2026-09-29T12:19:51Z",
+          "2026-09-29T12:19:57Z",
+          "2026-09-29T12:20:02Z",
+          "2026-09-29T12:20:08Z",
+          "2026-09-29T12:20:13Z",
+          "2026-09-29T12:20:24Z",
+          "2026-09-29T12:20:30Z",
+          "2026-09-29T12:20:36Z",
+          "2026-09-29T12:20:42Z",
+          "2026-09-29T12:20:47Z",
+          "2026-09-29T12:20:53Z",
+          "2026-09-29T12:20:58Z",
+          "2026-09-29T12:21:04Z",
+          "2026-09-29T12:21:09Z",
+          "2026-09-29T12:21:15Z",
+          "2026-09-29T12:21:20Z",
+          "2026-09-29T12:21:26Z",
+          "2026-09-29T12:21:31Z",
+          "2026-09-29T12:21:37Z",
+          "2026-09-29T12:21:47Z",
+          "2026-09-29T12:21:53Z",
+          "2026-09-29T12:21:59Z"
+        ],
+        "failedWatchLines": 12,
+        "auditPVCDeletes": 2,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "events": [
+          {
+            "at": "2026-09-29T12:12:01.226709Z",
+            "type": "Warning",
+            "reason": "StandbyReseeded",
+            "message": "standby postgres-prod-shard-0-1 not ready for 8m0s with a ready primary; re-seeding (delete pod+PVC → fresh pg_basebackup)",
+            "count": 1
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-29T21:11:59.237689+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-29T21:24:41.081071+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-29T21:11:59.237666+09:00"
+        ],
+        "releasedAt": "2026-09-29T21:24:29.660674+09:00",
+        "convergedAt": "2026-09-29T21:24:46.973141+09:00",
+        "observeFrom": "2026-09-29T21:24:52.871073+09:00",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {
+          "from": "2026-09-29T21:11:57.956332+09:00",
+          "to": "2026-09-29T21:24:53.827047+09:00",
+          "acks": [
+            {
+              "id": 14,
+              "at": "2026-09-29T12:12:01.46413Z"
+            },
+            {
+              "id": 15,
+              "at": "2026-09-29T12:12:06.468222Z"
+            },
+            {
+              "id": 16,
+              "at": "2026-09-29T12:12:11.471585Z"
+            },
+            {
+              "id": 17,
+              "at": "2026-09-29T12:12:16.475356Z"
+            },
+            {
+              "id": 18,
+              "at": "2026-09-29T12:12:21.483748Z"
+            },
+            {
+              "id": 19,
+              "at": "2026-09-29T12:12:26.485794Z"
+            },
+            {
+              "id": 20,
+              "at": "2026-09-29T12:12:31.489499Z"
+            },
+            {
+              "id": 21,
+              "at": "2026-09-29T12:12:36.492177Z"
+            },
+            {
+              "id": 22,
+              "at": "2026-09-29T12:12:41.494427Z"
+            },
+            {
+              "id": 23,
+              "at": "2026-09-29T12:12:46.497925Z"
+            },
+            {
+              "id": 24,
+              "at": "2026-09-29T12:12:51.499562Z"
+            },
+            {
+              "id": 25,
+              "at": "2026-09-29T12:12:56.503706Z"
+            },
+            {
+              "id": 26,
+              "at": "2026-09-29T12:13:01.510044Z"
+            },
+            {
+              "id": 27,
+              "at": "2026-09-29T12:13:06.518216Z"
+            },
+            {
+              "id": 28,
+              "at": "2026-09-29T12:13:11.520424Z"
+            },
+            {
+              "id": 29,
+              "at": "2026-09-29T12:13:16.522882Z"
+            },
+            {
+              "id": 30,
+              "at": "2026-09-29T12:13:21.523766Z"
+            },
+            {
+              "id": 31,
+              "at": "2026-09-29T12:13:26.52624Z"
+            },
+            {
+              "id": 32,
+              "at": "2026-09-29T12:13:31.530972Z"
+            },
+            {
+              "id": 33,
+              "at": "2026-09-29T12:13:36.532466Z"
+            },
+            {
+              "id": 34,
+              "at": "2026-09-29T12:13:41.534249Z"
+            },
+            {
+              "id": 35,
+              "at": "2026-09-29T12:13:46.537512Z"
+            },
+            {
+              "id": 36,
+              "at": "2026-09-29T12:13:51.548886Z"
+            },
+            {
+              "id": 37,
+              "at": "2026-09-29T12:13:56.55721Z"
+            },
+            {
+              "id": 38,
+              "at": "2026-09-29T12:14:01.565963Z"
+            },
+            {
+              "id": 39,
+              "at": "2026-09-29T12:14:06.567835Z"
+            },
+            {
+              "id": 40,
+              "at": "2026-09-29T12:14:11.571824Z"
+            },
+            {
+              "id": 41,
+              "at": "2026-09-29T12:14:16.575817Z"
+            },
+            {
+              "id": 42,
+              "at": "2026-09-29T12:14:21.582106Z"
+            },
+            {
+              "id": 43,
+              "at": "2026-09-29T12:14:26.587688Z"
+            },
+            {
+              "id": 44,
+              "at": "2026-09-29T12:14:31.590465Z"
+            },
+            {
+              "id": 45,
+              "at": "2026-09-29T12:14:36.592248Z"
+            },
+            {
+              "id": 46,
+              "at": "2026-09-29T12:14:41.592878Z"
+            },
+            {
+              "id": 47,
+              "at": "2026-09-29T12:14:46.597312Z"
+            },
+            {
+              "id": 48,
+              "at": "2026-09-29T12:14:51.60032Z"
+            },
+            {
+              "id": 49,
+              "at": "2026-09-29T12:14:56.604325Z"
+            },
+            {
+              "id": 50,
+              "at": "2026-09-29T12:15:01.609592Z"
+            },
+            {
+              "id": 51,
+              "at": "2026-09-29T12:15:06.612387Z"
+            },
+            {
+              "id": 52,
+              "at": "2026-09-29T12:15:11.620709Z"
+            },
+            {
+              "id": 53,
+              "at": "2026-09-29T12:15:16.62349Z"
+            },
+            {
+              "id": 54,
+              "at": "2026-09-29T12:15:21.626589Z"
+            },
+            {
+              "id": 55,
+              "at": "2026-09-29T12:15:26.628915Z"
+            },
+            {
+              "id": 56,
+              "at": "2026-09-29T12:15:31.634415Z"
+            },
+            {
+              "id": 57,
+              "at": "2026-09-29T12:15:36.643111Z"
+            },
+            {
+              "id": 58,
+              "at": "2026-09-29T12:15:41.64572Z"
+            },
+            {
+              "id": 59,
+              "at": "2026-09-29T12:15:46.646882Z"
+            },
+            {
+              "id": 60,
+              "at": "2026-09-29T12:15:51.656959Z"
+            },
+            {
+              "id": 61,
+              "at": "2026-09-29T12:15:56.660379Z"
+            },
+            {
+              "id": 62,
+              "at": "2026-09-29T12:16:01.662868Z"
+            },
+            {
+              "id": 63,
+              "at": "2026-09-29T12:16:06.66962Z"
+            },
+            {
+              "id": 64,
+              "at": "2026-09-29T12:16:11.677858Z"
+            },
+            {
+              "id": 65,
+              "at": "2026-09-29T12:16:16.681663Z"
+            },
+            {
+              "id": 66,
+              "at": "2026-09-29T12:16:21.683264Z"
+            },
+            {
+              "id": 67,
+              "at": "2026-09-29T12:16:26.685605Z"
+            },
+            {
+              "id": 68,
+              "at": "2026-09-29T12:16:31.690619Z"
+            },
+            {
+              "id": 69,
+              "at": "2026-09-29T12:16:36.695404Z"
+            },
+            {
+              "id": 70,
+              "at": "2026-09-29T12:16:41.698464Z"
+            },
+            {
+              "id": 71,
+              "at": "2026-09-29T12:16:46.706088Z"
+            },
+            {
+              "id": 72,
+              "at": "2026-09-29T12:16:51.711633Z"
+            },
+            {
+              "id": 73,
+              "at": "2026-09-29T12:16:56.726851Z"
+            },
+            {
+              "id": 74,
+              "at": "2026-09-29T12:17:01.734052Z"
+            },
+            {
+              "id": 75,
+              "at": "2026-09-29T12:17:06.739398Z"
+            },
+            {
+              "id": 76,
+              "at": "2026-09-29T12:17:11.745295Z"
+            },
+            {
+              "id": 77,
+              "at": "2026-09-29T12:17:16.748194Z"
+            },
+            {
+              "id": 78,
+              "at": "2026-09-29T12:17:21.752461Z"
+            },
+            {
+              "id": 79,
+              "at": "2026-09-29T12:17:26.756474Z"
+            },
+            {
+              "id": 80,
+              "at": "2026-09-29T12:17:31.762989Z"
+            },
+            {
+              "id": 81,
+              "at": "2026-09-29T12:17:36.769644Z"
+            },
+            {
+              "id": 82,
+              "at": "2026-09-29T12:17:41.775016Z"
+            },
+            {
+              "id": 83,
+              "at": "2026-09-29T12:17:46.785149Z"
+            },
+            {
+              "id": 84,
+              "at": "2026-09-29T12:17:51.791815Z"
+            },
+            {
+              "id": 85,
+              "at": "2026-09-29T12:17:56.796669Z"
+            },
+            {
+              "id": 86,
+              "at": "2026-09-29T12:18:01.799029Z"
+            },
+            {
+              "id": 87,
+              "at": "2026-09-29T12:18:06.803924Z"
+            },
+            {
+              "id": 88,
+              "at": "2026-09-29T12:18:11.807295Z"
+            },
+            {
+              "id": 89,
+              "at": "2026-09-29T12:18:16.810091Z"
+            },
+            {
+              "id": 90,
+              "at": "2026-09-29T12:18:21.818156Z"
+            },
+            {
+              "id": 91,
+              "at": "2026-09-29T12:18:26.827415Z"
+            },
+            {
+              "id": 92,
+              "at": "2026-09-29T12:18:31.835244Z"
+            },
+            {
+              "id": 93,
+              "at": "2026-09-29T12:18:36.839584Z"
+            },
+            {
+              "id": 94,
+              "at": "2026-09-29T12:18:41.841476Z"
+            },
+            {
+              "id": 95,
+              "at": "2026-09-29T12:18:46.850787Z"
+            },
+            {
+              "id": 96,
+              "at": "2026-09-29T12:18:51.855172Z"
+            },
+            {
+              "id": 97,
+              "at": "2026-09-29T12:18:56.856326Z"
+            },
+            {
+              "id": 98,
+              "at": "2026-09-29T12:19:01.863073Z"
+            },
+            {
+              "id": 99,
+              "at": "2026-09-29T12:19:06.873051Z"
+            },
+            {
+              "id": 100,
+              "at": "2026-09-29T12:19:11.879252Z"
+            },
+            {
+              "id": 101,
+              "at": "2026-09-29T12:19:16.883208Z"
+            },
+            {
+              "id": 102,
+              "at": "2026-09-29T12:19:21.885893Z"
+            },
+            {
+              "id": 103,
+              "at": "2026-09-29T12:19:26.893918Z"
+            },
+            {
+              "id": 104,
+              "at": "2026-09-29T12:19:31.899247Z"
+            },
+            {
+              "id": 105,
+              "at": "2026-09-29T12:19:36.905901Z"
+            },
+            {
+              "id": 106,
+              "at": "2026-09-29T12:19:41.910205Z"
+            },
+            {
+              "id": 107,
+              "at": "2026-09-29T12:19:46.915203Z"
+            },
+            {
+              "id": 108,
+              "at": "2026-09-29T12:19:51.916695Z"
+            },
+            {
+              "id": 109,
+              "at": "2026-09-29T12:19:56.922842Z"
+            },
+            {
+              "id": 110,
+              "at": "2026-09-29T12:20:01.926222Z"
+            },
+            {
+              "id": 111,
+              "at": "2026-09-29T12:20:06.933759Z"
+            },
+            {
+              "id": 112,
+              "at": "2026-09-29T12:20:11.943549Z"
+            },
+            {
+              "id": 113,
+              "at": "2026-09-29T12:20:16.950497Z"
+            },
+            {
+              "id": 114,
+              "at": "2026-09-29T12:20:21.956982Z"
+            },
+            {
+              "id": 115,
+              "at": "2026-09-29T12:20:26.963789Z"
+            },
+            {
+              "id": 116,
+              "at": "2026-09-29T12:20:31.967206Z"
+            },
+            {
+              "id": 117,
+              "at": "2026-09-29T12:20:36.972271Z"
+            },
+            {
+              "id": 118,
+              "at": "2026-09-29T12:20:41.973474Z"
+            },
+            {
+              "id": 119,
+              "at": "2026-09-29T12:20:46.980509Z"
+            },
+            {
+              "id": 120,
+              "at": "2026-09-29T12:20:51.984448Z"
+            },
+            {
+              "id": 121,
+              "at": "2026-09-29T12:20:56.988296Z"
+            },
+            {
+              "id": 122,
+              "at": "2026-09-29T12:21:01.991692Z"
+            },
+            {
+              "id": 123,
+              "at": "2026-09-29T12:21:06.996729Z"
+            },
+            {
+              "id": 124,
+              "at": "2026-09-29T12:21:11.999994Z"
+            },
+            {
+              "id": 125,
+              "at": "2026-09-29T12:21:17.003667Z"
+            },
+            {
+              "id": 126,
+              "at": "2026-09-29T12:21:21.006705Z"
+            },
+            {
+              "id": 127,
+              "at": "2026-09-29T12:21:26.007293Z"
+            },
+            {
+              "id": 128,
+              "at": "2026-09-29T12:21:31.009813Z"
+            },
+            {
+              "id": 129,
+              "at": "2026-09-29T12:21:36.017814Z"
+            },
+            {
+              "id": 130,
+              "at": "2026-09-29T12:21:41.026762Z"
+            },
+            {
+              "id": 131,
+              "at": "2026-09-29T12:21:46.034657Z"
+            },
+            {
+              "id": 132,
+              "at": "2026-09-29T12:21:51.046167Z"
+            },
+            {
+              "id": 133,
+              "at": "2026-09-29T12:21:56.047875Z"
+            },
+            {
+              "id": 134,
+              "at": "2026-09-29T12:22:01.051543Z"
+            },
+            {
+              "id": 135,
+              "at": "2026-09-29T12:22:06.054626Z"
+            },
+            {
+              "id": 136,
+              "at": "2026-09-29T12:22:11.058468Z"
+            },
+            {
+              "id": 137,
+              "at": "2026-09-29T12:22:16.064184Z"
+            },
+            {
+              "id": 138,
+              "at": "2026-09-29T12:22:21.070979Z"
+            },
+            {
+              "id": 139,
+              "at": "2026-09-29T12:22:26.077071Z"
+            },
+            {
+              "id": 140,
+              "at": "2026-09-29T12:22:31.082988Z"
+            },
+            {
+              "id": 141,
+              "at": "2026-09-29T12:22:36.083645Z"
+            },
+            {
+              "id": 142,
+              "at": "2026-09-29T12:22:41.086756Z"
+            },
+            {
+              "id": 143,
+              "at": "2026-09-29T12:22:46.095512Z"
+            },
+            {
+              "id": 144,
+              "at": "2026-09-29T12:22:51.101575Z"
+            },
+            {
+              "id": 145,
+              "at": "2026-09-29T12:22:56.114666Z"
+            },
+            {
+              "id": 146,
+              "at": "2026-09-29T12:23:01.121556Z"
+            },
+            {
+              "id": 147,
+              "at": "2026-09-29T12:23:06.125025Z"
+            },
+            {
+              "id": 148,
+              "at": "2026-09-29T12:23:11.128497Z"
+            },
+            {
+              "id": 149,
+              "at": "2026-09-29T12:23:16.132081Z"
+            },
+            {
+              "id": 150,
+              "at": "2026-09-29T12:23:21.134297Z"
+            },
+            {
+              "id": 151,
+              "at": "2026-09-29T12:23:26.136655Z"
+            },
+            {
+              "id": 152,
+              "at": "2026-09-29T12:23:31.144259Z"
+            },
+            {
+              "id": 153,
+              "at": "2026-09-29T12:23:36.148411Z"
+            },
+            {
+              "id": 154,
+              "at": "2026-09-29T12:23:41.15211Z"
+            },
+            {
+              "id": 155,
+              "at": "2026-09-29T12:23:46.155811Z"
+            },
+            {
+              "id": 156,
+              "at": "2026-09-29T12:23:51.158831Z"
+            },
+            {
+              "id": 157,
+              "at": "2026-09-29T12:23:56.161055Z"
+            },
+            {
+              "id": 158,
+              "at": "2026-09-29T12:24:01.166705Z"
+            },
+            {
+              "id": 159,
+              "at": "2026-09-29T12:24:06.18042Z"
+            },
+            {
+              "id": 160,
+              "at": "2026-09-29T12:24:11.186171Z"
+            },
+            {
+              "id": 161,
+              "at": "2026-09-29T12:24:16.18904Z"
+            },
+            {
+              "id": 162,
+              "at": "2026-09-29T12:24:21.193922Z"
+            },
+            {
+              "id": 163,
+              "at": "2026-09-29T12:24:26.197068Z"
+            },
+            {
+              "id": 164,
+              "at": "2026-09-29T12:24:31.199555Z"
+            },
+            {
+              "id": 165,
+              "at": "2026-09-29T12:24:36.202708Z"
+            },
+            {
+              "id": 166,
+              "at": "2026-09-29T12:24:41.205002Z"
+            },
+            {
+              "id": 167,
+              "at": "2026-09-29T12:24:46.210776Z"
+            },
+            {
+              "id": 168,
+              "at": "2026-09-29T12:24:51.213759Z"
+            }
+          ],
+          "stored": [
+            {
+              "from": 14,
+              "to": 168
+            }
+          ],
+          "primary": "postgres-prod-shard-0-0"
+        },
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker3",
+            "postgres-prod-shard-0-2": "loopdrill-worker"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "operator": "system:serviceaccount:data:platform-data-postgres-operator",
+          "oldPrimary": "postgres-prod-shard-0-0",
+          "steps": [
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:12:01.218584Z",
+              "by": "system:serviceaccount:data:platform-data-postgres-operator",
+              "detached": true,
+              "streaming": true,
+              "readyAt": "2026-09-29T21:24:46.973141+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:13:51.878877Z",
+              "by": "system:serviceaccount:kube-system:node-controller",
+              "detached": true,
+              "streaming": true,
+              "readyAt": "2026-09-29T21:24:46.973141+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:24:35.474762Z",
+              "by": "system:node:loopdrill-worker4",
+              "detached": true,
+              "streaming": true,
+              "readyAt": "2026-09-29T21:24:46.973141+09:00"
+            }
+          ],
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {
+          "members": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            }
+          ],
+          "noPassword": "accepted",
+          "probe": "accepted",
+          "superuser": "accepted"
+        },
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      }
+    },
+    {
+      "scenario": "S3",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": false,
+          "detail": "STS generation 1→3(기대 +0)"
+        },
+        {
+          "id": "J2",
+          "pass": false,
+          "detail": "PVC UID map[data-postgres-prod-shard-0-0:4090f1f0-ff78-46ec-a6c2-926cdd3c1e18 data-postgres-prod-shard-0-1:2aff12cd-2fa4-4b9f-8295-e5c99e2d3252 data-postgres-prod-shard-0-2:6f85566d-ebca-433c-bc37-d9d95f2ed0aa]→map[data-postgres-prod-shard-0-0:dd1403d7-cb11-4ebd-aa76-9820fbf84b78 data-postgres-prod-shard-0-1:2aff12cd-2fa4-4b9f-8295-e5c99e2d3252 data-postgres-prod-shard-0-2:6f85566d-ebca-433c-bc37-d9d95f2ed0aa]"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→2(기대 +0~+1)"
+        },
+        {
+          "id": "J4",
+          "pass": true,
+          "detail": "관측창 status 쓰기 전진 10"
+        },
+        {
+          "id": "J5",
+          "pass": false,
+          "detail": "Released PV 20→21"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "PodReady False 부터 승격까지 12s · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-2 가 40s 안에 postgres-prod-shard-0-1 에 붙지 않음"
+        },
+        {
+          "id": "J10",
+          "pass": false,
+          "detail": "10s 넘는 공백 2(허용 1)"
+        },
+        {
+          "id": "J11",
+          "pass": true,
+          "detail": "멤버 3 가 서로 다른 적격 노드"
+        },
+        {
+          "id": "J13",
+          "pass": false,
+          "detail": "updateStrategy \"RollingUpdate\"(기대 OnDelete)"
+        },
+        {
+          "id": "J14",
+          "pass": false,
+          "detail": "풀림 2026-09-29T12:27:41Z · 수렴 없음"
+        },
+        {
+          "id": "J15",
+          "pass": false,
+          "detail": "최종 primary 에서 대조 못 함"
+        },
+        {
+          "id": "J16",
+          "pass": true,
+          "detail": "data-bearing 표본 0 보존"
+        },
+        {
+          "id": "J17",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-0 network trust 6줄"
+        }
+      ],
+      "round": 2,
+      "expect": {
+        "promotion": "failover",
+        "promotionsAllowed": 1,
+        "promotionsRequired": 0,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "deniedReads": false,
+        "members": 3,
+        "gapBound": 115000000000,
+        "longGaps": 1,
+        "lossAllowed": 1,
+        "convergeWithin": 1560000000000,
+        "rolloutBlock": false,
+        "trustControl": false,
+        "detachedData": false
+      },
+      "before": {
+        "takenAt": "2026-09-29T21:26:53.855076+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "4090f1f0-ff78-46ec-a6c2-926cdd3c1e18",
+          "data-postgres-prod-shard-0-1": "2aff12cd-2fa4-4b9f-8295-e5c99e2d3252",
+          "data-postgres-prod-shard-0-2": "6f85566d-ebca-433c-bc37-d9d95f2ed0aa"
+        },
+        "releasedPVs": 20,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:26:52.987677+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:26:49Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-29T21:26:52.987677+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {},
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker4",
+            "postgres-prod-shard-0-2": "loopdrill-worker"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {},
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      },
+      "after": {
+        "takenAt": "2026-09-29T21:28:05.670624+09:00",
+        "stsGeneration": 3,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-67c5d65578",
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "dd1403d7-cb11-4ebd-aa76-9820fbf84b78",
+          "data-postgres-prod-shard-0-1": "2aff12cd-2fa4-4b9f-8295-e5c99e2d3252",
+          "data-postgres-prod-shard-0-2": "6f85566d-ebca-433c-bc37-d9d95f2ed0aa"
+        },
+        "releasedPVs": 21,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:26:52.987677+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          },
+          {
+            "at": "2026-09-29T21:27:18.457944+09:00",
+            "timeline": 2,
+            "primary": "postgres-prod-shard-0-1"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:26:54Z",
+          "2026-09-29T12:27:07Z",
+          "2026-09-29T12:27:13Z",
+          "2026-09-29T12:27:14Z",
+          "2026-09-29T12:27:21Z",
+          "2026-09-29T12:27:26Z",
+          "2026-09-29T12:27:32Z",
+          "2026-09-29T12:27:41Z",
+          "2026-09-29T12:27:46Z",
+          "2026-09-29T12:27:49Z",
+          "2026-09-29T12:27:59Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 1,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 3,
+        "events": [
+          {
+            "at": "2026-09-29T12:27:05.354431Z",
+            "type": "Normal",
+            "reason": "ClusterReady",
+            "message": "PostgresCluster 1/1 shards primary ready, router=false",
+            "count": 653
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-29T21:26:54.914581+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-29T21:27:18.457944+09:00",
+            "primary": "postgres-prod-shard-0-1",
+            "connected": null
+          },
+          {
+            "at": "2026-09-29T21:27:41.210616+09:00",
+            "primary": "postgres-prod-shard-0-1",
+            "connected": [
+              "postgres-prod-shard-0-0"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-0"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-29T21:26:54.914564+09:00"
+        ],
+        "unreadyAt": "2026-09-29T21:27:06.717688+09:00",
+        "releasedAt": "2026-09-29T21:27:41.210601+09:00",
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 0,
+        "probe": {
+          "from": "2026-09-29T21:26:53.855076+09:00",
+          "to": "2026-09-29T21:28:05.670624+09:00",
+          "acks": [
+            {
+              "id": 14,
+              "at": "2026-09-29T12:26:57.391883Z"
+            },
+            {
+              "id": 15,
+              "at": "2026-09-29T12:27:02.396353Z"
+            },
+            {
+              "id": 16,
+              "at": "2026-09-29T12:27:07.397079Z"
+            },
+            {
+              "id": 17,
+              "at": "2026-09-29T12:27:12.399021Z"
+            },
+            {
+              "id": 18,
+              "at": "2026-09-29T12:27:17.403173Z"
+            },
+            {
+              "id": 19,
+              "at": "2026-09-29T12:27:22.406993Z"
+            },
+            {
+              "id": 20,
+              "at": "2026-09-29T12:27:27.411565Z"
+            },
+            {
+              "id": 21,
+              "at": "2026-09-29T12:27:32.414207Z"
+            },
+            {
+              "id": 22,
+              "at": "2026-09-29T12:27:37.416707Z"
+            },
+            {
+              "id": 34,
+              "at": "2026-09-29T12:27:48.583538Z"
+            },
+            {
+              "id": 35,
+              "at": "2026-09-29T12:27:53.43366Z"
+            }
+          ]
+        },
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker3",
+            "postgres-prod-shard-0-2": "loopdrill-worker"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "operator": "system:serviceaccount:data:platform-data-postgres-operator",
+          "oldPrimary": "postgres-prod-shard-0-0",
+          "steps": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "deletedAt": "2026-09-29T12:27:13.792906Z",
+              "by": "system:serviceaccount:data:platform-data-postgres-operator",
+              "detached": false,
+              "streaming": true,
+              "readyAt": "2026-09-29T21:27:53.011389+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "deletedAt": "2026-09-29T12:27:40.334881Z",
+              "by": "system:node:loopdrill-worker2",
+              "detached": true,
+              "streaming": false,
+              "readyAt": "2026-09-29T21:27:53.011389+09:00"
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:27:48.424729Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:27:49.367494Z",
+              "by": "system:node:loopdrill-worker",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:27:56.431496Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": false,
+              "streaming": false
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:27:57.386128Z",
+              "by": "system:node:loopdrill-worker4",
+              "detached": false,
+              "streaming": false
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:28:05.478981Z",
+              "by": "system:serviceaccount:kube-system:statefulset-controller",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "deletedAt": "2026-09-29T12:28:06.400232Z",
+              "by": "system:node:loopdrill-worker",
+              "detached": true,
+              "streaming": true
+            }
+          ],
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {
+          "members": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "fresh": false,
+              "trust": -1,
+              "errors": -1
+            }
+          ],
+          "noPassword": "accepted",
+          "probe": "accepted",
+          "superuser": "accepted"
+        },
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      }
+    },
+    {
+      "scenario": "S5",
+      "checks": [
+        {
+          "id": "J1",
+          "pass": true,
+          "detail": "generation·updateRevision·ControllerRevision 불변"
+        },
+        {
+          "id": "J2",
+          "pass": false,
+          "detail": "PVC UID map[data-postgres-prod-shard-0-0:89048afb-954a-48db-8592-35974f3f8bbf data-postgres-prod-shard-0-1:ce491213-455a-4de8-9963-9bc8a8761fb6 data-postgres-prod-shard-0-2:18e14462-3357-40b7-90a0-71e2b14021af]→map[data-postgres-prod-shard-0-0:89048afb-954a-48db-8592-35974f3f8bbf data-postgres-prod-shard-0-1:c9c6ce47-ed5f-4ad4-9acf-1a67d04e10dc data-postgres-prod-shard-0-2:18e14462-3357-40b7-90a0-71e2b14021af]"
+        },
+        {
+          "id": "J3",
+          "pass": true,
+          "detail": "타임라인 1→1(기대 +0~+0)"
+        },
+        {
+          "id": "J4",
+          "pass": false,
+          "detail": "'Failed to watch' 8줄"
+        },
+        {
+          "id": "J5",
+          "pass": false,
+          "detail": "Released PV 24→25"
+        },
+        {
+          "id": "J6",
+          "pass": true,
+          "detail": "재구축 0건 전부 스냅숏 선행"
+        },
+        {
+          "id": "J7",
+          "pass": true,
+          "detail": "창 안 재구축 0(예산 2)"
+        },
+        {
+          "id": "J8",
+          "pass": true,
+          "detail": "승격 없음 · 표식 행 유지"
+        },
+        {
+          "id": "J9",
+          "pass": true,
+          "detail": "승격 없음"
+        },
+        {
+          "id": "J10",
+          "pass": true,
+          "detail": "ack 153(하한 151) · 가장 긴 공백 5s"
+        },
+        {
+          "id": "J11",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-2 가 W4(loopdrill-worker4)에"
+        },
+        {
+          "id": "J13",
+          "pass": false,
+          "detail": "updateStrategy \"RollingUpdate\"(기대 OnDelete)"
+        },
+        {
+          "id": "J14",
+          "pass": false,
+          "detail": "풀림 2026-09-29T12:50:20Z · 수렴 없음"
+        },
+        {
+          "id": "J15",
+          "pass": true,
+          "detail": "ack 153개 중 소실 0(허용 0) · postgres-prod-shard-0-0"
+        },
+        {
+          "id": "J16",
+          "pass": true,
+          "detail": "data-bearing 표본 0 보존"
+        },
+        {
+          "id": "J17",
+          "pass": false,
+          "detail": "postgres-prod-shard-0-0 network trust 6줄"
+        }
+      ],
+      "round": 2,
+      "expect": {
+        "promotion": "none",
+        "promotionsAllowed": 0,
+        "promotionsRequired": 0,
+        "generationDelta": 0,
+        "budget": 2,
+        "budgetExhaust": false,
+        "gaugeRequired": false,
+        "deniedReads": false,
+        "members": 3,
+        "gapBound": 10000000000,
+        "longGaps": 0,
+        "lossAllowed": 0,
+        "convergeWithin": 1560000000000,
+        "rolloutBlock": false,
+        "trustControl": false,
+        "detachedData": false
+      },
+      "before": {
+        "takenAt": "2026-09-29T21:37:47.78134+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "89048afb-954a-48db-8592-35974f3f8bbf",
+          "data-postgres-prod-shard-0-1": "ce491213-455a-4de8-9963-9bc8a8761fb6",
+          "data-postgres-prod-shard-0-2": "18e14462-3357-40b7-90a0-71e2b14021af"
+        },
+        "releasedPVs": 24,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:37:46.955403+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:37:41Z"
+        ],
+        "failedWatchLines": 0,
+        "auditPVCDeletes": 0,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "graph": [
+          {
+            "at": "2026-09-29T21:37:46.955403+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": false,
+          "markerKept": false
+        },
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {},
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker3",
+            "postgres-prod-shard-0-2": "loopdrill-worker4"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {},
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      },
+      "after": {
+        "takenAt": "2026-09-29T21:50:33.427133+09:00",
+        "stsGeneration": 1,
+        "updateRevision": "postgres-prod-shard-0-6d794b8454",
+        "revisions": [
+          "postgres-prod-shard-0-6d794b8454"
+        ],
+        "updateStrategy": "RollingUpdate",
+        "pvcUIDs": {
+          "data-postgres-prod-shard-0-0": "89048afb-954a-48db-8592-35974f3f8bbf",
+          "data-postgres-prod-shard-0-1": "c9c6ce47-ed5f-4ad4-9acf-1a67d04e10dc",
+          "data-postgres-prod-shard-0-2": "18e14462-3357-40b7-90a0-71e2b14021af"
+        },
+        "releasedPVs": 25,
+        "timeline": [
+          {
+            "at": "2026-09-29T21:37:46.955403+09:00",
+            "timeline": 1,
+            "primary": "postgres-prod-shard-0-0"
+          }
+        ],
+        "maxPrimaries": 1,
+        "statusWrites": [
+          "2026-09-29T12:38:19Z",
+          "2026-09-29T12:38:37Z",
+          "2026-09-29T12:38:43Z",
+          "2026-09-29T12:38:53Z",
+          "2026-09-29T12:38:59Z",
+          "2026-09-29T12:39:04Z",
+          "2026-09-29T12:39:10Z",
+          "2026-09-29T12:39:15Z",
+          "2026-09-29T12:39:21Z",
+          "2026-09-29T12:39:26Z",
+          "2026-09-29T12:39:32Z",
+          "2026-09-29T12:39:37Z",
+          "2026-09-29T12:39:43Z",
+          "2026-09-29T12:39:49Z",
+          "2026-09-29T12:39:55Z",
+          "2026-09-29T12:40:01Z",
+          "2026-09-29T12:40:11Z",
+          "2026-09-29T12:40:17Z",
+          "2026-09-29T12:40:22Z",
+          "2026-09-29T12:40:28Z",
+          "2026-09-29T12:40:33Z",
+          "2026-09-29T12:40:39Z",
+          "2026-09-29T12:40:44Z",
+          "2026-09-29T12:40:55Z",
+          "2026-09-29T12:41:01Z",
+          "2026-09-29T12:41:07Z",
+          "2026-09-29T12:41:12Z",
+          "2026-09-29T12:41:18Z",
+          "2026-09-29T12:41:23Z",
+          "2026-09-29T12:41:34Z",
+          "2026-09-29T12:41:39Z",
+          "2026-09-29T12:41:45Z",
+          "2026-09-29T12:41:50Z",
+          "2026-09-29T12:41:56Z",
+          "2026-09-29T12:42:01Z",
+          "2026-09-29T12:42:07Z",
+          "2026-09-29T12:42:18Z",
+          "2026-09-29T12:42:23Z",
+          "2026-09-29T12:42:29Z",
+          "2026-09-29T12:42:34Z",
+          "2026-09-29T12:42:40Z",
+          "2026-09-29T12:42:45Z",
+          "2026-09-29T12:42:50Z",
+          "2026-09-29T12:42:56Z",
+          "2026-09-29T12:43:01Z",
+          "2026-09-29T12:43:12Z",
+          "2026-09-29T12:43:18Z",
+          "2026-09-29T12:43:23Z",
+          "2026-09-29T12:43:29Z",
+          "2026-09-29T12:43:34Z",
+          "2026-09-29T12:43:40Z",
+          "2026-09-29T12:43:45Z",
+          "2026-09-29T12:43:51Z",
+          "2026-09-29T12:43:56Z",
+          "2026-09-29T12:44:02Z",
+          "2026-09-29T12:44:07Z",
+          "2026-09-29T12:44:18Z",
+          "2026-09-29T12:44:23Z",
+          "2026-09-29T12:44:29Z",
+          "2026-09-29T12:44:35Z",
+          "2026-09-29T12:44:40Z",
+          "2026-09-29T12:44:46Z",
+          "2026-09-29T12:44:57Z",
+          "2026-09-29T12:45:02Z",
+          "2026-09-29T12:45:08Z",
+          "2026-09-29T12:45:13Z",
+          "2026-09-29T12:45:19Z",
+          "2026-09-29T12:45:25Z",
+          "2026-09-29T12:45:35Z",
+          "2026-09-29T12:45:41Z",
+          "2026-09-29T12:45:47Z",
+          "2026-09-29T12:45:53Z",
+          "2026-09-29T12:45:58Z",
+          "2026-09-29T12:46:04Z",
+          "2026-09-29T12:46:15Z",
+          "2026-09-29T12:46:20Z",
+          "2026-09-29T12:46:26Z",
+          "2026-09-29T12:46:31Z",
+          "2026-09-29T12:46:37Z",
+          "2026-09-29T12:46:42Z",
+          "2026-09-29T12:46:53Z",
+          "2026-09-29T12:46:58Z",
+          "2026-09-29T12:47:04Z",
+          "2026-09-29T12:47:09Z",
+          "2026-09-29T12:47:15Z",
+          "2026-09-29T12:47:20Z",
+          "2026-09-29T12:47:26Z",
+          "2026-09-29T12:47:37Z",
+          "2026-09-29T12:47:42Z",
+          "2026-09-29T12:47:48Z"
+        ],
+        "failedWatchLines": 8,
+        "auditPVCDeletes": 2,
+        "auditPodDeletes": 0,
+        "auditStsDeletes": 0,
+        "events": [
+          {
+            "at": "2026-09-29T12:37:51.788676Z",
+            "type": "Warning",
+            "reason": "StandbyReseeded",
+            "message": "standby postgres-prod-shard-0-1 not ready for 8m0s with a ready primary; re-seeding (delete pod+PVC → fresh pg_basebackup)",
+            "count": 1
+          }
+        ],
+        "graph": [
+          {
+            "at": "2026-09-29T21:37:48.99272+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-2"
+            ]
+          },
+          {
+            "at": "2026-09-29T21:50:26.677271+09:00",
+            "primary": "postgres-prod-shard-0-0",
+            "connected": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ],
+            "streaming": [
+              "postgres-prod-shard-0-1",
+              "postgres-prod-shard-0-2"
+            ]
+          }
+        ],
+        "writes": {
+          "markerChecked": true,
+          "markerKept": true
+        },
+        "faults": [
+          "2026-09-29T21:37:48.992706+09:00"
+        ],
+        "releasedAt": "2026-09-29T21:50:20.980151+09:00",
+        "observeFrom": "0001-01-01T00:00:00Z",
+        "budgetBlocked": false,
+        "podsOnUpdate": 3,
+        "probe": {
+          "from": "2026-09-29T21:37:47.78134+09:00",
+          "to": "2026-09-29T21:50:33.427133+09:00",
+          "acks": [
+            {
+              "id": 14,
+              "at": "2026-09-29T12:37:51.454274Z"
+            },
+            {
+              "id": 15,
+              "at": "2026-09-29T12:37:56.456242Z"
+            },
+            {
+              "id": 16,
+              "at": "2026-09-29T12:38:01.459973Z"
+            },
+            {
+              "id": 17,
+              "at": "2026-09-29T12:38:06.462523Z"
+            },
+            {
+              "id": 18,
+              "at": "2026-09-29T12:38:11.463924Z"
+            },
+            {
+              "id": 19,
+              "at": "2026-09-29T12:38:16.466355Z"
+            },
+            {
+              "id": 20,
+              "at": "2026-09-29T12:38:21.467839Z"
+            },
+            {
+              "id": 21,
+              "at": "2026-09-29T12:38:26.473384Z"
+            },
+            {
+              "id": 22,
+              "at": "2026-09-29T12:38:31.475083Z"
+            },
+            {
+              "id": 23,
+              "at": "2026-09-29T12:38:36.486382Z"
+            },
+            {
+              "id": 24,
+              "at": "2026-09-29T12:38:41.488857Z"
+            },
+            {
+              "id": 25,
+              "at": "2026-09-29T12:38:46.490598Z"
+            },
+            {
+              "id": 26,
+              "at": "2026-09-29T12:38:51.492921Z"
+            },
+            {
+              "id": 27,
+              "at": "2026-09-29T12:38:56.49454Z"
+            },
+            {
+              "id": 28,
+              "at": "2026-09-29T12:39:01.497021Z"
+            },
+            {
+              "id": 29,
+              "at": "2026-09-29T12:39:06.501713Z"
+            },
+            {
+              "id": 30,
+              "at": "2026-09-29T12:39:11.509306Z"
+            },
+            {
+              "id": 31,
+              "at": "2026-09-29T12:39:16.511471Z"
+            },
+            {
+              "id": 32,
+              "at": "2026-09-29T12:39:21.513705Z"
+            },
+            {
+              "id": 33,
+              "at": "2026-09-29T12:39:26.514734Z"
+            },
+            {
+              "id": 34,
+              "at": "2026-09-29T12:39:31.522044Z"
+            },
+            {
+              "id": 35,
+              "at": "2026-09-29T12:39:36.523492Z"
+            },
+            {
+              "id": 36,
+              "at": "2026-09-29T12:39:41.528157Z"
+            },
+            {
+              "id": 37,
+              "at": "2026-09-29T12:39:46.530736Z"
+            },
+            {
+              "id": 38,
+              "at": "2026-09-29T12:39:51.532363Z"
+            },
+            {
+              "id": 39,
+              "at": "2026-09-29T12:39:56.534567Z"
+            },
+            {
+              "id": 40,
+              "at": "2026-09-29T12:40:01.537889Z"
+            },
+            {
+              "id": 41,
+              "at": "2026-09-29T12:40:06.542007Z"
+            },
+            {
+              "id": 42,
+              "at": "2026-09-29T12:40:11.543317Z"
+            },
+            {
+              "id": 43,
+              "at": "2026-09-29T12:40:16.551611Z"
+            },
+            {
+              "id": 44,
+              "at": "2026-09-29T12:40:21.552864Z"
+            },
+            {
+              "id": 45,
+              "at": "2026-09-29T12:40:26.555909Z"
+            },
+            {
+              "id": 46,
+              "at": "2026-09-29T12:40:31.557998Z"
+            },
+            {
+              "id": 47,
+              "at": "2026-09-29T12:40:36.560342Z"
+            },
+            {
+              "id": 48,
+              "at": "2026-09-29T12:40:41.562201Z"
+            },
+            {
+              "id": 49,
+              "at": "2026-09-29T12:40:46.565216Z"
+            },
+            {
+              "id": 50,
+              "at": "2026-09-29T12:40:51.567065Z"
+            },
+            {
+              "id": 51,
+              "at": "2026-09-29T12:40:56.570411Z"
+            },
+            {
+              "id": 52,
+              "at": "2026-09-29T12:41:01.572189Z"
+            },
+            {
+              "id": 53,
+              "at": "2026-09-29T12:41:06.574239Z"
+            },
+            {
+              "id": 54,
+              "at": "2026-09-29T12:41:11.57792Z"
+            },
+            {
+              "id": 55,
+              "at": "2026-09-29T12:41:16.583784Z"
+            },
+            {
+              "id": 56,
+              "at": "2026-09-29T12:41:21.585866Z"
+            },
+            {
+              "id": 57,
+              "at": "2026-09-29T12:41:26.588609Z"
+            },
+            {
+              "id": 58,
+              "at": "2026-09-29T12:41:31.590452Z"
+            },
+            {
+              "id": 59,
+              "at": "2026-09-29T12:41:36.595999Z"
+            },
+            {
+              "id": 60,
+              "at": "2026-09-29T12:41:41.598918Z"
+            },
+            {
+              "id": 61,
+              "at": "2026-09-29T12:41:46.602786Z"
+            },
+            {
+              "id": 62,
+              "at": "2026-09-29T12:41:51.606458Z"
+            },
+            {
+              "id": 63,
+              "at": "2026-09-29T12:41:56.608527Z"
+            },
+            {
+              "id": 64,
+              "at": "2026-09-29T12:42:01.613121Z"
+            },
+            {
+              "id": 65,
+              "at": "2026-09-29T12:42:06.619185Z"
+            },
+            {
+              "id": 66,
+              "at": "2026-09-29T12:42:11.622235Z"
+            },
+            {
+              "id": 67,
+              "at": "2026-09-29T12:42:16.625121Z"
+            },
+            {
+              "id": 68,
+              "at": "2026-09-29T12:42:21.633006Z"
+            },
+            {
+              "id": 69,
+              "at": "2026-09-29T12:42:26.638233Z"
+            },
+            {
+              "id": 70,
+              "at": "2026-09-29T12:42:31.642533Z"
+            },
+            {
+              "id": 71,
+              "at": "2026-09-29T12:42:36.653652Z"
+            },
+            {
+              "id": 72,
+              "at": "2026-09-29T12:42:41.663391Z"
+            },
+            {
+              "id": 73,
+              "at": "2026-09-29T12:42:46.669402Z"
+            },
+            {
+              "id": 74,
+              "at": "2026-09-29T12:42:51.677078Z"
+            },
+            {
+              "id": 75,
+              "at": "2026-09-29T12:42:56.678681Z"
+            },
+            {
+              "id": 76,
+              "at": "2026-09-29T12:43:01.679194Z"
+            },
+            {
+              "id": 77,
+              "at": "2026-09-29T12:43:06.68272Z"
+            },
+            {
+              "id": 78,
+              "at": "2026-09-29T12:43:11.689252Z"
+            },
+            {
+              "id": 79,
+              "at": "2026-09-29T12:43:16.693672Z"
+            },
+            {
+              "id": 80,
+              "at": "2026-09-29T12:43:21.695842Z"
+            },
+            {
+              "id": 81,
+              "at": "2026-09-29T12:43:26.704829Z"
+            },
+            {
+              "id": 82,
+              "at": "2026-09-29T12:43:31.706691Z"
+            },
+            {
+              "id": 83,
+              "at": "2026-09-29T12:43:36.709959Z"
+            },
+            {
+              "id": 84,
+              "at": "2026-09-29T12:43:41.711439Z"
+            },
+            {
+              "id": 85,
+              "at": "2026-09-29T12:43:46.715206Z"
+            },
+            {
+              "id": 86,
+              "at": "2026-09-29T12:43:51.719213Z"
+            },
+            {
+              "id": 87,
+              "at": "2026-09-29T12:43:56.719737Z"
+            },
+            {
+              "id": 88,
+              "at": "2026-09-29T12:44:01.722627Z"
+            },
+            {
+              "id": 89,
+              "at": "2026-09-29T12:44:06.726636Z"
+            },
+            {
+              "id": 90,
+              "at": "2026-09-29T12:44:11.728425Z"
+            },
+            {
+              "id": 91,
+              "at": "2026-09-29T12:44:16.734689Z"
+            },
+            {
+              "id": 92,
+              "at": "2026-09-29T12:44:21.739509Z"
+            },
+            {
+              "id": 93,
+              "at": "2026-09-29T12:44:26.742743Z"
+            },
+            {
+              "id": 94,
+              "at": "2026-09-29T12:44:31.746311Z"
+            },
+            {
+              "id": 95,
+              "at": "2026-09-29T12:44:36.752789Z"
+            },
+            {
+              "id": 96,
+              "at": "2026-09-29T12:44:41.757106Z"
+            },
+            {
+              "id": 97,
+              "at": "2026-09-29T12:44:46.763231Z"
+            },
+            {
+              "id": 98,
+              "at": "2026-09-29T12:44:51.765156Z"
+            },
+            {
+              "id": 99,
+              "at": "2026-09-29T12:44:56.76567Z"
+            },
+            {
+              "id": 100,
+              "at": "2026-09-29T12:45:01.768154Z"
+            },
+            {
+              "id": 101,
+              "at": "2026-09-29T12:45:06.771847Z"
+            },
+            {
+              "id": 102,
+              "at": "2026-09-29T12:45:11.775179Z"
+            },
+            {
+              "id": 103,
+              "at": "2026-09-29T12:45:16.780532Z"
+            },
+            {
+              "id": 104,
+              "at": "2026-09-29T12:45:21.782783Z"
+            },
+            {
+              "id": 105,
+              "at": "2026-09-29T12:45:26.784598Z"
+            },
+            {
+              "id": 106,
+              "at": "2026-09-29T12:45:31.793756Z"
+            },
+            {
+              "id": 107,
+              "at": "2026-09-29T12:45:36.799168Z"
+            },
+            {
+              "id": 108,
+              "at": "2026-09-29T12:45:41.82239Z"
+            },
+            {
+              "id": 109,
+              "at": "2026-09-29T12:45:46.805989Z"
+            },
+            {
+              "id": 110,
+              "at": "2026-09-29T12:45:51.811844Z"
+            },
+            {
+              "id": 111,
+              "at": "2026-09-29T12:45:56.816253Z"
+            },
+            {
+              "id": 112,
+              "at": "2026-09-29T12:46:01.818538Z"
+            },
+            {
+              "id": 113,
+              "at": "2026-09-29T12:46:06.825487Z"
+            },
+            {
+              "id": 114,
+              "at": "2026-09-29T12:46:11.828739Z"
+            },
+            {
+              "id": 115,
+              "at": "2026-09-29T12:46:16.837351Z"
+            },
+            {
+              "id": 116,
+              "at": "2026-09-29T12:46:21.838649Z"
+            },
+            {
+              "id": 117,
+              "at": "2026-09-29T12:46:26.846041Z"
+            },
+            {
+              "id": 118,
+              "at": "2026-09-29T12:46:31.847284Z"
+            },
+            {
+              "id": 119,
+              "at": "2026-09-29T12:46:36.856304Z"
+            },
+            {
+              "id": 120,
+              "at": "2026-09-29T12:46:41.86015Z"
+            },
+            {
+              "id": 121,
+              "at": "2026-09-29T12:46:46.868887Z"
+            },
+            {
+              "id": 122,
+              "at": "2026-09-29T12:46:51.871111Z"
+            },
+            {
+              "id": 123,
+              "at": "2026-09-29T12:46:56.87431Z"
+            },
+            {
+              "id": 124,
+              "at": "2026-09-29T12:47:01.877213Z"
+            },
+            {
+              "id": 125,
+              "at": "2026-09-29T12:47:06.878918Z"
+            },
+            {
+              "id": 126,
+              "at": "2026-09-29T12:47:11.88463Z"
+            },
+            {
+              "id": 127,
+              "at": "2026-09-29T12:47:16.890741Z"
+            },
+            {
+              "id": 128,
+              "at": "2026-09-29T12:47:21.895453Z"
+            },
+            {
+              "id": 129,
+              "at": "2026-09-29T12:47:26.908293Z"
+            },
+            {
+              "id": 130,
+              "at": "2026-09-29T12:47:31.909977Z"
+            },
+            {
+              "id": 131,
+              "at": "2026-09-29T12:47:36.910555Z"
+            },
+            {
+              "id": 132,
+              "at": "2026-09-29T12:47:41.914147Z"
+            },
+            {
+              "id": 133,
+              "at": "2026-09-29T12:47:46.917635Z"
+            },
+            {
+              "id": 134,
+              "at": "2026-09-29T12:47:51.927215Z"
+            },
+            {
+              "id": 135,
+              "at": "2026-09-29T12:47:56.933618Z"
+            },
+            {
+              "id": 136,
+              "at": "2026-09-29T12:48:01.93659Z"
+            },
+            {
+              "id": 137,
+              "at": "2026-09-29T12:48:06.94834Z"
+            },
+            {
+              "id": 138,
+              "at": "2026-09-29T12:48:11.952176Z"
+            },
+            {
+              "id": 139,
+              "at": "2026-09-29T12:48:16.964749Z"
+            },
+            {
+              "id": 140,
+              "at": "2026-09-29T12:48:21.980841Z"
+            },
+            {
+              "id": 141,
+              "at": "2026-09-29T12:48:26.981578Z"
+            },
+            {
+              "id": 142,
+              "at": "2026-09-29T12:48:31.988275Z"
+            },
+            {
+              "id": 143,
+              "at": "2026-09-29T12:48:36.992626Z"
+            },
+            {
+              "id": 144,
+              "at": "2026-09-29T12:48:41.99592Z"
+            },
+            {
+              "id": 145,
+              "at": "2026-09-29T12:48:47.000976Z"
+            },
+            {
+              "id": 146,
+              "at": "2026-09-29T12:48:51.004217Z"
+            },
+            {
+              "id": 147,
+              "at": "2026-09-29T12:48:56.012708Z"
+            },
+            {
+              "id": 148,
+              "at": "2026-09-29T12:49:01.014725Z"
+            },
+            {
+              "id": 149,
+              "at": "2026-09-29T12:49:06.018658Z"
+            },
+            {
+              "id": 150,
+              "at": "2026-09-29T12:49:11.025911Z"
+            },
+            {
+              "id": 151,
+              "at": "2026-09-29T12:49:16.03481Z"
+            },
+            {
+              "id": 152,
+              "at": "2026-09-29T12:49:21.044507Z"
+            },
+            {
+              "id": 153,
+              "at": "2026-09-29T12:49:26.058395Z"
+            },
+            {
+              "id": 154,
+              "at": "2026-09-29T12:49:31.06116Z"
+            },
+            {
+              "id": 155,
+              "at": "2026-09-29T12:49:36.065595Z"
+            },
+            {
+              "id": 156,
+              "at": "2026-09-29T12:49:41.073697Z"
+            },
+            {
+              "id": 157,
+              "at": "2026-09-29T12:49:46.079008Z"
+            },
+            {
+              "id": 158,
+              "at": "2026-09-29T12:49:51.085496Z"
+            },
+            {
+              "id": 159,
+              "at": "2026-09-29T12:49:56.089918Z"
+            },
+            {
+              "id": 160,
+              "at": "2026-09-29T12:50:01.095809Z"
+            },
+            {
+              "id": 161,
+              "at": "2026-09-29T12:50:06.101954Z"
+            },
+            {
+              "id": 162,
+              "at": "2026-09-29T12:50:11.111521Z"
+            },
+            {
+              "id": 163,
+              "at": "2026-09-29T12:50:16.114211Z"
+            },
+            {
+              "id": 164,
+              "at": "2026-09-29T12:50:21.115939Z"
+            },
+            {
+              "id": 165,
+              "at": "2026-09-29T12:50:26.117677Z"
+            },
+            {
+              "id": 166,
+              "at": "2026-09-29T12:50:31.120452Z"
+            }
+          ],
+          "stored": [
+            {
+              "from": 14,
+              "to": 166
+            }
+          ],
+          "primary": "postgres-prod-shard-0-0"
+        },
+        "placement": {
+          "nodes": {
+            "postgres-prod-shard-0-0": "loopdrill-worker2",
+            "postgres-prod-shard-0-1": "loopdrill-worker",
+            "postgres-prod-shard-0-2": "loopdrill-worker4"
+          },
+          "eligible": [
+            "loopdrill-control-plane",
+            "loopdrill-worker",
+            "loopdrill-worker2",
+            "loopdrill-worker3"
+          ],
+          "avoid": [
+            "loopdrill-worker4"
+          ]
+        },
+        "rollout": {
+          "operator": "system:serviceaccount:data:platform-data-postgres-operator",
+          "oldPrimary": "postgres-prod-shard-0-0",
+          "steps": [
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:37:51.779343Z",
+              "by": "system:serviceaccount:data:platform-data-postgres-operator",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:39:32.36169Z",
+              "by": "system:serviceaccount:kube-system:node-controller",
+              "detached": true,
+              "streaming": true
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "deletedAt": "2026-09-29T12:50:25.223695Z",
+              "by": "system:node:loopdrill-worker3",
+              "detached": true,
+              "streaming": true
+            }
+          ],
+          "blockedSeen": false,
+          "blockedAtEnd": false
+        },
+        "hba": {
+          "members": [
+            {
+              "pod": "postgres-prod-shard-0-0",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-1",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            },
+            {
+              "pod": "postgres-prod-shard-0-2",
+              "fresh": true,
+              "trust": 6,
+              "errors": 0
+            }
+          ],
+          "noPassword": "accepted",
+          "probe": "accepted",
+          "superuser": "accepted"
+        },
+        "switchover": {
+          "oldRestarts": 0,
+          "backRestarts": 0,
+          "backInRecovery": false,
+          "rewindLines": 0,
+          "completed": false
+        },
+        "emergency": {
+          "operators": 0,
+          "frozen": 0,
+          "holdExit": 0,
+          "recoverExit": 0
+        }
+      }
+    }
+  ],
+  "startedAt": "2026-09-29T20:58:11.838366+09:00",
+  "finishedAt": "2026-09-29T21:50:36.76823+09:00"
+}

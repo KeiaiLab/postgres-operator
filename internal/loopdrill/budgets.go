@@ -41,6 +41,39 @@ const (
 
 	// RebuildBudgetWindow 는 재구축 예산 창(설계 §3.5 rebuildBudgetWindow).
 	RebuildBudgetWindow = time.Hour
+
+	// SwitchoverRestartWait ≥ switchoverRestartWait(switchover.go, = statusStaleThresh).
+	SwitchoverRestartWait = StatusStaleThresh
+
+	// SwitchoverBudget ≥ switchoverBudget = switchoverRestartWait + promotionExecBudget + 2 × statusPollInterval(부록 A 100 s).
+	SwitchoverBudget = SwitchoverRestartWait + PromotionExecBudget + 2*StatusPollInterval
+
+	// MemberConvergeBudget ≥ memberConvergeBudget(shard_rollout.go, = staleStandbyReseedTimeout) — 롤아웃 막힘 문턱.
+	MemberConvergeBudget = StaleBound
+)
+
+// 쓰기 탐침(설계 부록 A · B-3) — testdata/write-probe.yaml 과 운영 L1 이 같은 값을 쓴다.
+const (
+	// WriteProbeInterval = statusPollInterval — 탐침 INSERT 간격.
+	WriteProbeInterval = StatusPollInterval
+
+	// WriteGapBudget = statusStaleThresh = PostgresRWEndpointsZero for — primary 단계 쓰기 공백 상한.
+	WriteGapBudget = StatusStaleThresh
+
+	// ReplicaGapBudget 은 replica 단계(primary 무관) 쓰기 공백 상한(부록 B-3).
+	ReplicaGapBudget = 10 * time.Second
+
+	// WriteProbeWarmup = 2 × writeGapBudget ÷ writeProbeInterval — 유발 전 연속 성공 수.
+	WriteProbeWarmup = int(2 * WriteGapBudget / WriteProbeInterval)
+)
+
+// kind 가 k8s 기본값을 쓰는 자리.
+const (
+	// NodeMonitorGrace 는 --node-monitor-grace-period 기본(1.32+) — 노드 사망이 PodReady False 가 되기까지.
+	NodeMonitorGrace = 50 * time.Second
+
+	// OperatorGrace 는 오퍼레이터 파드 terminationGracePeriodSeconds(차트 미설정 = k8s 기본).
+	OperatorGrace = 30 * time.Second
 )
 
 // 드라이버 창 — 위 경계에서 파생한다.
@@ -66,9 +99,42 @@ const (
 	// StandbyFreeze 는 S6·S7 의 standby 정지 길이 — 복제 그래프 끊김이 Stale 판정을 넘겨야 GREEN 이 재구축한다.
 	StandbyFreeze = StaleBound + StatusStaleThresh
 
-	// WritableBound 는 J8 — 유발부터 새 primary 쓰기 가능까지의 상한.
-	WritableBound = DebounceBound + PromotionExecBudget + 2*StatusPollInterval
+	// PromotionBound 는 J8 — PodReady False 부터 승격까지 = statusStaleThresh + failoverDebounceThreshold + 2 × statusPollInterval.
+	PromotionBound = StatusStaleThresh + DebounceBound + 2*StatusPollInterval
 
 	// RejoinBound 는 J9 — 승격부터 생존 standby 가 새 primary 그래프에 붙기까지의 상한.
 	RejoinBound = RetargetBound + 2*StatusPollInterval
+
+	// DetachLead 는 S6b — standby 를 끊고 primary 를 지우기까지(설계 60 s = 2 × memberRetargetAfter).
+	DetachLead = 2 * RetargetBound
+
+	// NodeDeathBound 는 노드 사망에서 승격까지의 예상(설계 §3.3 = node-monitor-grace + 디바운스 + statusPollInterval).
+	NodeDeathBound = NodeMonitorGrace + DebounceBound + StatusPollInterval
+
+	// NodeDeathHold 는 S9 — primary 워커를 세워 두는 시간. 승격 exec 까지 노드가 죽어 있게 NodeDeathBound 를 넘긴다.
+	NodeDeathHold = NodeDeathBound + PromotionExecBudget
+
+	// RolloutBlockHold 는 S8 — 새 replica 를 세워 두는 시간. RolloutBlocked 가 설 만큼 memberConvergeBudget 을 넘긴다.
+	RolloutBlockHold = MemberConvergeBudget + 2*StatusPollInterval
+
+	// SwitchoverPoll 은 S0·S8·S10 의 switchover 관측 간격 = pgPromotePoll(1 s) — Stopping·복귀를 놓치지 않는다.
+	SwitchoverPoll = time.Second
 )
+
+// J10 쓰기 공백 상한 — 시나리오의 승격 종류마다(감지 + 승격 + 라벨·Endpoints + 탐침 간격).
+const (
+	// FailoverGapBound 는 파드·프로세스 사망 failover — 감지(statusStaleThresh) + PromotionBound + 2 × statusPollInterval + 탐침 간격.
+	FailoverGapBound = StatusStaleThresh + PromotionBound + 2*StatusPollInterval + WriteProbeInterval
+
+	// NodeDeathGapBound 는 노드 사망 failover — 감지가 node-monitor-grace 다.
+	NodeDeathGapBound = NodeMonitorGrace + PromotionBound + 2*StatusPollInterval + WriteProbeInterval
+
+	// EmergencyGapBound 는 S10 — Stopping 관측 + hold(파드 grace 두 번) + recover(switchoverBudget) + 탐침 간격.
+	EmergencyGapBound = StatusPollInterval + 2*OperatorGrace + SwitchoverBudget + WriteProbeInterval
+)
+
+// RolloutBound 는 단계화 롤아웃 창(부록 A rolloutBound) = rolloutNominal + snapshotReadyTimeout + staleStandbyReseedTimeout,
+// rolloutNominal = members × memberConvergeBudget + switchoverBudget.
+func RolloutBound(members int) time.Duration {
+	return time.Duration(members)*MemberConvergeBudget + SwitchoverBudget + SnapshotReadyBound + StaleBound
+}

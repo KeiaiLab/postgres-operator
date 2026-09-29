@@ -1,6 +1,7 @@
 # data 래퍼 차트(postgres-operator/)를 kind 에 올릴 때 운영 values 위에 얹는다(설계 §3.12).
-# 바꾸는 것만 적는다: 저장·스냅숏 class · 자원 축소 · tier 노드 · 소비자 0 · 덤프 끔 · apiserver 포트 · 배치.
-# 런타임 값(오퍼레이터·pg 이미지 참조, apiserver CIDR)은 드라이버가 둘째 values 파일로 덮는다.
+# 바꾸는 것만 적는다: 저장·스냅숏 class · 자원 축소 · tier 노드 · 소비자 0 · 덤프 끔 · apiserver 포트.
+# 배치(affinity·TSC)는 덮지 않는다 — GREEN 은 차트 그대로 적격 노드·분산을 판정한다(J11). RED 전용 멤버
+# anti-affinity 는 red-values-kind.yaml 이다. 런타임 값(오퍼레이터·pg 이미지 참조, apiserver CIDR)은 드라이버가 덮는다.
 postgres-operator:
   image:
     # 드라이버가 이미지를 노드에 싣는다 — 운영의 Always 는 비공개 저장소를 매번 다시 당긴다.
@@ -31,16 +32,6 @@ cluster:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: "1", memory: 1Gi }
-    # 멤버 셋을 서로 다른 pg 워커에 — S5 가 standby 만 있는 노드를 세운다.
-    # 운영 TSC 셀렉터는 PVC 전용 라벨이라 파드와 안 맞는다(설계 §2.1 스프레드) — 그 결함은 그대로 둔다.
-    affinity:
-      podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          - topologyKey: kubernetes.io/hostname
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/instance: postgres-prod
-                app.kubernetes.io/component: shard
 
 consumerDatabases: []
 
