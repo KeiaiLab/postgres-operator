@@ -42,6 +42,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0029](0029-reshard-target-promotion-identity-transition.md) | resharding target shard 영구 승격 — 정체성 전이 설계 (ordinal→명명 shard 일반화 `shard-id` label + fenced single-authority 승격 + source 폐기, ADR-0027 P6 상세화, #220 교훈 반영) | Proposed | 2026-06-28 |
 | [ADR-0030](0030-runtime-config-out-of-pod-template.md) | 승격 상태를 파드 템플릿 밖 런타임 ConfigMap 으로 (CR 정본 epoch·initialized + `configMapKeyRef` — 승격이 템플릿을 안 바꿔 failover 루프 차단) | Accepted | 2026-09-25 |
 | [ADR-0031](0031-member-rebuild-hold-snapshot-budget.md) | 멤버 재구축을 hold · 스냅숏 · 예산 뒤로 (`MEMBER_HOLD`·`RESEED_REQUESTS` · readyToUse 직접 확인 뒤 해제 · 1h 예산 CR 원장 · data-bearing 스냅숏 자동 삭제 0) | Accepted | 2026-09-25 |
+| [ADR-0032](0032-switchover-stops-old-primary-in-place.md) | switchover 는 옛 primary 를 제자리에서 멈춘 뒤 승격한다 (fast shutdown → 같은 컨테이너가 standby 로 재기동 → 끝 LSN 이상 승자 승격 · 파드 삭제 0 · 진행 중 failover 는 실행만 보류) | Accepted | 2026-09-29 |
 
 ## Archived (v0.x — decisions from before the redesign)
 

@@ -488,11 +488,9 @@ func TestPromoteAndPublishOrder(t *testing.T) {
 			})
 		}},
 		{"switchover", func(r *PostgresClusterReconciler, cluster *postgresv1alpha1.PostgresCluster, target string) error {
-			return r.handleSwitchover(context.Background(), cluster, []postgresv1alpha1.ShardStatus{{
-				Name:     "shard-0",
-				Primary:  &postgresv1alpha1.ShardEndpoint{Pod: ShardStatefulSetName(cluster.Name, 0) + "-0", Ready: true},
-				Replicas: []postgresv1alpha1.ShardEndpoint{{Pod: target, Endpoint: podDNS(cluster.Name, target), Ready: true}},
-			}})
+			promoted := failover.PromotionTarget{ShardName: "shard-0", Pod: target, Endpoint: podDNS(cluster.Name, target)}
+			return r.promoteAndPublish(context.Background(), cluster, "shard-0", promoted,
+				ShardStatefulSetName(cluster.Name, 0)+"-0", promotionSwitchover)
 		}},
 	}
 	for _, tc := range cases {
@@ -502,7 +500,6 @@ func TestPromoteAndPublishOrder(t *testing.T) {
 			target := ShardStatefulSetName(name, 0) + "-1"
 			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
 				shardCanon{Epoch: 2, Initialized: true})
-			cluster.Annotations[AnnotationSwitchoverTarget] = target
 			cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
 				PrimaryEndpoint: podDNS(name, ShardStatefulSetName(name, 0)+"-0"), PromotionEpoch: 2, ClusterInitialized: true,
 			})
