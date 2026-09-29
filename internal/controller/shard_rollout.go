@@ -519,7 +519,7 @@ func (r *PostgresClusterReconciler) primarySettings(ctx context.Context, pod *co
 // renderedSettings 는 멤버가 마운트하는 postgresql.conf(STS 템플릿의 pgConfigMountPath 볼륨)에서 렌더한 롤아웃
 // 설정이다 — wal_keep_size 는 바이트, 나머지는 정수. 렌더하지 않은 키는 없다.
 func (r *PostgresClusterReconciler) renderedSettings(ctx context.Context, sts *appsv1.StatefulSet) (map[string]int64, error) {
-	name := configMapMounted(sts)
+	name := configMapMounted(&sts.Spec.Template.Spec)
 	if name == "" {
 		return nil, errors.New("config volume absent")
 	}
@@ -551,9 +551,8 @@ func (r *PostgresClusterReconciler) renderedSettings(ctx context.Context, sts *a
 	return rendered, nil
 }
 
-// configMapMounted 는 postgres 컨테이너가 pgConfigMountPath 에 마운트하는 ConfigMap 이름이다.
-func configMapMounted(sts *appsv1.StatefulSet) string {
-	spec := sts.Spec.Template.Spec
+// configMapMounted 는 postgres 컨테이너가 pgConfigMountPath 에 마운트하는 ConfigMap 이름이다(STS 템플릿 · 파드).
+func configMapMounted(spec *corev1.PodSpec) string {
 	volume := ""
 	for _, c := range spec.Containers {
 		if c.Name != pgContainerName {

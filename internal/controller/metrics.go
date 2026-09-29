@@ -221,6 +221,18 @@ var (
 		},
 		[]string{"namespace", "name", "pod"},
 	)
+
+	// MetricAutoConfResets 는 오퍼레이터가 멤버 postgresql.auto.conf 에서 RESET 한 렌더 키 수다(ADR-0035) — 렌더 값보다
+	// 크지 않은 ALTER SYSTEM 값만 지운다.
+	MetricAutoConfResets = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "auto_conf_resets_total",
+			Help:      "Rendered settings reset from a member's postgresql.auto.conf, by key",
+		},
+		[]string{"namespace", "name", "key"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -248,6 +260,7 @@ func init() {
 		MetricRolloutSteps,
 		MetricRolloutPendingMembers,
 		MetricHBANetworkTrustRules,
+		MetricAutoConfResets,
 	)
 	initSeries()
 }
@@ -272,6 +285,7 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricRolloutSteps.DeletePartialMatch(rebuildLabels)
 	MetricRolloutPendingMembers.DeletePartialMatch(rebuildLabels)
 	MetricHBANetworkTrustRules.DeletePartialMatch(rebuildLabels)
+	MetricAutoConfResets.DeletePartialMatch(rebuildLabels)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

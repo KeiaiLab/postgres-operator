@@ -66,7 +66,8 @@ type ShardsSpec struct {
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 
-	// Resources is the resource requirements for the shard PG container.
+	// Resources is the resource requirements for the shard PG container. limits.memory also renders
+	// shared_buffers (1/4) and effective_cache_size (3/4).
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
@@ -594,6 +595,17 @@ type PostgreSQLSpec struct {
 	// +optional
 	// +kubebuilder:validation:items:Format=cidr
 	HostAuthCIDRs []string `json:"hostAuthCIDRs,omitempty"`
+
+	// WALKeepSize is wal_keep_size: WAL kept for standbys that fall behind (rounded up to MiB). Unset renders no
+	// line. The operator owns rendered settings: an ALTER SYSTEM value for one of them is reset when it is not
+	// larger than the rendered value, and kept with condition AutoConfOverride when it is.
+	// +optional
+	WALKeepSize *resource.Quantity `json:"walKeepSize,omitempty"`
+
+	// MaxConnections is max_connections. Unset renders no line (the PostgreSQL default).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxConnections *int32 `json:"maxConnections,omitempty"`
 }
 
 // ShardEndpoint is the observed state of a single shard member (primary or replica).

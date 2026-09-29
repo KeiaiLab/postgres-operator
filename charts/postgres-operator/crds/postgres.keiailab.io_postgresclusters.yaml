@@ -414,6 +414,12 @@ spec:
                       format: cidr
                       type: string
                     type: array
+                  maxConnections:
+                    description: MaxConnections is max_connections. Unset renders
+                      no line (the PostgreSQL default).
+                    format: int32
+                    minimum: 1
+                    type: integer
                   synchronous:
                     description: Synchronous is the physical synchronous-replication
                       configuration. nil disables it.
@@ -448,6 +454,16 @@ spec:
                     - method
                     - number
                     type: object
+                  walKeepSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      WALKeepSize is wal_keep_size: WAL kept for standbys that fall behind (rounded up to MiB). Unset renders no
+                      line. The operator owns rendered settings: an ALTER SYSTEM value for one of them is reset when it is not
+                      larger than the rendered value, and kept with condition AutoConfOverride when it is.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                 type: object
               replica:
                 description: Replica defines standalone/distributed replica-cluster
@@ -1549,8 +1565,9 @@ spec:
                     minimum: 0
                     type: integer
                   resources:
-                    description: Resources is the resource requirements for the shard
-                      PG container.
+                    description: |-
+                      Resources is the resource requirements for the shard PG container. limits.memory also renders
+                      shared_buffers (1/4) and effective_cache_size (3/4).
                     properties:
                       claims:
                         description: |-

@@ -381,7 +381,7 @@ func TestBuildConfigMap_PreferredSynchronousReplicationLowersQuorumToAvailableRe
 func TestRenderPostgresConf_EnablesWalLogHintsForPgRewind(t *testing.T) {
 	t.Parallel()
 
-	conf := renderPostgresConf(nil, nil, false, nil, nil)
+	conf := renderPostgresConf(nil, nil, false, nil, nil, pgTuning{})
 	if !strings.Contains(conf, "wal_log_hints = on\n") {
 		t.Fatalf("postgresql.conf must enable wal_log_hints for pg_rewind, got:\n%s", conf)
 	}
