@@ -154,6 +154,10 @@ type PostgresClusterReconciler struct {
 	// lastStepAt 은 샤드 단계화 롤아웃의 기억이다(namespace/name/shard → 마지막 단계·막힘, ADR-0033).
 	lastStepAt map[string]rolloutMark
 	rolloutMu  sync.Mutex
+
+	// autoConf 는 멤버 auto.conf 판정의 기억이다(namespace/name → 멤버 파드, ADR-0035).
+	autoConf   map[string]map[string]autoConfMark
+	autoConfMu sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -649,6 +653,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if err := r.reloadStaleMembers(ctx, &cluster, memberPods); err != nil {
 		logger.V(1).Info("pg_reload_conf best-effort failed", "err", err)
+	}
+	// 렌더 설정 소유(ADR-0035) — 투영된 렌더 키가 auto.conf 에 남았으면 RESET 한다(더 크면 남기고 알린다).
+	if err := r.reconcileAutoConf(ctx, &cluster, memberPods, time.Now()); err != nil {
+		logger.V(1).Info("auto.conf ownership best-effort failed", "err", err)
 	}
 
 	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —

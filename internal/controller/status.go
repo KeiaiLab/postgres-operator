@@ -70,6 +70,9 @@ const (
 	// ConditionSuperuserAuthPending 은 postgres 비밀번호를 superuser Secret 에 맞췄다고 확인하지 못한 상태다
 	// (ADR-0034). 멤버가 도는 샤드는 확인될 때까지 설정 ConfigMap·파드 템플릿을 바꾸지 않는다.
 	ConditionSuperuserAuthPending = "SuperuserAuthPending"
+	// ConditionAutoConfOverride 는 멤버 postgresql.auto.conf 가 렌더 키를 렌더 값보다 큰(또는 비교할 수 없는) 값으로
+	// 덮어 오퍼레이터가 RESET 하지 않고 남긴 상태다(ADR-0035).
+	ConditionAutoConfOverride = "AutoConfOverride"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -135,6 +138,10 @@ const (
 	ReasonSuperuserSecretInvalid  = "SuperuserSecretInvalid"  // username 이 postgres 가 아니거나 password 가 비었거나 인쇄 가능 ASCII 가 아니다
 	ReasonSuperuserAuthUnverified = "SuperuserAuthUnverified" // 실제 primary 가 없거나 verifier 를 읽고 쓰지 못했다
 	ReasonSuperuserAuthVerified   = "SuperuserAuthVerified"
+
+	// Reasons — 렌더 설정 소유(ADR-0035)
+	ReasonAutoConfOverrideKept = "AutoConfOverrideKept" // auto.conf 가 렌더 키를 더 큰 값으로 덮는다 — 같은 이름의 Warning 사유이기도 하다
+	ReasonAutoConfOwned        = "AutoConfOwned"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"
