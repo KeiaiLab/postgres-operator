@@ -282,6 +282,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	shardStatuses := make([]postgresv1alpha1.ShardStatus, 0, shardCount)
 	allShardPrimaryReady := true
 	var runtimePending []string
+	var auths []shardAuth
 
 	for ord := range shardCount {
 		shardID := ShardIDForOrdinal(ord)
@@ -297,9 +298,17 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			desiredMembersForShard = 0
 		}
 
+		// superuser 인증(ADR-0034) — 멤버가 돌면 비밀번호를 Secret 에 맞춘 뒤에만 hba·파드 템플릿을 바꾼다.
+		auth, err := r.ensureSuperuserAuth(ctx, &cluster, ordinalShardRef(&cluster, ord))
+		if err != nil {
+			return r.handleUpsertErr(ctx, &cluster, err, "superuser auth", logger)
+		}
+		auths = append(auths, shardAuth{shard: shardID, superuserAuth: auth})
+		write := r.authGatedWrite(auth, desiredMembersForShard)
+
 		cm := buildConfigMap(&cluster, cmName, "shard", ord, r.Plugins)
 		configHash := postgresConfigHash(cm.Data)
-		if err := r.upsert(ctx, &cluster, cm); err != nil {
+		if err := write(ctx, &cluster, cm); err != nil {
 			return r.handleUpsertErr(ctx, &cluster, err, "shard ConfigMap", logger)
 		}
 		if err := r.upsert(ctx, &cluster, buildHeadlessService(&cluster, svcName, "shard", ord)); err != nil {
@@ -324,7 +333,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				configHash,
 				"", // reshardTargetID: ordinal shard (격리 label 미사용)
 			)
-			if err := r.upsert(ctx, &cluster, desiredSTS); err != nil {
+			if err := write(ctx, &cluster, desiredSTS); err != nil {
 				return r.handleUpsertErr(ctx, &cluster, err, "shard StatefulSet", logger)
 			}
 		}
@@ -409,7 +418,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if databasePodsStopped {
 			targetMembers = 0
 		}
-		namedPending, err := r.reconcileActiveNamedShardResources(
+		namedPending, namedAuths, err := r.reconcileActiveNamedShardResources(
 			ctx, &cluster, activeShardIDs,
 			resolvedImage.Image, resolvedImage.PostgresMajor,
 			targetMembers,
@@ -418,8 +427,10 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return r.handleUpsertErr(ctx, &cluster, err, "active named shard resources", logger)
 		}
 		runtimePending = append(runtimePending, namedPending...)
+		auths = append(auths, namedAuths...)
 	}
 	setRuntimeCondition(&cluster, runtimePending)
+	setSuperuserAuthCondition(&cluster, auths)
 
 	if !databasePodsStopped {
 		namedShardStatuses, namedReady, err := activeNamedShardStatuses(ctx, r.Client, &cluster)
@@ -628,16 +639,16 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		setCondition(&cluster.Status.Conditions, ConditionAutoSplitEligible, asStatus, asReason, asMessage, cluster.Generation)
 	}
 
-	// Config hot-reload: if cluster is Ready and primary Pods are running with
-	// a stale configHash, signal PostgreSQL to reload without restarting.
-	if !databasePodsStopped && allShardPrimaryReady {
-		for _, ss := range shardStatuses {
-			if ss.Primary != nil && ss.Primary.Ready && ss.Primary.Pod != "" {
-				if err := r.reloadPostgresConfig(ctx, cluster.Namespace, ss.Primary.Pod); err != nil {
-					logger.V(1).Info("pg_reload_conf best-effort failed", "pod", ss.Primary.Pod, "err", err)
-				}
-			}
+	// 설정 적재(ADR-0034) — 적재가 파일보다 이른 멤버(스탠바이 포함)만 reload 하고 hba 적재를 게이지로 낸다.
+	// DB 정지 중엔 멤버가 없다(게이지만 지운다). best-effort.
+	var memberPods []corev1.Pod
+	if !databasePodsStopped {
+		if memberPods, err = r.clusterMembers(ctx, &cluster, shardStatuses); err != nil {
+			logger.V(1).Info("shard members unreadable for config reload", "err", err)
 		}
+	}
+	if err := r.reloadStaleMembers(ctx, &cluster, memberPods); err != nil {
+		logger.V(1).Info("pg_reload_conf best-effort failed", "err", err)
 	}
 
 	// RFC-0017 §3.4: Phase 가 *최초 Ready 도달* 시점에만 Event 발행 (idempotent —
@@ -702,7 +713,7 @@ func (r *PostgresClusterReconciler) reconcileShardPrimaryServices(
 }
 
 // reconcileActiveNamedShardResources 는 active named shard 자원을 upsert 하고, 런타임 CM 을
-// 못 만들어 StatefulSet 을 옛 템플릿으로 둔 shard 를 돌려준다(ADR-0030).
+// 못 만들어 StatefulSet 을 옛 템플릿으로 둔 shard 와 샤드별 superuser 인증 대조를 돌려준다(ADR-0030·0034).
 func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -710,9 +721,9 @@ func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	image string,
 	pgMajor string,
 	members int32,
-) ([]string, error) {
+) ([]string, []shardAuth, error) {
 	if cluster == nil || len(activeShardIDs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	ids := make([]string, 0, len(activeShardIDs))
 	for shardID := range activeShardIDs {
@@ -723,18 +734,27 @@ func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 	sort.Strings(ids)
 
 	var pending []string
+	var auths []shardAuth
 	for _, shardID := range ids {
+		// superuser 인증(ADR-0034) — ordinal 샤드와 같은 규칙이다.
+		auth, err := r.ensureSuperuserAuth(ctx, cluster, namedShardRef(cluster, shardID))
+		if err != nil {
+			return nil, nil, fmt.Errorf("active target %q superuser auth: %w", shardID, err)
+		}
+		auths = append(auths, shardAuth{shard: shardID, superuserAuth: auth})
+		write := r.authGatedWrite(auth, members)
+
 		cm := buildTargetShardConfigMap(cluster, shardID, r.Plugins)
 		configHash := postgresConfigHash(cm.Data)
-		if err := r.upsert(ctx, cluster, cm); err != nil {
-			return nil, fmt.Errorf("upsert active target %q ConfigMap: %w", shardID, err)
+		if err := write(ctx, cluster, cm); err != nil {
+			return nil, nil, fmt.Errorf("upsert active target %q ConfigMap: %w", shardID, err)
 		}
 		if err := r.upsert(ctx, cluster, buildTargetHeadlessService(cluster, shardID)); err != nil {
-			return nil, fmt.Errorf("upsert active target %q Service: %w", shardID, err)
+			return nil, nil, fmt.Errorf("upsert active target %q Service: %w", shardID, err)
 		}
 		runtimeCM, runtimeReady, err := r.runtimeForShard(ctx, cluster, namedShardRef(cluster, shardID))
 		if err != nil {
-			return nil, fmt.Errorf("active target %q runtime ConfigMap: %w", shardID, err)
+			return nil, nil, fmt.Errorf("active target %q runtime ConfigMap: %w", shardID, err)
 		}
 		if !runtimeReady {
 			pending = append(pending, shardID)
@@ -746,11 +766,11 @@ func (r *PostgresClusterReconciler) reconcileActiveNamedShardResources(
 			cluster.Spec.Shards.Storage, cluster.Spec.Shards.Resources,
 			cm.Name, configHash,
 		)
-		if err := r.upsert(ctx, cluster, sts); err != nil {
-			return nil, fmt.Errorf("upsert active target %q StatefulSet: %w", shardID, err)
+		if err := write(ctx, cluster, sts); err != nil {
+			return nil, nil, fmt.Errorf("upsert active target %q StatefulSet: %w", shardID, err)
 		}
 	}
-	return pending, nil
+	return pending, auths, nil
 }
 
 // primaryEndpointForNamedShard 는 named shard 런타임 CM 의 첫 PRIMARY_ENDPOINT 폴백이다
@@ -1256,6 +1276,28 @@ func (r *PostgresClusterReconciler) upsert(ctx context.Context, owner *postgresv
 	return err
 }
 
+// objectWrite 는 desired 객체 하나를 쓰는 길이다(upsert · createAbsent).
+type objectWrite func(ctx context.Context, owner *postgresv1alpha1.PostgresCluster, desired client.Object) error
+
+// authGatedWrite 는 샤드 설정 CM·STS 를 쓰는 길이다(ADR-0034) — superuser 인증이 확인되지 않은 샤드는 있는 객체를
+// 그대로 두고 없는 것만 만든다(지킬 라이브 객체가 없다). 멤버를 0 으로 줄이는 반영(정지·복원·비활성 샤드)은 막지 않는다.
+func (r *PostgresClusterReconciler) authGatedWrite(auth superuserAuth, members int32) objectWrite {
+	if auth.ready || members == 0 {
+		return r.upsert
+	}
+	return r.createAbsent
+}
+
+// createAbsent 는 desired 가 없을 때만 만든다 — 있으면 라이브 객체를 그대로 둔다.
+func (r *PostgresClusterReconciler) createAbsent(ctx context.Context, owner *postgresv1alpha1.PostgresCluster, desired client.Object) error {
+	live := desired.DeepCopyObject().(client.Object)
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), live)
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	return r.upsert(ctx, owner, desired)
+}
+
 // copySpec 은 src 의 Spec 필드를 dst 로 복사한다 (현재 지원: ConfigMap/Service/
 // StatefulSet/Deployment/HPA 등). 다른 타입이 들어오면 로그로 빠르게 발견한다.
 func copySpec(dst, src client.Object) {
@@ -1417,9 +1459,8 @@ func controllerOptions() crcontroller.Options {
 	return crcontroller.Options{ReconciliationTimeout: reconcileTimeout}
 }
 
-// reloadPostgresConfig executes SELECT pg_reload_conf() on the ready primary Pod
-// to apply postgresql.conf/pg_hba.conf changes without restarting the Pod.
-// This enables hot-reload for parameters that support SIGHUP-level changes.
+// reloadPostgresConfig 는 멤버에 SELECT pg_reload_conf() 를 보낸다 — 적재가 마운트된 설정 파일보다 이른
+// 멤버(스탠바이 포함, reloadStaleMembers)가 재시작 없이 postgresql.conf·pg_hba.conf 를 다시 읽는다.
 func (r *PostgresClusterReconciler) reloadPostgresConfig(ctx context.Context, namespace, podName string) error {
 	if r.PromotionPodExecutor == nil {
 		return nil
@@ -1429,6 +1470,8 @@ func (r *PostgresClusterReconciler) reloadPostgresConfig(ctx context.Context, na
 		Pod:       podName,
 		Container: "postgres",
 	}
+	ctx, cancel := context.WithTimeout(ctx, memberSQLTimeout)
+	defer cancel()
 	out, err := r.PromotionPodExecutor.Exec(ctx, target, []string{
 		"psql", "-U", "postgres", "-d", "postgres", "-tAc", "SELECT pg_reload_conf()",
 	})

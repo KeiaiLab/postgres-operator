@@ -464,6 +464,14 @@ type PostgresClusterSpec struct {
 	// +optional
 	PostgreSQL *PostgreSQLSpec `json:"postgresql,omitempty"`
 
+	// SuperuserSecretRef names a Secret in the cluster namespace with keys username (postgres)
+	// and password. The operator keeps the postgres role's SCRAM verifier equal to that password,
+	// and members use it for replication, pg_rewind and pg_basebackup: pg_hba.conf trusts no
+	// network range. Until the password is verified on a running shard, that shard's config and
+	// pod template are not changed (condition SuperuserAuthPending).
+	// +optional
+	SuperuserSecretRef *corev1.LocalObjectReference `json:"superuserSecretRef,omitempty"`
+
 	// TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).
 	// Phase 1 facade — only the CRD field is defined. Phase 2 integrates
 	// the cert-manager Certificate CR; Phase 3 has the reconciler emit server.crt/server.key
@@ -580,6 +588,12 @@ type PostgreSQLSpec struct {
 	// Synchronous is the physical synchronous-replication configuration. nil disables it.
 	// +optional
 	Synchronous *SynchronousReplicationSpec `json:"synchronous,omitempty"`
+
+	// HostAuthCIDRs are the client address ranges pg_hba.conf admits over TCP, always with
+	// scram-sha-256. Empty means 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16.
+	// +optional
+	// +kubebuilder:validation:items:Format=cidr
+	HostAuthCIDRs []string `json:"hostAuthCIDRs,omitempty"`
 }
 
 // ShardEndpoint is the observed state of a single shard member (primary or replica).

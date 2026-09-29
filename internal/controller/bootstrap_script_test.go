@@ -416,3 +416,68 @@ func TestBootstrapPendingRefusesInitdb(t *testing.T) {
 		t.Fatalf("pending reseed on an empty ordinal-0: err=%v initdb=%v, want exit≠0 without initdb\n%s", err, w.initdbCalled(), out)
 	}
 }
+
+// TestBootstrapPassfile: hold 가 아니면 모든 길(기존 standby · primary 유지 · 재시드 · basebackup · initdb)이
+// superuser passfile 을 쓴다 — 0600 · 한 줄 *:*:*:postgres:<이스케이프한 비밀번호>. HA conninfo 에는 password·passfile
+// 이 없다(libpq 가 PGPASSFILE 을 읽는다, ADR-0034).
+func TestBootstrapPassfile(t *testing.T) {
+	t.Parallel()
+	self := bootOrdZero + ".demo-shard-0-headless.ns.svc.cluster.local:5432"
+	cases := map[string]struct {
+		seed     map[string]string
+		env      map[string]string
+		conninfo bool
+	}{
+		"existing standby": {
+			seed:     map[string]string{"PG_VERSION": "18\n", "standby.signal": "", "postgresql.auto.conf": "primary_conninfo = 'host=a'\n"},
+			env:      bootEnv(bootReplica, bootPrimary, "1", "1"),
+			conninfo: true,
+		},
+		"primary kept": {
+			seed: map[string]string{"PG_VERSION": "18\n", promotedPrimaryMarker: "2\n", "postgresql.auto.conf": ""},
+			env:  bootEnv(bootReplica, bootPrimary, "1", "1"),
+		},
+		"reseed": {
+			seed:     map[string]string{"PG_VERSION": "18\n", "standby.signal": "", "postgresql.auto.conf": ""},
+			env:      reseedEnv(bootEnv(bootReplica, bootPrimary, "1", "1"), "", bootReplica+"=tok-1"),
+			conninfo: true,
+		},
+		"basebackup": {env: bootEnv(bootReplica, bootPrimary, "1", "1"), conninfo: true},
+		"initdb":     {env: bootEnv(bootOrdZero, self, "0", runtimeFlagOff)},
+	}
+	for label, tc := range cases {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+			w := newBootWorld(t)
+			if tc.seed != nil {
+				w.seed(t, tc.seed)
+			}
+			tc.env[superuserPasswordEnv] = testSuperuserPassword
+
+			if out, err := w.run(t, tc.env); err != nil {
+				t.Fatalf("bootstrap: %v\n%s", err, out)
+			}
+			path := filepath.Join(w.root, "primary.pgpass")
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("passfile: %v", err)
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Fatalf("passfile mode = %v, want 0600 (libpq ignores group or world access)", info.Mode().Perm())
+			}
+			raw, _ := os.ReadFile(path)
+			if want := `*:*:*:postgres:plain-TEXT 7\:q\\z` + "\n"; string(raw) != want {
+				t.Fatalf("passfile = %q, want %q", raw, want)
+			}
+			if !tc.conninfo {
+				return
+			}
+			for _, line := range w.conninfoLines(t) {
+				if strings.Contains(line, "password") || strings.Contains(line, "passfile") {
+					t.Fatalf("HA primary_conninfo carries a credential: %q", line)
+				}
+			}
+			assertOneConninfo(t, w)
+		})
+	}
+}
