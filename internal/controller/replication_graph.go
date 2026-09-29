@@ -79,12 +79,13 @@ var walsenderLinked = map[string]bool{
 
 // replicationGraph 는 샤드 하나의 복제 관측이다. root 가 비면 관측하지 않았다(CM primary 가 실제
 // primary 가 아니다). linked 는 확인된 연결이고 known 은 그것이 전부인지다 — exec·파싱이 하나라도
-// 실패하면 거짓이다.
+// 실패하면 거짓이다. streaming 은 linked 중 따라잡은(state streaming) 멤버다 — 단계화 롤아웃의 수렴.
 type replicationGraph struct {
-	root     string            // 관측을 시작한 CM PRIMARY_ENDPOINT
-	known    bool              // linked 밖의 멤버는 연결이 없다
-	linked   map[string]bool   // 연결된 멤버 파드
-	upstream map[string]string // 멤버 → 그 멤버에게 WAL 을 보내는 파드(primary 또는 연쇄 standby)
+	root      string            // 관측을 시작한 CM PRIMARY_ENDPOINT
+	known     bool              // linked 밖의 멤버는 연결이 없다
+	linked    map[string]bool   // 연결된 멤버 파드
+	streaming map[string]bool   // linked 중 streaming 인 멤버 파드(catchup·backup 아님)
+	upstream  map[string]string // 멤버 → 그 멤버에게 WAL 을 보내는 파드(primary 또는 연쇄 standby)
 }
 
 // detached 는 그래프가 pod 의 연결이 없음을 아는지다 — 모르거나 root 면 거짓이다.
@@ -147,7 +148,10 @@ func (r *PostgresClusterReconciler) observeReplication(
 	}
 
 	// 너비 우선 — 연결을 확인한 standby 만 다음 sender 가 된다.
-	g := replicationGraph{root: rt.PrimaryEndpoint, known: true, linked: map[string]bool{}, upstream: map[string]string{}}
+	g := replicationGraph{
+		root: rt.PrimaryEndpoint, known: true,
+		linked: map[string]bool{}, streaming: map[string]bool{}, upstream: map[string]string{},
+	}
 	standbys := len(pods) - 1
 	senders := []*corev1.Pod{root}
 	for len(senders) > 0 && len(g.linked) < standbys {
@@ -166,6 +170,9 @@ func (r *PostgresClusterReconciler) observeReplication(
 			}
 			g.linked[name] = true
 			g.upstream[name] = sender.Name
+			if rows[name] == walsenderStreaming {
+				g.streaming[name] = true
+			}
 			senders = append(senders, member)
 		}
 	}

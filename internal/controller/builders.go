@@ -1283,7 +1283,10 @@ func buildPGStatefulSet(
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: serviceName,
 			Replicas:    &members,
-			Selector:    &metav1.LabelSelector{MatchLabels: labels}, // 불변 — shard-id 미포함.
+			// OnDelete — 템플릿이 바뀌어도 STS 컨트롤러는 멤버를 재시작하지 않는다. 교체는 단계화 롤아웃이
+			// 한 번에 하나씩, primary 는 switchover 뒤에 한다(ADR-0033).
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+			Selector:       &metav1.LabelSelector{MatchLabels: labels}, // 불변 — shard-id 미포함.
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: podLabels,

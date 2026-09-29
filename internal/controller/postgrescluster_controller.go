@@ -150,6 +150,10 @@ type PostgresClusterReconciler struct {
 	memberAbsentSince map[string]map[string]time.Time
 	lastRetarget      map[string]map[string]retargetAttempt
 	graphMu           sync.Mutex
+
+	// lastStepAt 은 샤드 단계화 롤아웃의 기억이다(namespace/name/shard → 마지막 단계·막힘, ADR-0033).
+	lastStepAt map[string]rolloutMark
+	rolloutMu  sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=postgres.keiailab.io,resources=postgresclusters,verbs=get;list;watch;create;update;patch;delete
@@ -596,6 +600,8 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.requestRebuilds(ctx, &cluster, shardStatuses, graphs, time.Now())
 		r.advanceRebuilds(ctx, &cluster, shardStatuses, graphs, time.Now())
 		r.gcMemberSnapshots(ctx, &cluster, time.Now())
+		// 단계화 롤아웃(ADR-0033) — OnDelete STS 의 옛 멤버를 하나씩, primary 는 switchover 뒤에 교체한다.
+		r.advanceRollouts(ctx, &cluster, shardStatuses, graphs, time.Now())
 	}
 	applyClusterConditions(&cluster, activeShardCount, allShardPrimaryReady, routerActive, routerStatus, hibernating, standaloneReplica,
 		prevPhase == postgresv1alpha1.ClusterPhaseReady, failoverDecision, primaryRoleLabelsSynced)
@@ -1274,6 +1280,9 @@ func copySpec(dst, src client.Object) {
 		d.Spec.Replicas = s.Spec.Replicas
 		d.Spec.Template = s.Spec.Template
 		d.Spec.ServiceName = s.Spec.ServiceName
+		// 전략은 통째로 옮긴다 — 템플릿과 같은 Update 라야 STS 컨트롤러가 새 템플릿으로 멤버를 재시작하지
+		// 않고, OnDelete 는 rollingUpdate(서버 기본값 partition 0)와 함께 검증을 통과하지 못한다.
+		d.Spec.UpdateStrategy = s.Spec.UpdateStrategy
 		// Selector / VolumeClaimTemplates 는 immutable — Create 시점에만 채워짐.
 		if d.Spec.Selector == nil {
 			d.Spec.Selector = s.Spec.Selector

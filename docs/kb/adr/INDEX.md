@@ -43,6 +43,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0030](0030-runtime-config-out-of-pod-template.md) | 승격 상태를 파드 템플릿 밖 런타임 ConfigMap 으로 (CR 정본 epoch·initialized + `configMapKeyRef` — 승격이 템플릿을 안 바꿔 failover 루프 차단) | Accepted | 2026-09-25 |
 | [ADR-0031](0031-member-rebuild-hold-snapshot-budget.md) | 멤버 재구축을 hold · 스냅숏 · 예산 뒤로 (`MEMBER_HOLD`·`RESEED_REQUESTS` · readyToUse 직접 확인 뒤 해제 · 1h 예산 CR 원장 · data-bearing 스냅숏 자동 삭제 0) | Accepted | 2026-09-25 |
 | [ADR-0032](0032-switchover-stops-old-primary-in-place.md) | switchover 는 옛 primary 를 제자리에서 멈춘 뒤 승격한다 (fast shutdown → 같은 컨테이너가 standby 로 재기동 → 끝 LSN 이상 승자 승격 · 파드 삭제 0 · 진행 중 failover 는 실행만 보류) | Accepted | 2026-09-29 |
+| [ADR-0033](0033-staged-rollout-on-delete.md) | 샤드 멤버는 OnDelete 로 두고 오퍼레이터가 하나씩, primary 는 마지막에 교체한다 (옛 replica 하나씩 — streaming 아닌 것 → 서수 높은 것 · 대상 밖 Ready ∧ streaming · 제자리 switchover 뒤 옛 primary 교체 · RolloutBlocked) | Accepted | 2026-09-29 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
