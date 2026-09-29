@@ -545,6 +545,22 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// 라벨·Service·재시드는 다음 reconcile 이 새 런타임 CM 으로 한다.
 		return ctrl.Result{RequeueAfter: statusPollInterval}, nil
 	}
+	// 제자리 switchover 한 걸음(§3.16) — failover 판정 뒤라 진행 중 샤드의 창은 누적만 된다.
+	requeue := statusPollInterval
+	if !standaloneReplica && !databasePodsStopped {
+		progress, err := r.advanceSwitchover(ctx, &cluster, shardStatuses, time.Now())
+		if err != nil {
+			logger.Info("switchover step failed", "error", err)
+		}
+		switch progress {
+		case switchoverPromoted:
+			// 승격한 reconcile 은 끝낸다 — 남은 창이 다음 reconcile 에 또 승격하지 않게 지운다(§3.3).
+			r.resetFailoverWindow(req.Namespace + "/" + req.Name)
+			return ctrl.Result{RequeueAfter: statusPollInterval}, nil
+		case switchoverWaiting:
+			requeue = pgPromotePoll
+		}
+	}
 	// rw 권위 = 런타임 CM 파드, 실제 primary 일 때만(§3.2) — 승격 뒤에 읽어 라벨·-primary
 	// Service·PrimaryEndpointConsistent 가 같은 값을 쓴다.
 	var authorities []shardAuthority
@@ -635,7 +651,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	MetricStatusWriteTimestamp.WithLabelValues(cluster.Namespace, cluster.Name).SetToCurrentTime()
 	ObservePostgresClusterMetrics(&cluster)
 
-	return ctrl.Result{RequeueAfter: statusPollInterval}, nil
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 func hibernationRequested(cluster *postgresv1alpha1.PostgresCluster) bool {
@@ -924,6 +940,11 @@ func (r *PostgresClusterReconciler) reconcileFailover(
 		!r.heartbeatOnly(ctx, cluster, failoverShardName, now)
 	clusterWasReady := prevPhase == postgresv1alpha1.ClusterPhaseReady
 	if !r.shouldPromoteAfterDebounce(key, failureDetected, clusterWasReady, now) {
+		return failoverDecision, false
+	}
+	// 제자리 switchover 가 도는 샤드는 실행만 보류한다 — 창은 누적되고 중단 뒤 곧바로 돈다(§3.3).
+	if switchoverActive(cluster, failoverShardName, now) {
+		logger.Info("failover withheld: switchover in progress", "shard", failoverShardName)
 		return failoverDecision, false
 	}
 

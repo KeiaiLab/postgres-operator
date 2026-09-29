@@ -175,6 +175,17 @@ var (
 		},
 		[]string{"namespace", "name", "data_bearing"},
 	)
+
+	// MetricSwitchoverDuration 은 샤드의 마지막 switchover 쓰기 공백(초)이다 — 옛 primary 정지부터 승격까지.
+	MetricSwitchoverDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "switchover_duration_seconds",
+			Help:      "Write gap of the last switchover, from stopping the old primary to the promotion",
+		},
+		[]string{"namespace", "name", "shard"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -198,6 +209,7 @@ func init() {
 		MetricMemberRebuildBudget,
 		MetricMembersHeld,
 		MetricMemberSnapshots,
+		MetricSwitchoverDuration,
 	)
 	initSeries()
 }
@@ -218,6 +230,7 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricMemberRebuildBudget.DeletePartialMatch(rebuildLabels)
 	MetricMembersHeld.DeletePartialMatch(rebuildLabels)
 	MetricMemberSnapshots.DeletePartialMatch(rebuildLabels)
+	MetricSwitchoverDuration.DeletePartialMatch(rebuildLabels)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

@@ -514,6 +514,8 @@ exit 1
 
 const AnnotationSwitchoverTarget = "postgres.keiailab.io/switchover-target"
 
+// handleSwitchover 는 switchover-target 애노테이션으로 제자리 switchover 를 연다(§3.16) — 승격은
+// advanceSwitchover 가 옛 primary 가 standby 로 돌아온 뒤에 한다. 애노테이션은 switchover 가 끝날 때 지운다.
 func (r *PostgresClusterReconciler) handleSwitchover(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
@@ -530,35 +532,19 @@ func (r *PostgresClusterReconciler) handleSwitchover(
 		return errors.New("promotion pod executor not configured for switchover")
 	}
 
-	var targetEndpoint, shardName, oldPrimary string
+	var shardName string
 	for _, ss := range shardStatuses {
 		if ss.Primary != nil && ss.Primary.Pod == targetPod {
 			return fmt.Errorf("switchover target %s is already primary", targetPod)
 		}
 		for _, rep := range ss.Replicas {
 			if rep.Pod == targetPod && rep.Ready {
-				targetEndpoint = rep.Endpoint
 				shardName = ss.Name
-				oldPrimary = shardPrimaryPod(cluster, ss.Name)
 			}
 		}
 	}
-	if targetEndpoint == "" {
+	if shardName == "" {
 		return fmt.Errorf("switchover target %s not found or not ready", targetPod)
 	}
-
-	target := failover.PromotionTarget{ShardName: shardName, Pod: targetPod, Endpoint: targetEndpoint}
-	if err := r.promoteAndPublish(ctx, cluster, shardName, target, oldPrimary, promotionSwitchover); err != nil {
-		return fmt.Errorf("switchover promotion of %s failed: %w", targetPod, err)
-	}
-
-	before := cluster.DeepCopy()
-	delete(cluster.Annotations, AnnotationSwitchoverTarget)
-	if err := r.Patch(ctx, cluster, client.MergeFrom(before)); err != nil {
-		return fmt.Errorf("failed to clear switchover annotation: %w", err)
-	}
-
-	commonsevents.Emitf(r.Recorder, cluster, "SwitchoverCompleted",
-		"Switchover to %s completed successfully", targetPod)
-	return nil
+	return r.startSwitchover(ctx, cluster, shardName, targetPod, switchoverRequested)
 }
