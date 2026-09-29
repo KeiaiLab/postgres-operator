@@ -186,6 +186,29 @@ var (
 		},
 		[]string{"namespace", "name", "shard"},
 	)
+
+	// MetricRolloutSteps 는 단계화 롤아웃 단계 수다(ADR-0033) — started 는 멤버 삭제·switchover 시작, blocked 는
+	// 선결이 memberConvergeBudget 넘게 안 선 일이다(막힐 때마다 1).
+	MetricRolloutSteps = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "rollout_steps_total",
+			Help:      "Staged rollout steps, by shard, step (replica, primary) and outcome (started, blocked)",
+		},
+		[]string{"namespace", "name", "shard", "step", "outcome"},
+	)
+
+	// MetricRolloutPendingMembers 는 StatefulSet updateRevision 에 아직 없는 멤버 수다 — 0 이 아니면 롤아웃이 남았다.
+	MetricRolloutPendingMembers = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "rollout_pending_members",
+			Help:      "Shard members not yet on the StatefulSet update revision",
+		},
+		[]string{"namespace", "name", "shard"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -210,6 +233,8 @@ func init() {
 		MetricMembersHeld,
 		MetricMemberSnapshots,
 		MetricSwitchoverDuration,
+		MetricRolloutSteps,
+		MetricRolloutPendingMembers,
 	)
 	initSeries()
 }
@@ -231,6 +256,8 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricMembersHeld.DeletePartialMatch(rebuildLabels)
 	MetricMemberSnapshots.DeletePartialMatch(rebuildLabels)
 	MetricSwitchoverDuration.DeletePartialMatch(rebuildLabels)
+	MetricRolloutSteps.DeletePartialMatch(rebuildLabels)
+	MetricRolloutPendingMembers.DeletePartialMatch(rebuildLabels)
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

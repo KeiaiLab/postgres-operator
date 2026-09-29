@@ -64,6 +64,9 @@ const (
 	// ConditionMemberRebuildBlocked 는 멤버 재구축이 예산·스냅숏·재합류 문제로 멈춘 상태다
 	// (ADR-0031). 같은 이름이 Warning 이벤트 사유다.
 	ConditionMemberRebuildBlocked = "MemberRebuildBlocked"
+	// ConditionRolloutBlocked 는 샤드 단계화 롤아웃의 다음 단계 선결이 memberConvergeBudget 넘게 안 선 상태다
+	// (ADR-0033). 다음 단계를 실행하거나 롤아웃이 끝나면 False(RolloutClear) 다.
+	ConditionRolloutBlocked = "RolloutBlocked"
 
 	// Reasons — 일반 lifecycle
 	ReasonReconciling            = "Reconciling"
@@ -113,6 +116,15 @@ const (
 	ReasonSnapshotTimeout     = "SnapshotTimeout"     // snapshotReadyTimeout 안에 readyToUse 가 아니다
 	ReasonNotRejoined         = "NotRejoined"         // 해제 뒤 staleStandbyReseedTimeout 넘게 복제 그래프에 없다
 	ReasonRebuildClear        = "RebuildClear"
+
+	// Reasons — 단계화 롤아웃(ADR-0033)
+	ReasonMemberNotConverged   = "MemberNotConverged"   // 대상 밖 멤버가 Ready ∧ streaming 이 아니거나 복제 그래프를 모른다
+	ReasonRebuildActive        = "RebuildActive"        // 샤드에 재구축이나 switchover 가 돈다
+	ReasonParameterDecrease    = "ParameterDecrease"    // 렌더한 hot standby 필수 키가 primary 현재값보다 작다
+	ReasonPrimaryConfigPending = "PrimaryConfigPending" // 첫 단계 전 primary wal_keep_size 가 렌더 값이 아니다(또는 못 읽었다)
+	ReasonImagePull            = "ImagePull"            // 기다리는 멤버가 이미지를 못 받는다
+	ReasonConnectionSlots      = "ConnectionSlots"      // primary exec 가 연결 슬롯이 없어 실패했다(모름)
+	ReasonRolloutClear         = "RolloutClear"
 
 	// Reasons — Auth / 인증 (P7 이후 활성)
 	ReasonRotating = "Rotating"
