@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/keiailab/postgres-operator/internal/loopdrill"
 	"github.com/keiailab/postgres-operator/test/utils"
 )
 
@@ -28,6 +29,9 @@ import (
 // 위층(설치·시나리오·관측)은 이 함수들로만 클러스터를 만진다. 명령은 test/utils.Run, 싣기는 helpers.go 로 돈다.
 //
 //	loopdrill_e2e_test.go ─▶ install / scenarios / observe ─▶ cluster(이 파일) ─▶ kind·docker·kubectl·helm
+//
+// 오조준 차단 — kubectl·helm·pg-stop 은 늘 훈련장 kubeconfig(drillKubeconfig)를 명시해 부른다. 비었으면 부르지 않는다.
+// 훈련 시작과 파괴 동작 직전마다 guardTarget 이 그 파일의 서버가 kind 루프백인지 본다(loopdrill.CheckKubeconfig).
 
 const (
 	clusterName     = "loopdrill"
@@ -40,7 +44,35 @@ const (
 	drillTagPrefix  = "loopdrill-"
 	shortDigestLen  = 8
 	kindNetwork     = "kind"
+	kindContext     = "kind-" + clusterName
+	pgStopBinary    = "pg-stop" // EM0 이 맥 도구(설계 §3.19)
 )
+
+// drillKubeconfig 는 훈련장 전용 kubeconfig 경로 — prepareState 가 정한다. 비면 kubectl·helm 을 부르지 않는다.
+var drillKubeconfig string
+
+var (
+	// errNoKubeconfig 는 훈련장 kubeconfig 없이 클러스터 명령을 부르려 했다는 뜻이다.
+	errNoKubeconfig = errors.New("훈련장 kubeconfig 가 정해지지 않았다 — 클러스터 명령을 부르지 않는다")
+
+	// errMistarget 은 훈련장 kubeconfig 가 kind 루프백이 아니라는 뜻이다 — 파괴 동작을 멈춘다.
+	errMistarget = errors.New("훈련장 오조준 차단")
+)
+
+// guardTarget 은 훈련장 kubeconfig 가 kind 루프백만 가리키는지 본다 — 아니면 운영을 칠 수 있어 멈춘다.
+func guardTarget() error {
+	if drillKubeconfig == "" {
+		return errNoKubeconfig
+	}
+	raw, err := os.ReadFile(drillKubeconfig)
+	if err != nil {
+		return fmt.Errorf("훈련장 kubeconfig: %w", err)
+	}
+	if err := loopdrill.CheckKubeconfig(raw); err != nil {
+		return fmt.Errorf("%w: %w", errMistarget, err)
+	}
+	return nil
+}
 
 // run 은 명령 하나를 시한 안에 돌린다(출력 = stdout+stderr).
 func run(timeout time.Duration, name string, args ...string) (string, error) {
@@ -50,12 +82,35 @@ func run(timeout time.Duration, name string, args ...string) (string, error) {
 }
 
 func kubectl(args ...string) (string, error) {
-	return run(commandTimeout, "kubectl", append([]string{"--request-timeout=" + requestTimeout}, args...)...)
+	if drillKubeconfig == "" {
+		return "", errNoKubeconfig
+	}
+	return run(commandTimeout, "kubectl", append(kubectlBase(), args...)...)
+}
+
+// kubectlBase 는 모든 kubectl 호출의 머리 — 훈련장 kubeconfig 명시 · 요청 시한.
+func kubectlBase() []string {
+	return []string{"--kubeconfig=" + drillKubeconfig, "--request-timeout=" + requestTimeout}
 }
 
 // kubectlLong 은 wait·rollout 처럼 스스로 시한을 갖는 명령용.
 func kubectlLong(args ...string) (string, error) {
-	return run(longTimeout, "kubectl", args...)
+	if drillKubeconfig == "" {
+		return "", errNoKubeconfig
+	}
+	return run(longTimeout, "kubectl", append([]string{"--kubeconfig=" + drillKubeconfig}, args...)...)
+}
+
+// kubectlIn 은 stdin 을 넘긴다 — 비밀번호·SQL 을 argv(와 utils.Run 의 명령 줄 로그)에 싣지 않는다.
+func kubectlIn(stdin string, args ...string) (string, error) {
+	if drillKubeconfig == "" {
+		return "", errNoKubeconfig
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", append(kubectlBase(), args...)...)
+	cmd.Stdin = strings.NewReader(stdin)
+	return utils.Run(cmd)
 }
 
 func kubectlJSON(v any, args ...string) error {
@@ -67,7 +122,31 @@ func kubectlJSON(v any, args ...string) error {
 }
 
 func helm(args ...string) (string, error) {
-	return run(longTimeout, "helm", args...)
+	if drillKubeconfig == "" {
+		return "", errNoKubeconfig
+	}
+	return run(longTimeout, "helm", append([]string{"--kubeconfig", drillKubeconfig}, args...)...)
+}
+
+// pgStop 은 EM0 비상 정지 도구를 훈련장 kubeconfig·context 로 부르고 종료 코드를 낸다(3 = primary 둘 이상).
+func pgStop(args ...string) (int, string, error) {
+	if err := guardTarget(); err != nil {
+		return -1, "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), longTimeout)
+	defer cancel()
+	target := []string{"--context", kindContext, "--namespace", dataNamespace, "--cluster", clusterCR}
+	cmd := exec.CommandContext(ctx, pgStopBinary, append(args, target...)...)
+	cmd.Env = append(os.Environ(), "KUBECONFIG="+drillKubeconfig)
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), string(out), nil
+	}
+	if err != nil {
+		return -1, string(out), err
+	}
+	return 0, string(out), nil
 }
 
 func docker(args ...string) (string, error) {
@@ -129,6 +208,9 @@ func deleteCluster(kubeconfig string) error {
 // 거꾸로면 손님 postgres 의 NFS CLOSE 가 사라진 서버를 영원히 기다려(D 상태) 노드 컨테이너가
 // 지워지지 않는다 — 2026-09-25 실측(rpc_wait_bit_killable, kind delete 가 kill 이벤트를 못 받음).
 func teardownCluster(kubeconfig string) error {
+	if err := guardTarget(); err != nil {
+		return err
+	}
 	_ = resetRelease()
 	out, err := kind("get", "nodes", "--name", clusterName)
 	if err != nil {
@@ -144,12 +226,12 @@ func teardownCluster(kubeconfig string) error {
 	return deleteCluster(kubeconfig)
 }
 
-// infraNodeName 은 라벨로 찾은 infra 노드 — API 가 없으면 kind 가 kind-config 의 넷째 워커에 붙이는 이름.
+// infraNodeName 은 라벨로 찾은 infra 노드 — API 가 없으면 kind 가 kind-config 의 다섯째 워커에 붙이는 이름.
 func infraNodeName(labelled string) string {
 	if name := strings.TrimSpace(labelled); name != "" {
 		return name
 	}
-	return clusterName + "-worker4"
+	return clusterName + "-worker5"
 }
 
 func controlPlaneNode() string {
@@ -171,6 +253,17 @@ func kindSubnetV4() (string, error) {
 }
 
 // ── 노드 장애 ──
+
+// cordonNode·uncordonNode 는 S0 사전 배치(0-0·0-1 은 W4, 0-2 는 적격 워커)를 만든다.
+func cordonNode(node string) error {
+	_, err := kubectl("cordon", node)
+	return err
+}
+
+func uncordonNode(node string) error {
+	_, err := kubectl("uncordon", node)
+	return err
+}
 
 func pauseNode(node string) error {
 	_, err := docker("pause", node)

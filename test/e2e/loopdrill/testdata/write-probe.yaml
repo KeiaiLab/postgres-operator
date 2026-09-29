@@ -1,0 +1,68 @@
+# 쓰기 탐침(설계 §3.12 · §3.13 · 부록 A) — 훈련장과 운영 L1 이 같은 파일을 쓴다.
+# 비-superuser 역할 write_probe 가 -rw Service 에 연결 하나로 PROBE_INTERVAL_SECONDS(= writeProbeInterval)마다 INSERT 하고
+# commit 을 받은 행을 "ack <id> <epoch>" 로 남긴다 — 드라이버·L1 이 로그로 쓰기 공백(J10)·유실(J15)을 잰다.
+# 연결이 끊기면 1 s 뒤 다시 붙는다. 죽은 상대는 keepalive·tcp_user_timeout 으로 10 s 안에 끊는다.
+# 역할·표는 write-probe.sql, 비밀번호는 Secret postgres-write-probe(password) 에서만 온다.
+# 망 — postgres-prod 소비자 목록(networkPolicy.allowedClients)에 (data, postgres.keiailab.io/probe=write) 쌍이 있어야 한다.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-write-probe
+  namespace: data
+  labels:
+    postgres.keiailab.io/probe: write
+spec:
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 1
+  enableServiceLinks: false
+  automountServiceAccountToken: false
+  # 운영 오퍼레이터 노드(tier 1) · kind infra 워커 — 훈련장이 세우지 않는 노드다.
+  nodeSelector:
+    keiailab.dev/tier: "1"
+  tolerations:
+    - key: loopdrill.keiailab.io/infra
+      operator: Exists
+      effect: NoSchedule
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: probe
+      image: harbor.keiailab.com/dockerhub-proxy/library/postgres:18-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
+      command: ["bash", "-c"]
+      args:
+        - |
+          conn="host=$PROBE_HOST port=5432 dbname=postgres user=write_probe connect_timeout=5 keepalives=1 keepalives_idle=5 keepalives_interval=2 keepalives_count=3 tcp_user_timeout=10000 target_session_attrs=read-write application_name=write-probe"
+          while :; do
+            echo "connect $(date +%s.%N)"
+            next=$(date +%s)
+            while :; do
+              echo "INSERT INTO write_probe.acks DEFAULT VALUES RETURNING 'ack ' || id || ' ' || extract(epoch FROM clock_timestamp());"
+              next=$((next + PROBE_INTERVAL_SECONDS))
+              now=$(date +%s)
+              if [ "$next" -gt "$now" ]; then sleep $((next - now)); fi
+            done | psql "$conn" -XAtq -v ON_ERROR_STOP=1
+            echo "disconnect $(date +%s.%N) rc=${PIPESTATUS[1]}"
+            sleep 1
+          done
+      env:
+        - name: PROBE_HOST
+          value: postgres-prod-shard-0-rw.data.svc
+        - name: PROBE_INTERVAL_SECONDS
+          value: "5"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-write-probe
+              key: password
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits: { cpu: 200m, memory: 128Mi }
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
