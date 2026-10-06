@@ -8,9 +8,7 @@
 # ADR 0002 §결과: distroless 기반, 외부 런타임 0, K8s lease로 election 참여.
 # Pillar P1-T3 골격. P2~P11 후속 task에서 election/citus_update_node 등 추가.
 
-ARG GO_VERSION=1.25
-
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
@@ -29,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags="-s -w" \
         -o /out/instance ./cmd/instance
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 LABEL org.opencontainers.image.source="https://github.com/keiailab/postgres-operator"
 LABEL org.opencontainers.image.licenses="MIT"

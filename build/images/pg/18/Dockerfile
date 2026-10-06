@@ -12,7 +12,7 @@ ARG PG_MAJOR=18
 # TODO(upstream-watch): Citus가 PG18 호환 마이너를 발표하면 자동 갱신.
 ARG CITUS_VERSION=13.2
 
-FROM postgres:${PG_MAJOR}-bookworm
+FROM postgres:18-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
 
 ARG PG_MAJOR
 ARG CITUS_VERSION
