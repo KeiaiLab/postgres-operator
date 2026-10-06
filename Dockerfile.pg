@@ -20,7 +20,7 @@
 ARG PG_MAJOR=18
 
 # ---- Stage 1: instance binary 빌드 ----
-FROM golang:1.26-bookworm AS instance-builder
+FROM golang:1.26-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS instance-builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /workspace
@@ -34,9 +34,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
 # postgres:${PG_MAJOR}-bookworm 공식 이미지를 base — pg_ctl, postgres, initdb, psql 포함.
 # 별도 빌드 (apt-get build-dep postgresql) 는 attack surface 증가 + 빌드 시간 비용으로
 # alpha 단계에서는 공식 이미지 사용 (ADR 후속에서 자체 빌드 결정).
+# major 별 digest 고정 stage 를 PG_MAJOR 로 고른다 (BuildKit 은 안 쓰는 stage 를 건너뛴다).
+FROM postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67 AS pg-16
+FROM postgres:17-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652 AS pg-17
+FROM postgres:18-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650 AS pg-18
 # 글로벌 ARG 가 stage 안에서도 가시화되도록 한 번 더 선언 (Docker 규약).
 ARG PG_MAJOR
-FROM postgres:${PG_MAJOR}-bookworm AS runtime
+FROM pg-${PG_MAJOR} AS runtime
 
 # instance binary 를 표준 경로로 복사. 컨테이너 ENTRYPOINT.
 COPY --from=instance-builder /out/instance /usr/local/bin/instance
