@@ -108,11 +108,12 @@ func hashKey(fn v1alpha1.VindexHashFunction, key string) (uint32, error) {
 }
 
 // parseHashBound 는 hex 문자열 ("0x..." 또는 "ffffffff") 또는 10진수를 uint32 로 해석한다.
+// uint32 를 넘는 값은 잘려 다른 범위가 되므로 bitSize 32 로 거부한다.
 func parseHashBound(s string) (uint32, error) {
-	if v, err := strconv.ParseUint(s, 0, 64); err == nil {
+	if v, err := strconv.ParseUint(s, 0, 32); err == nil {
 		return uint32(v), nil
 	}
-	if v, err := strconv.ParseUint(s, 16, 64); err == nil {
+	if v, err := strconv.ParseUint(s, 16, 32); err == nil {
 		return uint32(v), nil
 	}
 	return 0, fmt.Errorf("invalid hash bound %q (expected hex or decimal)", s)
