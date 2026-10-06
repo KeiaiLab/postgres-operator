@@ -217,13 +217,13 @@ hooks-check: ## 현재 repo 에 lefthook hook 이 설치되어 있는지 확인 
 .PHONY: audit
 audit: ## govulncheck + trivy + gosec — RFC 0002 L3 security 게이트 (3-repo 정합).
 	@echo "=== govulncheck (call-graph CVE) ==="
-	@command -v $(GOBIN)/govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest
+	@command -v $(GOBIN)/govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	$(GOBIN)/govulncheck ./...
 	@echo "=== trivy fs (lockfile + base CVE) ==="
 	@command -v trivy >/dev/null 2>&1 || { echo "[error] trivy not installed: brew install trivy (or apt install trivy)"; exit 1; }
 	trivy fs --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --skip-dirs vendor,bin,tmp .
 	@echo "=== gosec (HIGH only) ==="
-	@command -v $(GOBIN)/gosec >/dev/null 2>&1 || go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@command -v $(GOBIN)/gosec >/dev/null 2>&1 || go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
 	$(GOBIN)/gosec -quiet -severity high ./internal/...
 
 .PHONY: test-scripts
@@ -610,6 +610,8 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.8.0
+GOVULNCHECK_VERSION ?= v1.8.0
+GOSEC_VERSION ?= v2.29.0
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
