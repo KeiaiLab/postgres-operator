@@ -29,7 +29,11 @@ RUN set -eux; \
         ca-certificates curl gnupg lsb-release \
         postgresql-${PG_MAJOR}-pgaudit \
     ; \
-    curl -fsSL https://install.citusdata.com/community/deb.sh | bash; \
+    curl -fsSL https://repos.citusdata.com/community/gpgkey \
+        | gpg --dearmor -o /usr/share/keyrings/citusdata-community.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/citusdata-community.gpg] https://repos.citusdata.com/community/debian/ $(. /etc/os-release; echo "$VERSION_CODENAME") main" \
+        > /etc/apt/sources.list.d/citusdata_community.list; \
+    apt-get update; \
     apt-get install -y --no-install-recommends \
         postgresql-${PG_MAJOR}-citus-${CITUS_VERSION} \
     ; \
