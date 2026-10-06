@@ -69,12 +69,15 @@ func sourceShardPodDNS(cluster, ns, shardID string) (string, error) {
 	if !strings.HasPrefix(shardID, "shard-") {
 		return "", fmt.Errorf("source shard %q is not ordinal (want shard-N)", shardID)
 	}
-	ord, err := strconv.Atoi(strings.TrimPrefix(shardID, "shard-"))
+
+	// bitSize 32 — int32 를 넘는 ordinal 은 잘려 다른 shard pod 를 가리키므로 거부한다.
+	v, err := strconv.ParseInt(strings.TrimPrefix(shardID, "shard-"), 10, 32)
 	if err != nil {
 		return "", fmt.Errorf("source shard %q: %w", shardID, err)
 	}
-	pod := ShardStatefulSetName(cluster, int32(ord)) + "-0"
-	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod, ShardServiceName(cluster, int32(ord)), ns), nil
+	ord := int32(v)
+	pod := ShardStatefulSetName(cluster, ord) + "-0"
+	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod, ShardServiceName(cluster, ord), ns), nil
 }
 
 // targetShardPodDNS 는 resharding target shard 의 primary pod(-0) 안정 DNS 를 만든다.
