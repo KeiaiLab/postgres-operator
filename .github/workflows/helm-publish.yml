@@ -28,9 +28,7 @@ on:
         required: true
 
 permissions:
-  contents: write   # push to gh-pages + create per-chart Release
-  packages: write   # push helm chart to ghcr.io OCI registry
-  pages: read
+  contents: read    # least-privilege at top level; write scoped per job
 
 concurrency:
   group: helm-publish-${{ github.repository }}
@@ -39,6 +37,10 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push to gh-pages + create per-chart Release
+      packages: write   # push helm chart to ghcr.io OCI registry
+      pages: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
