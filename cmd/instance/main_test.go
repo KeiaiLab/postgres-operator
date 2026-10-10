@@ -200,3 +200,30 @@ func TestHandleStoppedLeading_SkipsFenceWhenNeverPromoted(t *testing.T) {
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// TestWaitPGReady_CancelledBeforeReady 는 INC-2026-10-10 가드: postgres 가 ready
+// 전에 죽어 ctx 가 취소되면 election 을 시작하지 않아야 한다 (primary lease
+// 점유 방지).
+func TestWaitPGReady_CancelledBeforeReady(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if waitPGReady(ctx, supervise.NewMock(), time.Millisecond) {
+		t.Fatal("got ready=true, want false when never ready")
+	}
+}
+
+func TestWaitPGReady_Ready(t *testing.T) {
+	m := supervise.NewMock()
+	m.Ready = true
+
+	if !waitPGReady(context.Background(), m, time.Millisecond) {
+		t.Fatal("got ready=false, want true")
+	}
+}
+
+func TestWaitPGReady_NilSupervisor(t *testing.T) {
+	if !waitPGReady(context.Background(), nil, time.Millisecond) {
+		t.Fatal("nil supervisor must not gate election")
+	}
+}

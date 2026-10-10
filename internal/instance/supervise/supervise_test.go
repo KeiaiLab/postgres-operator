@@ -423,3 +423,27 @@ func TestMock_IsReady(t *testing.T) {
 		t.Errorf("Ready=true should report true")
 	}
 }
+
+// TestReal_Start_NormalizesDataDirMode 는 INC-2026-10-10 회귀 가드: kubelet 의
+// fsGroup 재적용으로 PGDATA 가 g+rwx 로 drift 해도, 컨테이너 재시작 시 init 이
+// 재실행되지 않으므로 Start (fork 직전) 가 0700 으로 되돌려야 한다.
+func TestReal_Start_NormalizesDataDirMode(t *testing.T) {
+	r := newRealForTest(t)
+	if err := os.Chmod(r.cfg.DataDir, 0o775); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	defer func() { _ = r.Stop(stopCtx, false) }()
+
+	fi, err := os.Stat(r.cfg.DataDir)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o700 {
+		t.Errorf("DataDir mode = %o, want 0700", got)
+	}
+}
