@@ -294,6 +294,13 @@ func main() {
 	// Election goroutine
 	electErrCh := make(chan error, 1)
 	go func() {
+		// Hold no lease until postgres accepts connections: a crashing
+		// child must not keep re-acquiring the primary lease and block
+		// standby takeover (INC-2026-10-10).
+		if !waitPGReady(ctx, sup, pgReadyPollInterval) {
+			close(electErrCh)
+			return
+		}
 		if err := elect.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			electErrCh <- err
 		}
@@ -695,6 +702,9 @@ func patchPodAnnotation(
 	return err
 }
 
+// pgReadyPollInterval gates election start on postgres readiness.
+const pgReadyPollInterval = 500 * time.Millisecond
+
 // waitSupReady 는 sup.IsReady 가 true 일 때까지 polling 한다 (500ms interval).
 // timeout 만료 시 error. supervise-disabled 모드 (sup==nil) 에서는 즉시 nil.
 func waitSupReady(ctx context.Context, sup supervise.Supervisor, timeout time.Duration) error {
@@ -716,6 +726,29 @@ func waitSupReady(ctx context.Context, sup supervise.Supervisor, timeout time.Du
 		}
 	}
 	return fmt.Errorf("postgres not ready after %s", timeout)
+}
+
+// waitPGReady blocks until postgres accepts connections. It returns false
+// only when ctx ends first. A nil sup (supervise disabled) is ready.
+func waitPGReady(ctx context.Context, sup supervise.Supervisor, interval time.Duration) bool {
+	if sup == nil {
+		return true
+	}
+
+	for {
+		probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+		ready := sup.IsReady(probeCtx)
+		cancel()
+		if ready {
+			return true
+		}
+
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(interval):
+		}
+	}
 }
 
 // makeReadyzHandler 는 /readyz HTTP handler 를 생성한다.

@@ -1348,3 +1348,15 @@ func TestBuildRouterRole_NoStatusSubresource(t *testing.T) {
 		}
 	}
 }
+
+// TestDataplanePodSecurityContext_FSGroupChangePolicy 는 INC-2026-10-10 회귀
+// 가드: 기본 Always 는 볼륨 재설정마다 PGDATA 를 g+rwx 로 재귀 chmod 해 postgres
+// 가 "invalid permissions" 로 기동 거부한다. OnRootMismatch 여야 한다.
+func TestDataplanePodSecurityContext_FSGroupChangePolicy(t *testing.T) {
+	t.Parallel()
+
+	sc := dataplanePodSecurityContext()
+	if sc.FSGroupChangePolicy == nil || *sc.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
+		t.Errorf("FSGroupChangePolicy: want OnRootMismatch, got %v", sc.FSGroupChangePolicy)
+	}
+}

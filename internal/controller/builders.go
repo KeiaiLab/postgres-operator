@@ -164,11 +164,15 @@ func storageClassPtr(s string) *string {
 // 처리한다(ADR 0006 §트레이드오프). 현 시점은 *opt-out 강제* — 운영자가 잊으면
 // root 가능 상태로 떨어지지 않도록 default를 항상 강제한다.
 func dataplanePodSecurityContext() *corev1.PodSecurityContext {
+	// OnRootMismatch: Always 는 볼륨 재설정마다 PGDATA 를 g+rwx 로 재귀 chmod 해
+	// postgres 가 "invalid permissions" 로 기동을 거부한다 (INC-2026-10-10).
+	changePolicy := corev1.FSGroupChangeOnRootMismatch
 	return &corev1.PodSecurityContext{
-		RunAsNonRoot: ptrBool(true),             //nolint:modernize // typed-value pointer required
-		RunAsUser:    ptrInt64(postgresUserUID), //nolint:modernize
-		RunAsGroup:   ptrInt64(postgresUserUID), //nolint:modernize
-		FSGroup:      ptrInt64(postgresUserUID), //nolint:modernize
+		FSGroupChangePolicy: &changePolicy,
+		RunAsNonRoot:        ptrBool(true),             //nolint:modernize // typed-value pointer required
+		RunAsUser:           ptrInt64(postgresUserUID), //nolint:modernize
+		RunAsGroup:          ptrInt64(postgresUserUID), //nolint:modernize
+		FSGroup:             ptrInt64(postgresUserUID), //nolint:modernize
 		SeccompProfile: &corev1.SeccompProfile{
 			Type: corev1.SeccompProfileTypeRuntimeDefault,
 		},

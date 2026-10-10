@@ -227,6 +227,9 @@ func (r *Real) cleanStaleLocks() {
 	_ = os.Remove(filepath.Join(r.cfg.DataDir, "postmaster.pid"))
 }
 
+// dataDirMode 는 postgres 가 요구하는 PGDATA 권한 (0700 또는 0750).
+const dataDirMode os.FileMode = 0o700
+
 // resolveBinPath 는 BinPath 또는 BinDir/postgres 를 결정한다.
 func (r *Real) resolveBinPath() string {
 	if r.cfg.BinPath != "" {
@@ -248,6 +251,10 @@ func (r *Real) Start(ctx context.Context) error {
 	// Instance manager 가 PID 1 이고 본 호출은 *child fork 직전* 이므로 동일 pod
 	// 내 살아있는 postmaster 부재 — 무조건 정리 안전 (cleanStaleLocks doc 참조).
 	r.cleanStaleLocks()
+	// INC-2026-10-10: kubelet fsGroup 재적용이 PGDATA 를 g+rwx 로 drift 시키면
+	// postgres 가 기동을 거부한다. 컨테이너 재시작은 init(chmod) 를 재실행하지
+	// 않으므로 매 fork 직전 0700 으로 되돌린다. best-effort — 실패는 postgres 가 보고.
+	_ = os.Chmod(r.cfg.DataDir, dataDirMode)
 	bin := r.resolveBinPath()
 	args := []string{
 		"-D", r.cfg.DataDir,
