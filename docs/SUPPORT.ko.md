@@ -40,7 +40,7 @@ keiailab/postgres-operator 사용 중 문제가 발생하면 아래 채널을 �
 
 ## 상용 지원 / SLA
 
-본 프로젝트는 MIT 오픈소스로, 공식 상용 지원은 없다. production 클러스터에 대한 사고 대응 SLA 가 필요하면 별도 컨설팅 engagement 가 필요할 수 있다 — `support@keiailab.io` 로 이메일 부탁.
+본 프로젝트는 MIT 오픈소스로, 공식 상용 지원은 없다. production 클러스터에 대한 사고 대응 SLA 가 필요하면 별도 컨설팅 engagement 가 필요할 수 있다 — `support@keiailab.com` 로 이메일 부탁.
 
 ## 응답 기대치
 

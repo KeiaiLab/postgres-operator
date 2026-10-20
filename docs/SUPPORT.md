@@ -53,7 +53,7 @@ write up vulnerabilities in public issues or discussions.
 This is an MIT-licensed open-source project; there is no official commercial
 support. If you need an incident-response SLA for a production cluster, a
 separate consulting engagement may be required — please email
-`support@keiailab.io`.
+`support@keiailab.com`.
 
 ## Response expectations
 

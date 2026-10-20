@@ -35,7 +35,7 @@
 
 ## Enforcement (执行)
 
-可向 `coc@keiailab.io` 报告违规行为。所有报告将被审查并采取适当措施,举报者的身份将保持保密。
+可向 `conduct@keiailab.com` 报告违规行为。所有报告将被审查并采取适当措施,举报者的身份将保持保密。
 
 ## Attribution (致谢)
 

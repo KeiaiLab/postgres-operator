@@ -23,7 +23,7 @@ long-term-support (LTS) 정책은 v1.0.0 GA 출시 이후 별도 공지된다.
 
 **보안 취약점은 공개 issue 로 열지 마세요.** 비공개 채널을 사용:
 
-- 이메일: `security@keiailab.io`
+- 이메일: `security@keiailab.com`
 - PGP key fingerprint: `89A4 0947 6828 CB99 2338  C378 651E 51AF 520B CB78`
   (keiailab Helm chart 서명 키 — gh-pages 의 `artifacthub-repo.yml` 에 게시된 fingerprint 와 동일).
 

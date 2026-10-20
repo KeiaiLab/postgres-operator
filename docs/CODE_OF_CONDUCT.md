@@ -39,7 +39,7 @@ Behavior that is not tolerated:
 
 ## Enforcement
 
-Violations may be reported to `coc@keiailab.io`. All reports will be
+Violations may be reported to `conduct@keiailab.com`. All reports will be
 reviewed and acted on as appropriate; the identity of the reporter is kept
 confidential.
 

@@ -23,7 +23,7 @@ long-term-support (LTS) 策略将在 v1.0.0 GA 发布之后单独公布。
 
 **请勿在公开 issue 中提交安全漏洞。** 请使用私有渠道:
 
-- 邮件: `security@keiailab.io`
+- 邮件: `security@keiailab.com`
 - PGP 密钥指纹: `89A4 0947 6828 CB99 2338  C378 651E 51AF 520B CB78`
   (keiailab Helm chart 签名密钥 —— 与 gh-pages 上发布的 `artifacthub-repo.yml` 中的指纹一致)。
 

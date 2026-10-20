@@ -7,4 +7,4 @@ versions, and secure-operation recommendations, see
 
 To report a vulnerability: **do not open a public issue.** Use
 [GitHub Security Advisories](https://github.com/KeiaiLab/postgres-operator/security/advisories/new)
-or email `security@keiailab.io`.
+or email `security@keiailab.com`.

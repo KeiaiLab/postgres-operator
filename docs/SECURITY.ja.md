@@ -23,7 +23,7 @@ long-term-support (LTS) ポリシーは、v1.0.0 GA リリース後に別途公�
 
 **セキュリティ脆弱性については公開 issue を作成しないでください。** プライベートチャネルをご利用ください:
 
-- メール: `security@keiailab.io`
+- メール: `security@keiailab.com`
 - PGP 鍵フィンガープリント: `89A4 0947 6828 CB99 2338  C378 651E 51AF 520B CB78`
   (keiailab Helm chart 署名鍵 — gh-pages 上で公開されている `artifacthub-repo.yml` のフィンガープリントと同一)。
 

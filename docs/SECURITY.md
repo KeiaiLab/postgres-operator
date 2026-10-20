@@ -23,7 +23,7 @@ v1.0.0 GA release.
 **Please do not open public issues for security vulnerabilities.** Use the
 private channel:
 
-- Email: `security@keiailab.io`
+- Email: `security@keiailab.com`
 - PGP key fingerprint: `89A4 0947 6828 CB99 2338  C378 651E 51AF 520B CB78`
   (the keiailab Helm chart signing key — identical to the fingerprint in
   the `artifacthub-repo.yml` published on gh-pages).
