@@ -38,6 +38,8 @@ postgres-ADR/0019 의 "14 workflow" 결정을 *현 상태* (3 workflow) 로 *ame
 - `helm-publish.yml` 유지 (RFC-0002 §7 예외 ① — gh-pages 정적 배포)
 - `release.yml` 유지 (RFC-0002 §7 예외 ③ — release tag → GH Release body 자동)
 - `scorecard.yml` 유지 (OpenSSF Scorecard 외부 신뢰 신호 — postgres-ADR/0017 의 핵심 사유 일부)
+- `artifacthub-verify.yml` 유지 (helm-publish·tag·PR charts 뒤 `ah lint` + Artifact Hub 인덱싱 smoke)
+- `test.yml` 유지 (PR·main push 에 `make test` envtest — required check `unit`, INC-0002)
 - 나머지 11 workflow (ci, codeql, dco, dependency-review, go-licenses, helm-install-test, helm-lint, kube-linter, markdown-link-check, security-scan, stale) → 로컬 4계층 (lefthook + Makefile) 에 *전부 이관 완료* (S7 cycle PR #88 의 lefthook 보강)
 - postgres-ADR/0021 (gha-block hook) 의 *신규 파일 추가 차단* 동작은 유지 (modify 는 허용)
 
@@ -54,11 +56,11 @@ postgres-ADR/0019 의 "14 workflow" 결정을 *현 상태* (3 workflow) 로 *ame
 ## Verification
 
 ```bash
-# 1. 현 workflow 3
-test $(ls .github/workflows/*.yml 2>/dev/null | wc -l) -eq 3
+# 1. 현 workflow 5
+test $(ls .github/workflows/*.yml 2>/dev/null | wc -l) -eq 5
 
-# 2. 3 specific workflows
-for f in helm-publish.yml release.yml scorecard.yml; do
+# 2. 5 specific workflows (Makefile validate 허용 목록과 같다)
+for f in artifacthub-verify.yml helm-publish.yml release.yml scorecard.yml test.yml; do
   test -f .github/workflows/$f || exit 1
 done
 

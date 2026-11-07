@@ -307,7 +307,7 @@ validate: manifests generate kustomize build-installer test-scripts ## CRD, Kust
 	else \
 		echo "kubectl API server 미연결: dist/install.yaml client dry-run 생략"; \
 	fi
-	@ALLOWED="helm-publish.yml release.yml scorecard.yml"; \
+	@ALLOWED="artifacthub-verify.yml helm-publish.yml release.yml scorecard.yml test.yml"; \
 	UNEXPECTED=$$(ls .github/workflows/ 2>/dev/null | while read f; do \
 		echo "$$ALLOWED" | grep -qw "$$f" || echo "$$f"; \
 	done); \
