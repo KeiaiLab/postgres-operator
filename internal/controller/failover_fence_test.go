@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 	"github.com/keiailab/postgres-operator/internal/controller/failover"
@@ -687,5 +688,134 @@ func TestParseFenceOutput(t *testing.T) {
 		if got := parseFenceOutput([]byte(out)); got != want {
 			t.Errorf("parseFenceOutput(%q) = %s, want %s", out, got, want)
 		}
+	}
+}
+
+// TestFailoverCandidateAlreadyPrimary 는 후보가 이미 primary 면(앞선 승격 뒤 발행 실패 — 상태 애노테이션이 늦어
+// replica 로 보인다) 그 후보가 승자인지 본다. 다른 standby 를 승격하면 primary 가 둘이다.
+func TestFailoverCandidateAlreadyPrimary(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-candprim", nil)
+	w.exec.recovery[w.cand] = pgBoolFalse
+
+	if err := w.promote(); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+
+	calls := w.exec.callLog()
+	if indexOf(calls, "promote "+w.other) >= 0 || indexOf(calls, "promote "+w.cand) < 0 {
+		t.Fatalf("calls = %v, want promote %s only", calls, w.cand)
+	}
+	if indexOf(calls, "lsn "+w.other) >= 0 {
+		t.Errorf("calls = %v, F3 must be skipped for an already-primary candidate", calls)
+	}
+	if !w.follows(w.other, w.cand) {
+		t.Errorf("%s conninfo = %q, want winner %s", w.other, w.exec.conninfo[w.other], w.cand)
+	}
+	if events := w.events(); hasEvent(events, "Normal "+failoverWinnerChangedReason) {
+		t.Errorf("events = %v, the winner must stay the already-primary candidate", events)
+	}
+}
+
+// TestFailoverOtherPrimaryRefused 는 후보가 아닌 생존자가 primary 로 답하면 승격하지 않고 끊긴 채 두는지 본다.
+func TestFailoverOtherPrimaryRefused(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-othprim", nil)
+	w.exec.recovery[w.other] = pgBoolFalse
+
+	if err := w.promote(); err == nil {
+		t.Fatal("promoted while another survivor is primary")
+	}
+	if calls := w.exec.callLog(); slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "promote ") }) {
+		t.Fatalf("calls = %v, want no promote exec", calls)
+	}
+	w.assertLeftCut(t)
+}
+
+// TestFailoverOldPrimaryCandidate 는 옛 primary 가 standby 로 다시 떠 후보가 되면(끝 위치 최대) 끊기·재기에 들고
+// 승격되는지 본다 — 빠지면 뒤처진 standby 가 승격되고 끝 꼬리를 잃는다.
+func TestFailoverOldPrimaryCandidate(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-oldcand", func(pods map[string]*corev1.Pod, _ map[string]*corev1.PersistentVolumeClaim) {
+		pods["fence-oldcand-shard-0-0"].Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	})
+	w.exec.recovery[w.old] = pgBoolTrue
+	w.exec.lsn[w.old] = "0/3000900"
+	d := w.decision()
+	d.PromotionCandidate = &postgresv1alpha1.ShardEndpoint{Pod: w.old, Endpoint: podDNS(w.name, w.old), Ready: true}
+
+	if err := w.r.executeClusterPromotion(context.Background(), w.cluster, "shard-0", d); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+
+	calls := w.exec.callLog()
+	if indexOf(calls, "fence "+w.old) >= 0 || indexOf(calls, "cut "+w.old) < 0 {
+		t.Errorf("calls = %v, want %s cut and not fenced", calls, w.old)
+	}
+	if indexOf(calls, "promote "+w.old) < 0 || indexOf(calls, "promote "+w.cand) >= 0 {
+		t.Fatalf("calls = %v, want promote %s only", calls, w.old)
+	}
+	for _, pod := range []string{w.cand, w.other} {
+		if !w.follows(pod, w.old) {
+			t.Errorf("%s conninfo = %q, want winner %s", pod, w.exec.conninfo[pod], w.old)
+		}
+	}
+}
+
+// TestFailoverWinnerChangedCandidateUnmeasured 는 후보를 못 끊었을 때 승자 교체 이벤트가 그 사유를 밝히는지 본다.
+func TestFailoverWinnerChangedCandidateUnmeasured(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-candfail", nil)
+	w.exec.cutFail[w.cand] = true
+
+	if err := w.promote(); err != nil {
+		t.Fatalf("executeClusterPromotion: %v", err)
+	}
+	if calls := w.exec.callLog(); indexOf(calls, "promote "+w.other) < 0 {
+		t.Fatalf("calls = %v, want promote %s", calls, w.other)
+	}
+	events := w.events()
+	if !slices.ContainsFunc(events, func(e string) bool {
+		return strings.HasPrefix(e, "Normal "+failoverWinnerChangedReason) && strings.Contains(e, "unmeasured")
+	}) {
+		t.Errorf("events = %v, want %s naming the unmeasured candidate", events, failoverWinnerChangedReason)
+	}
+}
+
+// TestFailoverWinnerGuardErrorBlocks 는 바뀐 승자의 #220 가드를 못 보면 승격하지 않는지 본다(막힘 → 오류).
+func TestFailoverWinnerGuardErrorBlocks(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-guarderr", nil)
+	w.exec.lsn[w.other] = "0/3000300"
+	w.r.Client = interceptor.NewClient(w.c.(client.WithWatch), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*corev1.PersistentVolumeClaimList); ok {
+				return errors.New("apiserver unavailable")
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+
+	if err := w.promote(); err == nil {
+		t.Fatal("promoted a changed winner whose #220 guard could not be read")
+	}
+	if calls := w.exec.callLog(); slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "promote ") }) {
+		t.Fatalf("calls = %v, want no promote exec", calls)
+	}
+}
+
+// TestFenceCommandPidFileGone 는 postmaster.pid 를 못 읽게 된 뒤에도 앞서 읽은 pid 를 살아 있는 프로세스로 보는지
+// 본다 — 옛 pid 를 건너뛰면 도는 postmaster 를 Stopped 로 오인한다.
+func TestFenceCommandPidFileGone(t *testing.T) {
+	t.Parallel()
+	s := newFenceScript(t, `rm -f "$POSTGRES_DATA_DIR/postmaster.pid"; exit 1`)
+	s.process("999999999", "postgres", "T")
+	s.touch("postmaster.pid", "999999999\n")
+
+	if got := s.run(); got != fenceStuck {
+		t.Errorf("outcome = %s, want %s", got, fenceStuck)
+	}
+	if got := s.stops(); !slices.Equal(got, []string{"fast", "immediate"}) {
+		t.Errorf("pg_ctl stops = %v, want fast then immediate", got)
 	}
 }

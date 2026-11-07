@@ -109,6 +109,9 @@ func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) 
 	if promoteIdx < 0 {
 		t.Fatalf("promotion command must use PostgreSQL SQL promotion API: %s", command)
 	}
+	if i := strings.Index(command, fencePendingMarker); i < promoteIdx {
+		t.Fatalf("promotion command must clear the fence pending marker after promote succeeds: %s", command)
+	}
 	if strings.Contains(command, "pg_ctl") {
 		t.Fatalf("promotion command must not use pg_ctl promote in the operator exec path: %s", command)
 	}

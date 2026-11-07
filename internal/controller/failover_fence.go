@@ -83,8 +83,9 @@ const (
 // fenceScriptResults 는 스크립트가 낼 수 있는 결과다 — 그 밖은 Unreachable(증명 없음).
 var fenceScriptResults = []fenceOutcome{fenceStopped, fenceKilled, fenceDown, fenceStandby, fenceStuck}
 
-// prepareFailover 는 F1–F3 이다 — 승격할 멤버와 끊긴 생존자를 돌려준다. 끊을 standby 가 없으면(후보가 이미
-// primary 거나 샤드 멤버를 못 찾음) 판정 후보 그대로다. 승자를 못 정하면 끊기를 그대로 두고 오류다 — CM primary 는
+// prepareFailover 는 F1–F3 이다 — 승격할 멤버와 끊긴 생존자를 돌려준다. 후보가 이미 primary 면(앞선 승격 뒤 발행
+// 실패) 후보가 승자이고 F3 를 건너뛴다. 후보가 아닌 생존자가 primary 면 오류다 — 둘째 primary 를 만들지 않는다.
+// 후보가 샤드 멤버에 없으면 판정 후보 그대로다. 승자를 못 정하면 끊기를 그대로 두고 오류다 — CM primary 는
 // 방금 멈춘 파드거나(Unreachable 이면) 아직 쓰기를 받는 옛 primary 라 되돌리면 S3 분기가 다시 생긴다. 디바운스 창은
 // 남아 다음 reconcile 이 곧바로 F1 부터 다시 한다.
 func (r *PostgresClusterReconciler) prepareFailover(
@@ -102,18 +103,44 @@ func (r *PostgresClusterReconciler) prepareFailover(
 	if err != nil {
 		return nil, nil, err
 	}
-	cut, standbys := r.cutSurvivors(ctx, cluster, shard, members, oldPrimary)
-	if standbys == 0 {
+	if !slices.ContainsFunc(members, func(p corev1.Pod) bool { return p.Name == candidate.Pod }) {
 		return candidate, nil, nil
 	}
 
-	winner, err := r.failoverWinner(ctx, cluster, shard, cut, candidate, ref.service)
+	// 옛 primary 가 standby 로 다시 떠 후보면 끊기·재기에 든다 — 빼면 뒤처진 standby 가 이긴다.
+	exclude := oldPrimary
+	if oldPrimary == candidate.Pod {
+		exclude = ""
+	}
+	cut, primaries := r.cutSurvivors(ctx, cluster, shard, members, exclude)
+
+	winner, err := r.pickWinner(ctx, cluster, shard, cut, primaries, candidate, ref.service)
 	if err != nil {
 		commonsevents.EmitWarningf(r.Recorder, cluster, failoverWinnerUnavailable,
 			"shard %s: %d survivors left cut, no promotion: %v", shard, len(cut), err)
 		return nil, nil, err
 	}
 	return winner, cut, nil
+}
+
+// pickWinner 는 primary 로 답한 생존자를 먼저 본다 — 후보뿐이면 후보가 승자(F3 생략), 다른 멤버면 둘째 primary
+// 라 오류다. 없으면 F3 다.
+func (r *PostgresClusterReconciler) pickWinner(
+	ctx context.Context,
+	cluster *postgresv1alpha1.PostgresCluster,
+	shard string,
+	cut []corev1.Pod,
+	primaries []string,
+	candidate *postgresv1alpha1.ShardEndpoint,
+	service string,
+) (*postgresv1alpha1.ShardEndpoint, error) {
+	if slices.ContainsFunc(primaries, func(p string) bool { return p != candidate.Pod }) {
+		return nil, fmt.Errorf("shard %s: survivors %v answered primary, candidate %s", shard, primaries, candidate.Pod)
+	}
+	if len(primaries) > 0 {
+		return candidate, nil
+	}
+	return r.failoverWinner(ctx, cluster, shard, cut, candidate, service)
 }
 
 // shardRefNamed 는 이름의 샤드다 — ordinal 샤드는 서수를 이름에서 찾는다(기록된 status 에 기대지 않는다).
@@ -208,6 +235,7 @@ alive() {
 }
 
 live() {
+  pm=
   if { read -r pm < "$DATA/postmaster.pid"; } 2>/dev/null && [ -n "$pm" ] && alive "$PROC/$pm"; then
     echo "$pm"
   fi
@@ -250,17 +278,17 @@ result ` + string(fenceStuck) + `
 	return []string{"sh", "-c", script}
 }
 
-// cutSurvivors 는 F2 다 — 옛 primary 를 뺀 Running ∧ in recovery 멤버의 수신을 동시에 끊는다. 끊긴 멤버와
-// 시도한 standby 수(실패 포함)를 돌려준다. 실패한 멤버는 승자 후보에서 빠진다.
+// cutSurvivors 는 F2 다 — exclude(옛 primary)를 뺀 Running ∧ in recovery 멤버의 수신을 동시에 끊는다. 끊긴 멤버와
+// primary 로 답한 멤버를 돌려준다. 실패한 멤버는 승자 후보에서 빠진다.
 func (r *PostgresClusterReconciler) cutSurvivors(
 	ctx context.Context,
 	cluster *postgresv1alpha1.PostgresCluster,
 	shard string,
 	members []corev1.Pod,
-	oldPrimary string,
-) ([]corev1.Pod, int) {
+	exclude string,
+) ([]corev1.Pod, []string) {
 	pods := slices.DeleteFunc(slices.Clone(members), func(p corev1.Pod) bool {
-		return p.Name == oldPrimary || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning
+		return p.Name == exclude || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning
 	})
 
 	// 멤버마다 동시에 — 끊는 동안 다른 멤버가 옛 primary 에서 더 받지 않게.
@@ -273,12 +301,12 @@ func (r *PostgresClusterReconciler) cutSurvivors(
 	wg.Wait()
 
 	var cut []corev1.Pod
-	standbys := 0
+	var primaries []string
 	for i := range pods {
 		if !standby[i] {
+			primaries = append(primaries, pods[i].Name)
 			continue
 		}
-		standbys++
 		if errs[i] != nil {
 			commonsevents.EmitWarningf(r.Recorder, cluster, standbyCutFailedReason,
 				"shard %s: %s intake not cut, excluded from the failover winner: %v", shard, pods[i].Name, errs[i])
@@ -286,7 +314,7 @@ func (r *PostgresClusterReconciler) cutSurvivors(
 		}
 		cut = append(cut, pods[i])
 	}
-	return cut, standbys
+	return cut, primaries
 }
 
 // cutMember 는 standby 하나의 수신을 exec 한 번으로 끊는다 — standby 가 아니면 (false, nil). in recovery 를 모르거나
@@ -310,6 +338,7 @@ func (r *PostgresClusterReconciler) cutMember(ctx context.Context, pod *corev1.P
 }
 
 // cutCommand 는 수신 끊기 exec 다: in recovery 확인 → primary_conninfo ” + reload → walreceiver 0 행까지 대기.
+// 확인마다 한 박자 먼저 잔다 — reload(SIGHUP)가 walreceiver 에 닿기 전의 행을 끊김으로 오인하지 않는다.
 // ALTER SYSTEM 은 트랜잭션 블록 안에서 못 돌아 -c 를 나눈다(retargetCommand 와 같다).
 func cutCommand() []string {
 	script := `set -eu
@@ -325,13 +354,13 @@ fi
 q -c "ALTER SYSTEM SET primary_conninfo = ''" -c "SELECT pg_reload_conf()" >/dev/null
 i=0
 while [ "$i" -lt ` + strconv.Itoa(cutPolls) + ` ]; do
+  sleep ` + strconv.FormatInt(int64(pgPromotePoll/time.Second), 10) + `
   N="$(q -c "` + walReceiverQuery + `")" || N=""
   if [ "$N" = 0 ]; then
     echo "` + cutResultPrefix + cutResultCut + `"
     exit 0
   fi
   i=$((i + 1))
-  sleep ` + strconv.FormatInt(int64(pgPromotePoll/time.Second), 10) + `
 done
 echo "walreceiver still up after ` + strconv.FormatInt(int64(cutWait/time.Second), 10) + `s" >&2
 exit 1
@@ -362,11 +391,15 @@ func (r *PostgresClusterReconciler) failoverWinner(
 		return candidate, nil
 	}
 
-	commonsevents.Emitf(r.Recorder, cluster, failoverWinnerChangedReason,
-		"shard %s: %s received %s, ahead of candidate %s", shard, winner, formatLSN(need), candidate.Pod)
+	// 사유를 가른다 — 후보가 뒤처졌는지, 후보를 못 끊거나 못 쟀는지.
+	format := "shard %s: %s received %s, ahead of candidate %s"
+	if _, measured := received[candidate.Pod]; !measured {
+		format = "shard %s: %s received %s, candidate %s cut failed or unmeasured"
+	}
+	commonsevents.Emitf(r.Recorder, cluster, failoverWinnerChangedReason, format, shard, winner, formatLSN(need), candidate.Pod)
 	skip, err := r.shouldSkipFencedCandidate(ctx, cluster, winner)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "fenced-winner check failed; proceeding", "shard", shard, "winner", winner)
+		return nil, fmt.Errorf("failover winner %q #220 failback guard unknown: %w", winner, err)
 	}
 	if skip {
 		return nil, fmt.Errorf("failover winner %q PVC is fenced while an unfenced member serves (#220 failback guard)", winner)

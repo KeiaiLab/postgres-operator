@@ -496,7 +496,7 @@ fi
 # #220: mutate PGDATA only after promotion succeeds. A failed exec must leave
 # standby.signal and the promoted marker untouched; otherwise a restarted standby
 # enters the Real elector branch and can rejoin the lease race before promotion.
-rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby"
+rm -f "$DATA/standby.signal" "$DATA/.keiailab-restart-primary-as-standby" "$DATA/` + fencePendingMarker + `"
 # #220: durable marker — this PGDATA is now an operator-promoted primary of epoch
 # $EPOCH. The bootstrap init container (builders.go) keeps a primary whose marker
 # epoch is newer than the runtime ConfigMap PROMOTION_EPOCH (publish not landed yet),
