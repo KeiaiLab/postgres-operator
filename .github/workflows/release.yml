@@ -26,6 +26,7 @@ jobs:
     outputs:
       version: ${{ steps.derive.outputs.version }}
       tag: ${{ steps.derive.outputs.tag }}
+      sha: ${{ steps.derive.outputs.sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -48,6 +49,7 @@ jobs:
           fi
           echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
           echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "✓ tag=$TAG / version=$VERSION / appVersion=$APP_VER all aligned"
 
   image:
@@ -79,6 +81,9 @@ jobs:
             type=raw,value=${{ needs.preflight.outputs.version }}
             type=raw,value=${{ needs.preflight.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}}
+          # github.sha is the dispatching branch head; label the built tag commit.
+          labels: |
+            org.opencontainers.image.revision=${{ needs.preflight.outputs.sha }}
       - id: push
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
@@ -124,7 +129,7 @@ jobs:
       actions: read
       id-token: write
       packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0 # f7dd8c54 — generator rejects SHA refs
     with:
       image: ghcr.io/keiailab/postgres-operator
       digest: ${{ needs.image.outputs.digest }}
