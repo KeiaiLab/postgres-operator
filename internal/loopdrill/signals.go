@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // 오퍼레이터가 남기는 신호를 읽는 순수 해석 — 드라이버가 이 결과로 판정 재료를 채운다.
@@ -21,7 +22,13 @@ var (
 
 	// heldPattern 은 MemberHeld 메시지의 재구축 사유("shard <s>: <pod> held for rebuild (<reason>)").
 	heldPattern = regexp.MustCompile(`held for rebuild \((\w+)\)`)
+
+	// readyPattern 은 MemberSnapshotReady 메시지의 스냅숏("... snapshot <name> ready (data-bearing=…)").
+	readyPattern = regexp.MustCompile(`snapshot (\S+) ready `)
 )
+
+// EventSnapshotReady 는 오퍼레이터가 readyToUse 를 직접 읽은 순간 내는 이벤트 사유(member_rebuild.go).
+const EventSnapshotReady = "MemberSnapshotReady"
 
 // VAP 거부와 RBAC 거부의 API 오류 글.
 const (
@@ -82,4 +89,31 @@ func ClassifyVAP(out string, err error) VAPOutcome {
 		return VAPNoTarget
 	}
 	return VAPUnknown
+}
+
+// ReadyFromEvents 는 스냅숏 표본의 ReadyAt 을 오퍼레이터의 MemberSnapshotReady 시각으로 당긴다.
+// 오퍼레이터는 readyToUse 를 읽은 같은 reconcile 에서 해제하므로 recorder 의 느린 표본으로는 순서를 못 가른다.
+// recorder 가 readyToUse 를 직접 본 적 없는 표본(ReadyAt 0)은 이벤트만으로 당기지 않는다.
+func ReadyFromEvents(marks []SnapshotMark, events []EventMark) []SnapshotMark {
+	// 스냅숏마다 오퍼레이터가 ready 를 읽은 첫 시각
+	read := map[string]time.Time{}
+	for _, e := range events {
+		m := readyPattern.FindStringSubmatch(e.Message)
+		if e.Reason != EventSnapshotReady || m == nil {
+			continue
+		}
+		if at, seen := read[m[1]]; !seen || e.At.Before(at) {
+			read[m[1]] = e.At
+		}
+	}
+
+	out := slices.Clone(marks)
+	for i, mark := range out {
+		at, seen := read[mark.Name]
+		if mark.ReadyAt.IsZero() || !seen || !at.Before(mark.ReadyAt) {
+			continue
+		}
+		out[i].ReadyAt = at
+	}
+	return out
 }

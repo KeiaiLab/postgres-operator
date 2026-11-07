@@ -50,6 +50,13 @@ func TestLoopDrillBudgetsCoverOperator(t *testing.T) {
 		}
 	}
 
+	// S6·S7 — 얼린 standby 는 walsender 가 wal_sender_timeout 뒤에야 그래프에서 빠지고, 그 뒤 Stale 판정 ·
+	// hold 전파 · 정지까지 얼어 있어야 재구축이 선다(녹으면 재검증이 취소한다). 판정문 S7: 8m30s 정지에 재구축 0.
+	frozenUntilStop := loopdrill.WalSenderTimeout + staleStandbyReseedTimeout + runtimePropagationWait + statusPollInterval
+	if loopdrill.StandbyFreeze < frozenUntilStop {
+		t.Errorf("StandbyFreeze = %s < wal_sender_timeout + Stale 판정 + 전파 + 재큐 %s", loopdrill.StandbyFreeze, frozenUntilStop)
+	}
+
 	// S3·S4·S6 정지는 하트비트 끊김 문턱을 넘어야 관측자가 본다
 	if loopdrill.FaultPause <= statusStaleThresh {
 		t.Errorf("FaultPause = %s ≤ statusStaleThresh %s", loopdrill.FaultPause, statusStaleThresh)
