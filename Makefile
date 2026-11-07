@@ -309,7 +309,7 @@ validate: manifests generate kustomize build-installer test-scripts ## CRD, Kust
 	fi
 	@ALLOWED="artifacthub-verify.yml helm-publish.yml release.yml scorecard.yml test.yml"; \
 	UNEXPECTED=$$(ls .github/workflows/ 2>/dev/null | while read f; do \
-		echo "$$ALLOWED" | grep -qw "$$f" || echo "$$f"; \
+		case " $$ALLOWED " in *" $$f "*) ;; *) echo "$$f" ;; esac; \
 	done); \
 	if [ -n "$$UNEXPECTED" ]; then \
 		echo "[error] .github/workflows/ 에 허용되지 않은 파일 발견 (ADR-0022 예외: $$ALLOWED):"; \
