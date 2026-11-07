@@ -67,6 +67,15 @@ const (
 	WriteProbeWarmup = int(2 * WriteGapBudget / WriteProbeInterval)
 )
 
+// 호스트 정지 시계(ADR-0039) — 드라이버가 표본을 찍고 J10 이 두 계측기가 함께 멈춘 시간만 공백에서 뺀다.
+const (
+	// HostStallSample 은 정지 시계 표본 간격 — 정지 시각 해상도, 보정 오차 ≤ 2 표본.
+	HostStallSample = 100 * time.Millisecond
+
+	// HostStallFloor 는 정지 문턱 — 스케줄러 지터보다 크고 ReplicaGapBudget − WriteProbeInterval 보다 작다.
+	HostStallFloor = time.Second
+)
+
 // kind 가 k8s 기본값을 쓰는 자리.
 const (
 	// NodeMonitorGrace 는 --node-monitor-grace-period 기본(1.32+) — 노드 사망이 PodReady False 가 되기까지.
