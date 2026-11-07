@@ -86,6 +86,10 @@ test: manifests generate fmt vet setup-envtest ## Run tests (combined unit + int
 test-unit: fmt vet ## Run unit tests only (no envtest — fast feedback).
 	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... -coverprofile cover-unit.out
 
+.PHONY: i26guard
+i26guard: ## Check origin/stable..HEAD against I26 ADR trailers (ADR-0037).
+	go run ./cmd/i26guard --base origin/stable
+
 .PHONY: test-integration
 test-integration: manifests generate fmt vet setup-envtest ## Run integration tests (envtest required).
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -race ./internal/controller/... ./internal/webhook/... -coverprofile cover-integration.out
