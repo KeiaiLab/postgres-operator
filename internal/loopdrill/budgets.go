@@ -76,6 +76,10 @@ const (
 	OperatorGrace = 30 * time.Second
 )
 
+// WalSenderTimeout 은 PostgreSQL 기본 wal_sender_timeout — 렌더 conf 가 정하지 않는다(kind pg_settings source=default).
+// 얼린 standby 의 walsender 는 이만큼 지나야 pg_stat_replication 에서 빠진다.
+const WalSenderTimeout = 60 * time.Second
+
 // 드라이버 창 — 위 경계에서 파생한다.
 const (
 	// ConvergeBound 는 유발 뒤 수렴 상한 = Stale 판정 + snapshotReadyTimeout + reseedCooldown.
@@ -97,7 +101,8 @@ const (
 	FaultPause = 45 * time.Second
 
 	// StandbyFreeze 는 S6·S7 의 standby 정지 길이 — 복제 그래프 끊김이 Stale 판정을 넘겨야 GREEN 이 재구축한다.
-	StandbyFreeze = StaleBound + StatusStaleThresh
+	// 끊김은 walsender 가 WalSenderTimeout 뒤 빠져야 시작되고, 정지(파드 삭제)는 hold 전파 · 재큐 뒤다.
+	StandbyFreeze = WalSenderTimeout + StaleBound + StatusStaleThresh + 2*StatusPollInterval
 
 	// PromotionBound 는 J8 — PodReady False 부터 승격까지 = statusStaleThresh + failoverDebounceThreshold + 2 × statusPollInterval.
 	PromotionBound = StatusStaleThresh + DebounceBound + 2*StatusPollInterval

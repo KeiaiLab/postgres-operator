@@ -815,6 +815,8 @@ func (d *drill) window(scn loopdrill.Scenario, f fault, obs observation, before 
 				obs = next
 			}
 		}
+		// 유발 직전 표본 — S8 처럼 inject 가 오래 막히는 동안 오퍼레이터가 지운 파드도 직전 그래프를 갖는다(J12)
+		rec.sample()
 		inj, err := f.inject(obs, round)
 		if err != nil {
 			return fmt.Errorf("%s 유발: %w", scn, err)
@@ -945,7 +947,7 @@ func (d *drill) collect(
 		return loopdrill.ClusterSnap{}, err
 	}
 	rec.addSnapshots(snapshots)
-	snap.Snapshots = sortedSnapshots(rec.snapshots)
+	snap.Snapshots = loopdrill.ReadyFromEvents(sortedSnapshots(rec.snapshots), events)
 	snap.Rebuilds = rebuildMarks(events, snapshots)
 	snap.HeldReasons = heldReasons(events)
 	snap.Events = foldEvents(events)
