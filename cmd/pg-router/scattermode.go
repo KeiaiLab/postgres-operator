@@ -108,7 +108,14 @@ type shardResult struct {
 
 // scatterQuery 는 simple Query('Q')를 모든 샤드에 *병렬* fan-out 하고 병합 결과를 보낸다.
 // 병렬이라 전체 지연이 max(샤드) 에 가깝다(순차 합산 아님) — 분산 읽기 확장의 핵심.
-func scatterQuery(client net.Conn, qr queryRouter, query pgMessage, raw []byte, dialer *backendDialer, password string) {
+func scatterQuery(
+	client net.Conn,
+	qr queryRouter,
+	query pgMessage,
+	raw []byte,
+	dialer *backendDialer,
+	password string,
+) {
 	shards, err := qr.allShards()
 	if err != nil || len(shards) == 0 {
 		scatterClientError(client, "08006", "scatter: no shards available")

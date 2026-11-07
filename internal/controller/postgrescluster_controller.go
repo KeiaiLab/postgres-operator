@@ -1343,7 +1343,7 @@ func copySpec(dst, src client.Object) {
 		d.Labels = s.Labels
 	case *appsv1.Deployment:
 		s := src.(*appsv1.Deployment)
-		if s.Labels[RouterAutoscaleLabelKey] != "true" || d.GetResourceVersion() == "" {
+		if s.Labels[RouterAutoscaleLabelKey] != labelTrue || d.GetResourceVersion() == "" {
 			d.Spec.Replicas = s.Spec.Replicas
 		}
 		d.Spec.Template = s.Spec.Template

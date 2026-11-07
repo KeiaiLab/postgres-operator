@@ -159,7 +159,7 @@ func promotingExecutor(log *writeLog) *funcExecutor {
 // runtimeCluster 는 CM primary 가 ordinal-0 인 epoch 1 샤드 하나의 클러스터와 그 런타임 CM 이다.
 func runtimeCluster(name string) (*postgresv1alpha1.PostgresCluster, *corev1.ConfigMap) {
 	primary := ShardStatefulSetName(name, 0) + "-0"
-	cluster := withRecordedPrimary(withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withRecordedPrimary(withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 1, Initialized: true}), primary)
 	cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
 		PrimaryEndpoint: podDNS(name, primary), PromotionEpoch: 1, ClusterInitialized: true,

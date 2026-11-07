@@ -44,18 +44,23 @@ func trackConn(handler func()) {
 
 // writeMetrics 는 Prometheus 텍스트 exposition 을 w 에 쓴다. 게이지 이름은 HPA 가
 // 참조하는 v1alpha1.RouterActiveConnectionsMetric 과 동일해 둘이 어긋나지 않는다.
-func writeMetrics(w io.Writer) {
+func writeMetrics(w io.Writer) error {
 	name := v1alpha1.RouterActiveConnectionsMetric
-	fmt.Fprintf(w, "# HELP %s Current number of active client connections proxied by pg-router.\n", name)
-	fmt.Fprintf(w, "# TYPE %s gauge\n", name)
-	fmt.Fprintf(w, "%s %d\n", name, activeConns.Load())
+	_, err := fmt.Fprintf(w,
+		"# HELP %s Current number of active client connections proxied by pg-router.\n"+
+			"# TYPE %s gauge\n"+
+			"%s %d\n",
+		name, name, name, activeConns.Load())
+	return err
 }
 
 // metricsHandler 는 /metrics 응답 핸들러다(테스트에서 httptest 로 직접 호출 가능).
 func metricsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		writeMetrics(w)
+		if err := writeMetrics(w); err != nil {
+			log.Printf("pg-router: write metrics: %v", err)
+		}
 	}
 }
 

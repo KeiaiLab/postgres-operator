@@ -98,7 +98,7 @@ func (x *switchoverExecutor) Exec(_ context.Context, target BackupSidecarTarget,
 	}
 	switch {
 	case strings.Contains(joined, fenceResultPrefix):
-		return x.fence(target.Pod, m)
+		return x.fence(target.Pod, m), nil
 	case strings.Contains(joined, cutResultPrefix):
 		x.log.add("exec cut " + target.Pod)
 		if m.role == simStandby {
@@ -138,13 +138,13 @@ func (x *switchoverExecutor) Exec(_ context.Context, target BackupSidecarTarget,
 }
 
 // fence 는 failover 펜스 흉내다(ADR-0036 F1) — 도는 postgres 를 내린다.
-func (x *switchoverExecutor) fence(pod string, m *simMember) ([]byte, error) {
+func (x *switchoverExecutor) fence(pod string, m *simMember) []byte {
 	x.log.add("exec fence " + pod)
 	if m.role == simDown {
-		return []byte(fenceResultPrefix + string(fenceDown) + "\n"), nil
+		return []byte(fenceResultPrefix + string(fenceDown) + "\n")
 	}
 	m.role = simDown
-	return []byte(fenceResultPrefix + string(fenceStopped) + "\n"), nil
+	return []byte(fenceResultPrefix + string(fenceStopped) + "\n")
 }
 
 // simNeed 는 exec 가 답하려면 멤버가 있어야 할 상태다.
@@ -937,7 +937,7 @@ func TestSwitchoverResumes(t *testing.T) {
 		promoting := stoppedState(name, now, now)
 		promoting.Phase = switchoverPromoting
 		w := newSwitchoverWorld(t, name, withSwitchover(promoting), func(c *postgresv1alpha1.PostgresCluster) {
-			withCanon(c, "shard-0", shardCanon{Epoch: 2, Initialized: true})
+			withCanon(c, shardCanon{Epoch: 2, Initialized: true})
 		})
 		old, target := w.member(0), w.member(1)
 		w.stoppedMembers(simStandby)

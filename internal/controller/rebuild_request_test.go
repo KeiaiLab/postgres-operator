@@ -407,7 +407,7 @@ func TestPublishHoldsOldPrimary(t *testing.T) {
 			name := "adopt-hold-" + strconv.FormatBool(tc.oldAlive)
 			old, adopted := graphMember(name, 0), graphMember(name, 1)
 			want := []string{old}
-			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0", shardCanon{Epoch: 2, Initialized: true})
+			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), shardCanon{Epoch: 2, Initialized: true})
 			cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
 				PrimaryEndpoint: podDNS(name, old), PromotionEpoch: 1, ClusterInitialized: true,
 			})

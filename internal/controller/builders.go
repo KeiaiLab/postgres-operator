@@ -1844,7 +1844,7 @@ func buildRouterDeployment(
 	selectorLabels := SelectorLabels(cluster.Name, "router", -1)
 	labels := maps.Clone(selectorLabels)
 	if routerAutoscaleEnabled(cluster) {
-		labels[RouterAutoscaleLabelKey] = "true"
+		labels[RouterAutoscaleLabelKey] = labelTrue
 	}
 
 	// pg-router 는 /metrics(Prometheus 텍스트)로 active-connection 게이지를 노출한다.

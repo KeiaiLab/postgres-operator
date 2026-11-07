@@ -32,6 +32,9 @@ import (
 	"github.com/keiailab/postgres-operator/internal/loopdrill"
 )
 
+// fenceAheadLSN 은 판정 후보보다 앞선 끝 위치다.
+const fenceAheadLSN = "0/3000300"
+
 // 본 파일은 failover 의 펜스·수신 끊기·승자·재지정(ADR-0036)을 본다 — S3(매니저만 얼고 postgres 는 도는
 // 옛 primary)에서 생존 standby 가 분기점을 넘지 않아야 한다.
 //
@@ -72,7 +75,8 @@ func newFenceWorld(t *testing.T, name string, setup fenceSetup) *fenceWorld {
 		setup(pods, pvcs)
 	}
 
-	objs := []client.Object{cluster, cm}
+	objs := make([]client.Object, 0, 2+len(pods)+len(pvcs))
+	objs = append(objs, cluster, cm)
 	for _, pod := range pods {
 		objs = append(objs, pod)
 	}
@@ -160,19 +164,19 @@ func (w *fenceWorld) assertLeftCut(t *testing.T) []string {
 			t.Errorf("calls = %v, want %s cut and not retargeted", calls, pod)
 		}
 	}
-	events := w.events()
-	if !hasEvent(events, "Warning "+failoverWinnerUnavailable) {
-		t.Errorf("events = %v, want %s", events, failoverWinnerUnavailable)
+	evs := w.events()
+	if !hasEvent(evs, "Warning "+failoverWinnerUnavailable) {
+		t.Errorf("events = %v, want %s", evs, failoverWinnerUnavailable)
 	}
-	return events
+	return evs
 }
 
 func indexOf(calls []string, call string) int {
 	return slices.Index(calls, call)
 }
 
-func hasEvent(events []string, prefix string) bool {
-	return slices.ContainsFunc(events, func(e string) bool { return strings.HasPrefix(e, prefix) })
+func hasEvent(evs []string, prefix string) bool {
+	return slices.ContainsFunc(evs, func(e string) bool { return strings.HasPrefix(e, prefix) })
 }
 
 // TestFailoverFenceCutOrder 는 펜스 → 끊기 → 재기 → 승격 → 재지정 순서와 그 기록을 본다(ADR-0036 F1–F5).
@@ -217,9 +221,9 @@ func TestFailoverFenceCutOrder(t *testing.T) {
 	if got := w.publishedPrimary(t); got != podDNS(w.name, w.cand) {
 		t.Errorf("published primary = %q, want %q", got, podDNS(w.name, w.cand))
 	}
-	events := w.events()
-	if !hasEvent(events, "Normal "+primaryFencedReason) || !hasEvent(events, "Normal "+memberRetargetedReason) {
-		t.Errorf("events = %v, want %s and %s", events, primaryFencedReason, memberRetargetedReason)
+	evs := w.events()
+	if !hasEvent(evs, "Normal "+primaryFencedReason) || !hasEvent(evs, "Normal "+memberRetargetedReason) {
+		t.Errorf("events = %v, want %s and %s", evs, primaryFencedReason, memberRetargetedReason)
 	}
 	if got := w.fenceCount(fenceStopped); got != 1 {
 		t.Errorf("failover_fence_total{outcome=Stopped} = %v, want 1", got)
@@ -230,7 +234,7 @@ func TestFailoverFenceCutOrder(t *testing.T) {
 func TestFailoverWinnerAhead(t *testing.T) {
 	t.Parallel()
 	w := newFenceWorld(t, "fence-ahead", nil)
-	w.exec.lsn[w.other] = "0/3000300"
+	w.exec.lsn[w.other] = fenceAheadLSN
 
 	if err := w.promote(); err != nil {
 		t.Fatalf("executeClusterPromotion: %v", err)
@@ -249,8 +253,8 @@ func TestFailoverWinnerAhead(t *testing.T) {
 	if got, ok := w.retargetRecord(w.cand); !ok || got.target != podDNS(w.name, w.other) || !got.done {
 		t.Errorf("retarget record = %+v (%t), want done to %s", got, ok, podDNS(w.name, w.other))
 	}
-	if events := w.events(); !hasEvent(events, "Normal "+failoverWinnerChangedReason) {
-		t.Errorf("events = %v, want %s", events, failoverWinnerChangedReason)
+	if evs := w.events(); !hasEvent(evs, "Normal "+failoverWinnerChangedReason) {
+		t.Errorf("events = %v, want %s", evs, failoverWinnerChangedReason)
 	}
 }
 
@@ -266,8 +270,8 @@ func TestFailoverTieKeepsCandidate(t *testing.T) {
 	if calls := w.exec.callLog(); indexOf(calls, "promote "+w.cand) < 0 {
 		t.Fatalf("calls = %v, want promote %s", calls, w.cand)
 	}
-	if events := w.events(); hasEvent(events, "Normal "+failoverWinnerChangedReason) {
-		t.Errorf("events = %v, a tie must not change the winner", events)
+	if evs := w.events(); hasEvent(evs, "Normal "+failoverWinnerChangedReason) {
+		t.Errorf("events = %v, a tie must not change the winner", evs)
 	}
 }
 
@@ -303,8 +307,8 @@ func TestFailoverUnreachableFenceCuts(t *testing.T) {
 			if indexOf(calls, "cut "+w.cand) < 0 || indexOf(calls, "cut "+w.other) < 0 || indexOf(calls, "promote "+w.cand) < 0 {
 				t.Errorf("calls = %v, want both survivors cut and %s promoted", calls, w.cand)
 			}
-			if events := w.events(); !hasEvent(events, "Warning "+primaryFenceUnprovenReason) {
-				t.Errorf("events = %v, want %s", events, primaryFenceUnprovenReason)
+			if evs := w.events(); !hasEvent(evs, "Warning "+primaryFenceUnprovenReason) {
+				t.Errorf("events = %v, want %s", evs, primaryFenceUnprovenReason)
 			}
 			if got := w.fenceCount(fenceUnreachable); got != 1 {
 				t.Errorf("failover_fence_total{outcome=Unreachable} = %v, want 1", got)
@@ -335,7 +339,7 @@ func TestFailoverAbsentPrimaryDown(t *testing.T) {
 func TestFailoverCutFailureExcluded(t *testing.T) {
 	t.Parallel()
 	w := newFenceWorld(t, "fence-cutfail", nil)
-	w.exec.lsn[w.other] = "0/3000300"
+	w.exec.lsn[w.other] = fenceAheadLSN
 	w.exec.cutFail[w.other] = true
 
 	if err := w.promote(); err != nil {
@@ -345,8 +349,8 @@ func TestFailoverCutFailureExcluded(t *testing.T) {
 	if indexOf(calls, "promote "+w.cand) < 0 || indexOf(calls, "lsn "+w.other) >= 0 {
 		t.Errorf("calls = %v, want %s promoted and %s not measured", calls, w.cand, w.other)
 	}
-	if events := w.events(); !hasEvent(events, "Warning "+standbyCutFailedReason) {
-		t.Errorf("events = %v, want %s", events, standbyCutFailedReason)
+	if evs := w.events(); !hasEvent(evs, "Warning "+standbyCutFailedReason) {
+		t.Errorf("events = %v, want %s", evs, standbyCutFailedReason)
 	}
 }
 
@@ -392,7 +396,7 @@ func TestFailoverFencedWinnerLeftCut(t *testing.T) {
 	w := newFenceWorld(t, "fence-guard", func(_ map[string]*corev1.Pod, pvcs map[string]*corev1.PersistentVolumeClaim) {
 		pvcs["fence-guard-shard-0-2"] = memberPVC("fence-guard-shard-0-2", true)
 	})
-	w.exec.lsn[w.other] = "0/3000300"
+	w.exec.lsn[w.other] = fenceAheadLSN
 
 	err := w.promote()
 	if err == nil {
@@ -401,8 +405,8 @@ func TestFailoverFencedWinnerLeftCut(t *testing.T) {
 	if calls := w.exec.callLog(); slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "promote ") }) {
 		t.Fatalf("calls = %v, want no promote exec", calls)
 	}
-	if events := w.assertLeftCut(t); !hasEvent(events, "Normal "+failoverWinnerChangedReason) {
-		t.Errorf("events = %v, want %s", events, failoverWinnerChangedReason)
+	if evs := w.assertLeftCut(t); !hasEvent(evs, "Normal "+failoverWinnerChangedReason) {
+		t.Errorf("events = %v, want %s", evs, failoverWinnerChangedReason)
 	}
 }
 
@@ -712,8 +716,8 @@ func TestFailoverCandidateAlreadyPrimary(t *testing.T) {
 	if !w.follows(w.other, w.cand) {
 		t.Errorf("%s conninfo = %q, want winner %s", w.other, w.exec.conninfo[w.other], w.cand)
 	}
-	if events := w.events(); hasEvent(events, "Normal "+failoverWinnerChangedReason) {
-		t.Errorf("events = %v, the winner must stay the already-primary candidate", events)
+	if evs := w.events(); hasEvent(evs, "Normal "+failoverWinnerChangedReason) {
+		t.Errorf("events = %v, the winner must stay the already-primary candidate", evs)
 	}
 }
 
@@ -774,11 +778,11 @@ func TestFailoverWinnerChangedCandidateUnmeasured(t *testing.T) {
 	if calls := w.exec.callLog(); indexOf(calls, "promote "+w.other) < 0 {
 		t.Fatalf("calls = %v, want promote %s", calls, w.other)
 	}
-	events := w.events()
-	if !slices.ContainsFunc(events, func(e string) bool {
+	evs := w.events()
+	if !slices.ContainsFunc(evs, func(e string) bool {
 		return strings.HasPrefix(e, "Normal "+failoverWinnerChangedReason) && strings.Contains(e, "unmeasured")
 	}) {
-		t.Errorf("events = %v, want %s naming the unmeasured candidate", events, failoverWinnerChangedReason)
+		t.Errorf("events = %v, want %s naming the unmeasured candidate", evs, failoverWinnerChangedReason)
 	}
 }
 
@@ -786,7 +790,7 @@ func TestFailoverWinnerChangedCandidateUnmeasured(t *testing.T) {
 func TestFailoverWinnerGuardErrorBlocks(t *testing.T) {
 	t.Parallel()
 	w := newFenceWorld(t, "fence-guarderr", nil)
-	w.exec.lsn[w.other] = "0/3000300"
+	w.exec.lsn[w.other] = fenceAheadLSN
 	w.r.Client = interceptor.NewClient(w.c.(client.WithWatch), interceptor.Funcs{
 		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 			if _, ok := list.(*corev1.PersistentVolumeClaimList); ok {

@@ -965,7 +965,7 @@ func TestPoolerReconcilePausesReadyPods(t *testing.T) {
 		if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: call.target.Pod}, &pod); err != nil {
 			t.Fatalf("get pod %s: %v", call.target.Pod, err)
 		}
-		if pod.Annotations[poolerPausedAnnotation] != "true" {
+		if pod.Annotations[poolerPausedAnnotation] != poolerPausedValueTrue {
 			t.Fatalf("pod %s paused annotation = %q, want true", pod.Name, pod.Annotations[poolerPausedAnnotation])
 		}
 	}
@@ -1444,7 +1444,7 @@ func assertExporterProbes(t *testing.T, container corev1.Container) {
 	if container.ReadinessProbe == nil || container.ReadinessProbe.HTTPGet == nil {
 		t.Fatalf("exporter readiness probe = %+v, want httpGet", container.ReadinessProbe)
 	}
-	if container.ReadinessProbe.HTTPGet.Path != "/metrics" {
+	if container.ReadinessProbe.HTTPGet.Path != metricsPath {
 		t.Fatalf("exporter readiness path = %q, want /metrics", container.ReadinessProbe.HTTPGet.Path)
 	}
 	if got := container.ReadinessProbe.HTTPGet.Port.String(); got != poolerMetricsPortName {
@@ -1453,7 +1453,7 @@ func assertExporterProbes(t *testing.T, container corev1.Container) {
 	if container.LivenessProbe == nil || container.LivenessProbe.HTTPGet == nil {
 		t.Fatalf("exporter liveness probe = %+v, want httpGet", container.LivenessProbe)
 	}
-	if container.LivenessProbe.HTTPGet.Path != "/metrics" {
+	if container.LivenessProbe.HTTPGet.Path != metricsPath {
 		t.Fatalf("exporter liveness path = %q, want /metrics", container.LivenessProbe.HTTPGet.Path)
 	}
 	if got := container.LivenessProbe.HTTPGet.Port.String(); got != poolerMetricsPortName {

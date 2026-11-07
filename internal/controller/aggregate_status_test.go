@@ -25,6 +25,13 @@ import (
 	"github.com/keiailab/postgres-operator/internal/instance/statusapi"
 )
 
+const (
+	// shard0 은 ordinal 0 샤드의 id 다.
+	shard0 = "shard-0"
+	// reshardTargetComponent 는 reshard target 파드의 component 라벨 값이다.
+	reshardTargetComponent = "reshard-target"
+)
+
 // 본 파일은 RFC 0006 R2 의 회귀 차단 — Pod annotation 기반 ShardStatus aggregation
 // 의 6 가지 합산 케이스 검증.
 
@@ -91,7 +98,7 @@ func TestAggregateShardStatus_PrimaryAndReplica(t *testing.T) {
 	if !out.Primary.Ready {
 		t.Errorf("Primary should be Ready=true")
 	}
-	if len(out.Replicas) != 1 || out.Replicas[0].Pod != "demo-shard-0-1" {
+	if len(out.Replicas) != 1 || out.Replicas[0].Pod != bootReplica {
 		t.Errorf("Replicas mismatch: %+v", out.Replicas)
 	}
 	if out.Replicas[0].LagBytes != 1024 {
@@ -107,7 +114,7 @@ func TestAggregateShardStatus_UsesShardIDLabelWhenOrdinalLabelMissing(t *testing
 		Endpoint: "demo-rsd-shard-0-0.svc:5432", LastUpdate: now,
 	}, true)
 	delete(pod.Labels, "postgres.keiailab.io/shard")
-	pod.Labels["app.kubernetes.io/component"] = "reshard-target"
+	pod.Labels["app.kubernetes.io/component"] = reshardTargetComponent
 	pod.Labels[ShardIDLabelKey] = ShardIDForOrdinal(0)
 	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()
 
@@ -115,7 +122,7 @@ func TestAggregateShardStatus_UsesShardIDLabelWhenOrdinalLabelMissing(t *testing
 	if out.Primary == nil || out.Primary.Pod != "demo-rsd-shard-0-0" {
 		t.Fatalf("shard-id-only pod was not selected as primary: %+v", out.Primary)
 	}
-	if out.Name != "shard-0" || out.Ordinal != 0 {
+	if out.Name != shard0 || out.Ordinal != 0 {
 		t.Fatalf("shard identity = name %q ordinal %d, want shard-0/0", out.Name, out.Ordinal)
 	}
 }
@@ -314,7 +321,7 @@ func TestAggregateNamedShardStatus_ReshardTargetWithoutAnnotation(t *testing.T) 
 	pod := makePod("demo-rsd-shard-1a-0", statusapi.Status{}, true)
 	delete(pod.Annotations, statusapi.AnnotationKey) // instance manager 미탑재 — annotation 없음.
 	delete(pod.Labels, "postgres.keiailab.io/shard")
-	pod.Labels["app.kubernetes.io/component"] = "reshard-target"
+	pod.Labels["app.kubernetes.io/component"] = reshardTargetComponent
 	pod.Labels[ReshardTargetLabelKey] = "shard-1a"
 
 	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(pod).Build()

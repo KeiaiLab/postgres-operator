@@ -22,6 +22,9 @@ import (
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
 
+// otherNamespaceName 은 클러스터 밖 네임스페이스다.
+const otherNamespaceName = "other"
+
 func TestPostgresUserReconcileCreatesRoleOnReadyPrimary(t *testing.T) {
 	t.Parallel()
 	scheme := newScheme(t)
@@ -58,7 +61,7 @@ func TestPostgresUserReconcileCreatesRoleOnReadyPrimary(t *testing.T) {
 		t.Fatalf("executor calls = %d, want 1", len(executor.calls))
 	}
 	call := executor.calls[0]
-	if call.target.Namespace != "default" || call.target.Pod != "demo-db-shard-0-0" || call.target.Container != pgContainerName {
+	if call.target.Namespace != metav1.NamespaceDefault || call.target.Pod != "demo-db-shard-0-0" || call.target.Container != pgContainerName {
 		t.Fatalf("target = %+v, want ready primary postgres container", call.target)
 	}
 	command := strings.Join(call.command, " ")
@@ -297,7 +300,7 @@ func TestPostgresUserMapsPasswordSecretChangesToReferencingUsers(t *testing.T) {
 	otherSecret.Spec.PasswordSecretRef = &corev1.LocalObjectReference{Name: "other-password"}
 	otherNamespace := newPostgresUser()
 	otherNamespace.Name = "other-namespace-user"
-	otherNamespace.Namespace = "other"
+	otherNamespace.Namespace = otherNamespaceName
 	otherNamespace.Spec.PasswordSecretRef = &corev1.LocalObjectReference{Name: "app-password"}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

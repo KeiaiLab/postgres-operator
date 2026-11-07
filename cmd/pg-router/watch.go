@@ -94,7 +94,13 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 // watchShardRangesAndCluster 는 ShardRange + PostgresCluster 를 watch 해 변경 시 notify 로
 // 신호한다(토폴로지 flip / primary status 변경 → 즉시 hot-reload). 각 리소스별 goroutine.
-func watchShardRangesAndCluster(ctx context.Context, wc client.WithWatch, ns string, notify chan<- struct{}, backoff time.Duration) {
+func watchShardRangesAndCluster(
+	ctx context.Context,
+	wc client.WithWatch,
+	ns string,
+	notify chan<- struct{},
+	backoff time.Duration,
+) {
 	srConnect := func(ctx context.Context) (watch.Interface, error) {
 		var list v1alpha1.ShardRangeList
 		return wc.Watch(ctx, &list, client.InNamespace(ns))

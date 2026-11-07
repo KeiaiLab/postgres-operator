@@ -73,7 +73,7 @@ func TestReferenceRouting(t *testing.T) {
 	}
 
 	// AnyShard 는 결정적으로 첫 샤드.
-	if s, err := topo.AnyShard(); err != nil || s != "shard-0" {
+	if s, err := topo.AnyShard(); err != nil || s != shard0 {
 		t.Fatalf("AnyShard = (%q,%v), want shard-0", s, err)
 	}
 }

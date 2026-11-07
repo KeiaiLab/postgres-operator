@@ -20,6 +20,14 @@ import (
 	postgresv1alpha1 "github.com/keiailab/postgres-operator/api/v1alpha1"
 )
 
+const (
+	demoCluster        = "demo"
+	ordersRouter       = "orders-router"
+	ordersRSDHeadless  = "orders-rsd-shard-0a-headless"
+	reshardTargetShard = "shard-0a"
+	metricsPath        = "/metrics"
+)
+
 // 본 파일은 ADR 0006 (Security Defaults Rationale)의 회귀 차단용 단위 테스트다.
 // 데이터플레인 Pod의 SecurityContext가 *기본값으로 항상 적용*되는지 검증한다.
 //
@@ -158,7 +166,7 @@ func TestBuildPGStatefulSet_VolumeClaimTemplateHasClusterLabel(t *testing.T) {
 		t.Fatalf("volumeClaimTemplates = %d, want %d", got, want)
 	}
 	labels := sts.Spec.VolumeClaimTemplates[0].Labels
-	if got := labels["postgres.keiailab.io/cluster"]; got != "demo" {
+	if got := labels["postgres.keiailab.io/cluster"]; got != demoCluster {
 		t.Fatalf("PVC cluster label = %q, want %q (labels=%v)", got, "demo", labels)
 	}
 }
@@ -188,7 +196,7 @@ func TestBuildPGStatefulSet_PodTemplateHasClusterLabel(t *testing.T) {
 		{build("demo-rsd-t0", 0, "t0"), ReshardTargetSelectorLabels("demo", "t0")},
 	}
 	for _, c := range cases {
-		if got := c.sts.Spec.Template.Labels["postgres.keiailab.io/cluster"]; got != "demo" {
+		if got := c.sts.Spec.Template.Labels["postgres.keiailab.io/cluster"]; got != demoCluster {
 			t.Fatalf("%s pod cluster label = %q, want demo (labels=%v)", c.sts.Name, got, c.sts.Spec.Template.Labels)
 		}
 		if !maps.Equal(c.sts.Spec.Selector.MatchLabels, c.selector) {
@@ -740,15 +748,15 @@ func TestBuildRouterHPA_CPUDefaultsAndTarget(t *testing.T) {
 
 	hpa := buildRouterHPA(cluster, RouterDeploymentName("orders"))
 
-	if hpa.Name != "orders-router" {
+	if hpa.Name != ordersRouter {
 		t.Fatalf("hpa name = %q, want orders-router", hpa.Name)
 	}
-	if hpa.Namespace != "default" {
+	if hpa.Namespace != metav1.NamespaceDefault {
 		t.Fatalf("namespace = %q, want default", hpa.Namespace)
 	}
 	if hpa.Spec.ScaleTargetRef.APIVersion != "apps/v1" ||
 		hpa.Spec.ScaleTargetRef.Kind != "Deployment" ||
-		hpa.Spec.ScaleTargetRef.Name != "orders-router" {
+		hpa.Spec.ScaleTargetRef.Name != ordersRouter {
 		t.Fatalf("scaleTargetRef = %+v", hpa.Spec.ScaleTargetRef)
 	}
 	if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 2 {
@@ -890,10 +898,10 @@ func TestBuildRouterDeployment_LabelsAutoscaleManagedReplicas(t *testing.T) {
 
 	dep := buildRouterDeployment(cluster, "orders-router", "orders-router-config", "example.com/router:dev", routerMinReplicas(cluster), corev1.ResourceRequirements{})
 
-	if dep.Labels[RouterAutoscaleLabelKey] != "true" {
+	if dep.Labels[RouterAutoscaleLabelKey] != labelTrue {
 		t.Fatalf("deployment label %s = %q, want true", RouterAutoscaleLabelKey, dep.Labels[RouterAutoscaleLabelKey])
 	}
-	if dep.Spec.Template.Labels[RouterAutoscaleLabelKey] != "true" {
+	if dep.Spec.Template.Labels[RouterAutoscaleLabelKey] != labelTrue {
 		t.Fatalf("pod template label %s = %q, want true", RouterAutoscaleLabelKey, dep.Spec.Template.Labels[RouterAutoscaleLabelKey])
 	}
 	if dep.Spec.Selector.MatchLabels[RouterAutoscaleLabelKey] != "" {
@@ -942,10 +950,10 @@ func TestBuildRouterDeployment_MetricsPortAndScrapeAnnotations(t *testing.T) {
 
 	// Prometheus scrape annotations.
 	ann := dep.Spec.Template.Annotations
-	if ann["prometheus.io/scrape"] != "true" {
+	if ann["prometheus.io/scrape"] != labelTrue {
 		t.Fatalf("prometheus.io/scrape = %q, want true", ann["prometheus.io/scrape"])
 	}
-	if ann["prometheus.io/path"] != "/metrics" {
+	if ann["prometheus.io/path"] != metricsPath {
 		t.Fatalf("prometheus.io/path = %q, want /metrics", ann["prometheus.io/path"])
 	}
 	if ann["prometheus.io/port"] != "9187" {
@@ -1217,7 +1225,7 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 	if sts.Name != "orders-rsd-shard-0a" {
 		t.Errorf("name = %q, want orders-rsd-shard-0a", sts.Name)
 	}
-	if sts.Spec.ServiceName != "orders-rsd-shard-0a-headless" {
+	if sts.Spec.ServiceName != ordersRSDHeadless {
 		t.Errorf("serviceName = %q, want orders-rsd-shard-0a-headless", sts.Spec.ServiceName)
 	}
 
@@ -1226,11 +1234,11 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 	if _, ok := labels["postgres.keiailab.io/shard"]; ok {
 		t.Fatalf("target STS 가 ordinal shard label 보유 — failover/status 격리 위반: %v", labels)
 	}
-	if got := labels[ReshardTargetLabelKey]; got != "shard-0a" {
+	if got := labels[ReshardTargetLabelKey]; got != reshardTargetShard {
 		t.Errorf("%s = %q, want shard-0a", ReshardTargetLabelKey, got)
 	}
 	// selector 가 template label 과 일치해야 pod DNS 정상 (격리 label 정합).
-	if sts.Spec.Selector.MatchLabels[ReshardTargetLabelKey] != "shard-0a" {
+	if sts.Spec.Selector.MatchLabels[ReshardTargetLabelKey] != reshardTargetShard {
 		t.Errorf("selector 가 reshard-target label 미포함: %v", sts.Spec.Selector.MatchLabels)
 	}
 
@@ -1245,12 +1253,12 @@ func TestBuildTargetShardStatefulSet_Isolation(t *testing.T) {
 	if envByName["PRIMARY_ENDPOINT"] != "" {
 		t.Errorf("PRIMARY_ENDPOINT = %q, want \"\" (빈 값 → pod-0 initdb fresh primary)", envByName["PRIMARY_ENDPOINT"])
 	}
-	if got := envByName["POSTGRES_SERVICE_NAME"]; got != "orders-rsd-shard-0a-headless" {
+	if got := envByName["POSTGRES_SERVICE_NAME"]; got != ordersRSDHeadless {
 		t.Errorf("POSTGRES_SERVICE_NAME = %q, want target headless service", got)
 	}
 
 	// (4) POSTGRES_RESHARD_TARGET env → cmd/instance 가 ReshardTargetLeaseName 사용.
-	if got := envByName["POSTGRES_RESHARD_TARGET"]; got != "shard-0a" {
+	if got := envByName["POSTGRES_RESHARD_TARGET"]; got != reshardTargetShard {
 		t.Errorf("POSTGRES_RESHARD_TARGET = %q, want shard-0a (충돌-불가 reshard lease 트리거)", got)
 	}
 }
@@ -1272,7 +1280,7 @@ func TestBuildTargetShardConfigMapAndService_Isolation(t *testing.T) {
 	if _, ok := cm.Labels["postgres.keiailab.io/shard"]; ok {
 		t.Errorf("target CM 이 ordinal shard label 보유: %v", cm.Labels)
 	}
-	if cm.Labels[ReshardTargetLabelKey] != "shard-0a" {
+	if cm.Labels[ReshardTargetLabelKey] != reshardTargetShard {
 		t.Errorf("target CM reshard-target label 부재: %v", cm.Labels)
 	}
 	if _, ok := cm.Data["postgresql.conf"]; !ok {
@@ -1280,7 +1288,7 @@ func TestBuildTargetShardConfigMapAndService_Isolation(t *testing.T) {
 	}
 
 	svc := buildTargetHeadlessService(cluster, "shard-0a")
-	if svc.Name != "orders-rsd-shard-0a-headless" {
+	if svc.Name != ordersRSDHeadless {
 		t.Errorf("svc name = %q, want orders-rsd-shard-0a-headless", svc.Name)
 	}
 	if svc.Spec.ClusterIP != "None" {
@@ -1322,7 +1330,7 @@ func TestBuildRouterDeployment_InjectsPGRouterEnvAndServiceAccount(t *testing.T)
 	dep := buildRouterDeployment(cluster, "orders-router", "orders-router-config",
 		"pg-router:local", 2, corev1.ResourceRequirements{})
 
-	if sa := dep.Spec.Template.Spec.ServiceAccountName; sa != "orders-router" {
+	if sa := dep.Spec.Template.Spec.ServiceAccountName; sa != ordersRouter {
 		t.Errorf("router SA = %q, want orders-router (K8s API 읽기 권한 필요)", sa)
 	}
 

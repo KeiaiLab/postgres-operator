@@ -60,7 +60,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("Cutover 가 write-block 을 켜고 RoutingUpdate 가 ranges flip 과 함께 끈다", func() {
 		clusterName := fmt.Sprintf("rsdwb-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
@@ -116,7 +116,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("Promote phase 가 target STS 와 live Pod 에 shard-id 를 adopt label 로 붙인다", func() {
 		clusterName := fmt.Sprintf("rsdprom-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		targetShard := "t1"
 		Expect(k8sClient.Create(ctx, &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
@@ -192,7 +192,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("Promote phase 가 ShardRange source active 중에는 target adopt 를 보류한다", func() {
 		clusterName := fmt.Sprintf("rsdpromgate-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		targetShard := "t1"
 		Expect(k8sClient.Create(ctx, &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
@@ -265,7 +265,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("Promote phase 가 target Pod not Ready 중에는 target adopt 를 보류한다", func() {
 		clusterName := fmt.Sprintf("rsdpromready-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		targetShard := "t1"
 		Expect(k8sClient.Create(ctx, &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
@@ -333,7 +333,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("online 모드 CDCCatchup: cdc-setup Job → write-block → cdc-finalize Job 순서", func() {
 		clusterName := fmt.Sprintf("rsdcdc-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
@@ -394,7 +394,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("online 모드 CDC Job 실패를 phase별 failure 로 보고한다", func() {
 		clusterName := fmt.Sprintf("rsdcdcfail-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
@@ -475,7 +475,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("online abort cleanup: cdc-abort Job 성공 후 write-block 을 해제하고 멱등이다", func() {
 		clusterName := fmt.Sprintf("rsdabort-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
@@ -532,7 +532,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("online abort cleanup: cdc-abort Job 실패를 manual cleanup 필요 상태로 보고한다", func() {
 		clusterName := fmt.Sprintf("rsdabortfail-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
@@ -591,7 +591,7 @@ var _ = Describe("ShardSplitJob Cutover write-block", func() {
 
 	It("forward-only cutover 는 write-block 을 켜지 않는다(비가역 거부)", func() {
 		clusterName := fmt.Sprintf("rsdwbfo-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{

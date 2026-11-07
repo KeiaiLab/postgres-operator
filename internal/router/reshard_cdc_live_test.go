@@ -34,9 +34,9 @@ func TestCDCLive(t *testing.T) {
 	spec := specWithCol("id") // shard-0 [0,7fff], shard-1 [8000,ffff] murmur3.
 
 	src := mustOpenT(t, sourceDSN)
-	defer src.Close()
+	defer func() { _ = src.Close() }() // teardown
 	tgt := mustOpenT(t, targetDSN)
-	defer tgt.Close()
+	defer func() { _ = tgt.Close() }() // teardown
 
 	// source: kv 초기 1..50.
 	exec(t, src, `DROP TABLE IF EXISTS kv`)
@@ -99,7 +99,7 @@ func TestCDCLive(t *testing.T) {
 	// 잔존 row 가 전부 shard-0 인지 확인.
 	ids := allIDs(t, tgt)
 	for _, id := range ids {
-		if s, _ := ResolveShard(spec, id); s != "shard-0" {
+		if s, _ := ResolveShard(spec, id); s != shard0 {
 			t.Fatalf("target 에 범위 밖 키 잔존: id=%s → %s", id, s)
 		}
 	}

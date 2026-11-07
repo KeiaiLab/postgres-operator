@@ -89,7 +89,7 @@ func targetShardPodDNS(cluster, ns, shardID string) string {
 // rangesEnvValue 는 target 들의 키 범위를 `shard:lo:hi,...` 로 직렬화한다(Job 의
 // PGROUTER_RANGES — post-split 토폴로지를 reshard-copy-poc 에 전달).
 func rangesEnvValue(targets []postgresv1alpha1.ShardSplitTarget) string {
-	var parts []string
+	parts := make([]string, 0, len(targets))
 	for _, t := range targets {
 		for _, r := range t.Ranges {
 			parts = append(parts, fmt.Sprintf("%s:%s:%s", r.Shard, r.Lo, r.Hi))

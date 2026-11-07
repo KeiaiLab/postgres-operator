@@ -64,7 +64,7 @@ func TestTrackConn_IncrementsAndRestores(t *testing.T) {
 	t.Fatalf("active after handler = %d, want 0 (defer decrement)", activeConns.Load())
 }
 
-func TestServeMetrics_EmptyAddrIsNoop(t *testing.T) {
+func TestServeMetrics_EmptyAddrIsNoop(_ *testing.T) {
 	// 빈 주소는 즉시 반환(블로킹 없이) — 서버 미기동.
 	serveMetrics("")
 }

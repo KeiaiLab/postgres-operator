@@ -355,7 +355,7 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 
 		It("adds active named reshard targets to cluster shard status", func() {
 			clusterName := "named-status"
-			keyspace := "default"
+			keyspace := metav1.NamespaceDefault
 			targetShard := "t1"
 			targetPod := TargetShardStatefulSetName(clusterName, targetShard) + "-0"
 			targetService := TargetShardServiceName(clusterName, targetShard)
@@ -432,7 +432,7 @@ var _ = Describe("PostgresClusterReconciler — RFC 0001 spec", func() {
 					if got.Status.Shards[i].Name == targetShard {
 						named = &got.Status.Shards[i]
 					}
-					if got.Status.Shards[i].Name == "shard-0" {
+					if got.Status.Shards[i].Name == shard0 {
 						source = &got.Status.Shards[i]
 					}
 				}

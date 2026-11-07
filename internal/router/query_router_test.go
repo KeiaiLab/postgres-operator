@@ -85,7 +85,7 @@ func TestQueryRouter_ReferenceOnlyUsesAnyShard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Route: %v", err)
 	}
-	if d.Shard != "shard-0" { // AnyShard = 결정적 첫 샤드
+	if d.Shard != shard0 { // AnyShard = 결정적 첫 샤드
 		t.Fatalf("reference query shard = %q, want shard-0", d.Shard)
 	}
 	if !d.Read {
@@ -152,7 +152,6 @@ func TestQueryRouter_MultiRowInsert(t *testing.T) {
 		// 둘이 같은 shard 면 이 케이스를 못 만드므로, 다른 shard 키를 탐색.
 		for _, k := range []string{"carol", "dave", "eve", "frank", "grace", "heidi"} {
 			if s, _ := qr.Topology.Shard(k); s != sa {
-				sb = s
 				_, err := qr.Route("INSERT INTO t (tenant_id, v) VALUES ('alice',1),('" + k + "',2)")
 				if !errors.Is(err, ErrCrossShardInsert) {
 					t.Fatalf("cross-shard INSERT (alice+%s) err = %v, want ErrCrossShardInsert", k, err)

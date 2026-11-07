@@ -67,7 +67,7 @@ func TestReplacements(t *testing.T) {
 	steps := after.Rollout.Steps
 
 	// 교체마다 kubelet 확인 delete 가 1 s 뒤에 붙었다(kind 실측 — 교체 6)
-	var doubled []RolloutStep
+	doubled := make([]RolloutStep, 0, 2*len(steps))
 	for _, s := range steps {
 		echo := s
 		echo.DeletedAt, echo.By = s.DeletedAt.Add(time.Second), kubelet

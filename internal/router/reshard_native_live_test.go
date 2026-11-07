@@ -51,9 +51,9 @@ func TestReshardPKlessTargetConcurrentLive(t *testing.T) {
 	ctx := context.Background()
 
 	src := mustOpenT(t, sourceDSN)
-	defer src.Close()
+	defer func() { _ = src.Close() }() // teardown
 	tgt := mustOpenT(t, targetDSN)
-	defer tgt.Close()
+	defer func() { _ = tgt.Close() }() // teardown
 
 	// source: PK 보유(publisher replica identity 충족). 초기 1..100.
 	exec(t, src, `DROP TABLE IF EXISTS kv`)
@@ -135,9 +135,9 @@ func TestReshardAbortSourceDownLive(t *testing.T) {
 	ctx := context.Background()
 
 	src := mustOpenT(t, sourceDSN)
-	defer src.Close()
+	defer func() { _ = src.Close() }() // teardown
 	tgt := mustOpenT(t, targetDSN)
-	defer tgt.Close()
+	defer func() { _ = tgt.Close() }() // teardown
 
 	exec(t, src, `DROP TABLE IF EXISTS kv`)
 	exec(t, src, `CREATE TABLE kv(id int PRIMARY KEY, val int)`)

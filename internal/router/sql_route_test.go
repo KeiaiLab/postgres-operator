@@ -12,6 +12,9 @@ import (
 	"github.com/keiailab/postgres-operator/api/v1alpha1"
 )
 
+// shard0 은 ordinal 0 샤드의 id 다.
+const shard0 = "shard-0"
+
 // twoShardHashSpec 은 2-shard murmur3 hash vindex (cmd/scatter-poc, cmd/pg-router 와 동일).
 func twoShardHashSpec() v1alpha1.ShardRangeSpec {
 	return v1alpha1.ShardRangeSpec{
@@ -60,7 +63,7 @@ func TestExtractRoutingKey_RoutesToShard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveShard(%q): %v", key, err)
 	}
-	if sh != "shard-0" && sh != "shard-1" {
+	if sh != shard0 && sh != "shard-1" {
 		t.Fatalf("key %q → unexpected shard %q", key, sh)
 	}
 	// 결정성: 같은 key 는 항상 같은 shard.
