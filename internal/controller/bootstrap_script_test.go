@@ -25,6 +25,7 @@ const (
 )
 
 // stubBasebackup 은 원천의 승격 마커와 conninfo 두 줄까지 복사하는 척한다.
+// 진짜처럼 비어 있지 않은 -D 는 거부한다.
 const stubBasebackup = `#!/bin/sh
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,6 +33,10 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
+if [ -d "$DIR" ] && [ -n "$(ls -A "$DIR")" ]; then
+  echo "pg_basebackup: error: directory \"$DIR\" exists but is not empty" >&2
+  exit 1
+fi
 mkdir -p "$DIR"
 echo 18 > "$DIR/PG_VERSION"
 echo 5 > "$DIR/.keiailab-promoted-primary"
@@ -479,5 +484,34 @@ func TestBootstrapPassfile(t *testing.T) {
 			}
 			assertOneConninfo(t, w)
 		})
+	}
+}
+
+// TestBootstrapIncompletePGDataReseeds: 중단된 basebackup 이 남긴 PG_VERSION 없는
+// PGDATA(2026-11-07 V1 드릴) → 비우고 basebackup. 격리본 .rewind-failed 는 그대로.
+func TestBootstrapIncompletePGDataReseeds(t *testing.T) {
+	t.Parallel()
+	w := newBootWorld(t)
+	w.seed(t, map[string]string{"backup_label": "START TIMELINE: 5\n", "postgresql.auto.conf": ""})
+	quarantine := w.data + ".rewind-failed"
+	if err := os.MkdirAll(quarantine, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(quarantine, "PG_VERSION"), []byte("18\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := w.run(t, bootEnv(bootReplica, bootPrimary, "5", "1"))
+	if err != nil {
+		t.Fatalf("bootstrap: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "removing incomplete PGDATA") {
+		t.Fatalf("output lacks cleanup notice:\n%s", out)
+	}
+	if w.exists("backup_label") || !w.exists("PG_VERSION") || !w.exists("standby.signal") {
+		t.Fatal("PGDATA must be a fresh basebackup standby")
+	}
+	if _, err := os.Stat(filepath.Join(quarantine, "PG_VERSION")); err != nil {
+		t.Fatalf("quarantine must be untouched: %v", err)
 	}
 }

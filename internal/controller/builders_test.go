@@ -533,6 +533,25 @@ func TestBuildBootstrapContainer_ExistingPGDATA_NormalizesPermissions(t *testing
 	}
 }
 
+// Both basebackup branches clear an interrupted (no PG_VERSION) PGDATA first.
+func TestBuildBootstrapContainer_BasebackupClearsIncompletePGDATA(t *testing.T) {
+	t.Parallel()
+
+	c := buildBootstrapContainer("img:18", "18", 1, "", 2, false, "", "", "", nil)
+	script := c.Args[0]
+
+	const cleared = `  clear_incomplete_pgdata
+  mkdir -p "$DATA"
+  chmod 0700 "$DATA"
+  `
+	if got := strings.Count(script, cleared+"/"); got != 2 {
+		t.Errorf("basebackup branches clearing incomplete PGDATA = %d, want 2 (HA + replica cluster)", got)
+	}
+	if !strings.Contains(script, `[ ! -f "$DATA/PG_VERSION" ] && [ -n "$(ls -A "$DATA")" ]`) {
+		t.Error("cleanup must only fire on a non-empty PGDATA without PG_VERSION")
+	}
+}
+
 func TestBuildBootstrapContainer_ExistingPGDATAMarksAnyOldPrimaryAsStandby(t *testing.T) {
 	t.Parallel()
 

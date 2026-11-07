@@ -1128,6 +1128,16 @@ marker_epoch() {
   printf '%s' "${EPOCH:-0}"
 }
 
+# A PGDATA without PG_VERSION is an interrupted copy, never a usable instance
+# (initdb and pg_basebackup write it). pg_basebackup refuses a non-empty target,
+# so clear it. Only $DATA itself; $DATA.rewind-failed stays.
+clear_incomplete_pgdata() {
+  if [ -d "$DATA" ] && [ ! -f "$DATA/PG_VERSION" ] && [ -n "$(ls -A "$DATA")" ]; then
+    echo "removing incomplete PGDATA (no PG_VERSION) before basebackup"
+    rm -rf "$DATA"
+  fi
+}
+
 # Rewrite every primary_conninfo line of postgresql.auto.conf as one line (no pile-up).
 # Same-directory temp file then rename, so a crash never leaves a half-written file.
 write_primary_conninfo() {
@@ -1233,6 +1243,7 @@ if [ "$REPLICA_CLUSTER_ENABLED" = "1" ]; then
     exit 1
   fi
   prepare_primary_conninfo
+  clear_incomplete_pgdata
   mkdir -p "$DATA"
   chmod 0700 "$DATA"
   ` + binDir + `/pg_basebackup -D "$DATA" -d "$PRIMARY_CONNINFO" --no-password --wal-method=stream --checkpoint=fast
@@ -1252,6 +1263,7 @@ fi
 #   4. replica with no usable primary yet → fail closed, let the StatefulSet retry
 if [ -n "$PRIMARY_ENDPOINT" ] && [ "$PRIMARY_IS_SELF" = "0" ]; then
   prepare_primary_conninfo
+  clear_incomplete_pgdata
   mkdir -p "$DATA"
   chmod 0700 "$DATA"
   ` + binDir + `/pg_basebackup -D "$DATA" -d "$PRIMARY_CONNINFO" --no-password --wal-method=stream --checkpoint=fast
