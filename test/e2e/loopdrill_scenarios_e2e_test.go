@@ -36,8 +36,11 @@ const (
 	// 오퍼레이터가 TargetBehind 로 거절할 수 있다(그 메시지가 수신 최대 파드를 알려 준다).
 	switchoverAttempts = 5
 
-	// detachedHost 는 S6b 가 standby primary_conninfo 에 넣는 무효 호스트(.invalid — RFC 6761 은 해석되지 않는다).
-	detachedHost = "loopdrill-detached.invalid"
+	// pgPort 는 S6b 가 standby 넷ns 에서 막는 primary 포트.
+	pgPort = "5432"
+
+	// sqlStreaming 은 streaming 인 walreceiver 수 — S6b 끊김 확인(0 = 끊김).
+	sqlStreaming = "SELECT count(*) FROM pg_stat_wal_receiver WHERE status = 'streaming'"
 
 	// cpuMilli 는 S8 템플릿 변경 — CPU 요청을 1m 올린다(파드 템플릿 해시만 바뀐다).
 	cpuMilliSuffix = "m"
@@ -83,7 +86,7 @@ func (d *drill) faultFor(scn loopdrill.Scenario, budget int) (fault, error) {
 	case loopdrill.ScenarioS6:
 		return fault{inject: freezeStandby, hold: loopdrill.StandbyFreeze, rounds: 1}, nil
 	case loopdrill.ScenarioS6b:
-		return fault{inject: detachThenKill, rounds: 1}, nil
+		return fault{inject: detachThenKill, hold: loopdrill.PrimaryFreezeHold, rounds: 1}, nil
 	case loopdrill.ScenarioS7:
 		return fault{inject: freezeStandby, hold: loopdrill.StandbyFreeze, rounds: budget + 1}, nil
 	case loopdrill.ScenarioS8:
@@ -336,27 +339,127 @@ func freezeMember(target member) (injection, error) {
 	}}, nil
 }
 
-// detachThenKill 은 S6b — standby 하나의 primary_conninfo 를 무효 호스트로 바꿔(끊김·Ready·LagBytes 0)
-// DetachLead 뒤 primary 를 지운다. 기점은 LagBytes 0 인 끊긴 쪽을 올린다 — 수정판은 수신 최대를 올린다(설계 §3.3).
+// detachThenKill 은 S6b — standby 하나의 넷ns 에서 옛 primary 파드 IP 로 가는 연결을 막고, DetachLead 뒤 끊김을
+// 확인한 다음 primary 프로세스 트리를 세운다(ADR-0036 §B). conninfo 는 그대로라 재지정이 다시 써도 같은 IP 라 못 고치고,
+// 새 primary IP 는 열려 있어 failover 뒤 재지정이 붙는다. exec·API 는 파드 넷 밖이라 관측은 그대로다.
+//
+//	standby 넷ns: OUTPUT tcp → <primary IP>:5432 REJECT ── DetachLead ── walreceiver streaming 0? ── primary 트리 SIGSTOP
+//	되돌림(PrimaryFreezeHold 뒤): SIGCONT · 규칙 삭제(파드가 없으면 할 일 없음)
 func detachThenKill(obs observation, _ int) (injection, error) {
 	if err := guardTarget(); err != nil {
 		return injection{}, err
+	}
+	primary, ok := obs.primary()
+	if !ok || primary.PodIP == "" {
+		return injection{}, errors.New("primary 파드 IP 를 모른다")
 	}
 	target, err := standbyTarget(obs, 0)
 	if err != nil {
 		return injection{}, err
 	}
-	conninfo := fmt.Sprintf("host=%s port=5432 user=%s application_name=%s", detachedHost, superuserName, target.Pod)
-	alter := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", conninfo)
-	if _, err := psql(target.Pod, alter, "SELECT pg_reload_conf()"); err != nil {
-		return injection{}, err
+
+	// 끊기 — 재지정이 conninfo 를 고쳐도 목적지가 같은 IP 다
+	rule := partitionRule(primary.PodIP)
+	if err := netnsRule(target.Node, target.ContainerID, ruleAppend, rule); err != nil {
+		return injection{}, fmt.Errorf("%s 끊기: %w", target.Pod, err)
 	}
+	unblock := func() error { return unblockMember(target, rule) }
+
+	// 끊김 확인(fail-closed) — DetachLead 끝에 streaming 이면 유발이 무효다
 	time.Sleep(loopdrill.DetachLead)
-	now, err := probeCluster()
-	if err != nil {
-		return injection{}, err
+	if err := detached(target.Pod); err != nil {
+		return injection{}, errors.Join(err, unblock())
 	}
-	return deletePrimary(gracefulDelete)(now, 0)
+
+	// primary 손실 — 하트비트·readiness·쓰기가 함께 멈춘다
+	thaw, err := freezePrimary(primary)
+	if err != nil {
+		return injection{}, errors.Join(err, unblock())
+	}
+	return injection{undo: func() error { return errors.Join(thaw(), unblock()) }}, nil
+}
+
+// ruleOp 는 iptables 규칙 조작.
+type ruleOp string
+
+const (
+	ruleAppend ruleOp = "-A"
+	ruleDelete ruleOp = "-D"
+)
+
+// partitionRule 은 ip:5432 로 나가는 TCP 를 RST 로 거절하는 OUTPUT 규칙이다(조작 인자 뒤).
+func partitionRule(ip string) []string {
+	return []string{"OUTPUT", "-p", "tcp", "-d", ip, "--dport", pgPort, "-j", "REJECT", "--reject-with", "tcp-reset"}
+}
+
+// netnsRule 은 컨테이너 넷ns 에서 iptables 규칙을 더하거나 뺀다 — 노드의 iptables 를 nsenter 로(pg 이미지엔 없다).
+func netnsRule(node, containerID string, op ruleOp, rule []string) error {
+	pid, err := containerPID(node, containerID)
+	if err != nil {
+		return err
+	}
+	args := append([]string{"nsenter", "-t", pid, "-n", "iptables", "-w", string(op)}, rule...)
+	_, err = nodeExec(node, args...)
+	return err
+}
+
+// unblockMember 는 끊은 파드의 규칙을 지운다. 파드가 없거나 다시 만들어졌으면 넷ns 째 사라져 할 일이 없다.
+// 같은 파드면 컨테이너가 재시작했어도 넷ns 는 같다 — 지금 컨테이너로 들어간다.
+func unblockMember(target member, rule []string) error {
+	pods, err := memberPods()
+	if err != nil {
+		return err
+	}
+	for _, p := range pods {
+		if p.Metadata.UID != target.UID {
+			continue
+		}
+		id, _, running := p.pgContainer()
+		if !running {
+			return fmt.Errorf("%s 컨테이너가 돌지 않아 끊기 규칙을 못 지운다", target.Pod)
+		}
+		return netnsRule(p.Spec.NodeName, id, ruleDelete, rule)
+	}
+	return nil
+}
+
+// detached 는 standby 의 walreceiver 가 streaming 이 아닌지 본다(행 없음 포함).
+func detached(pod string) error {
+	out, err := psql(pod, sqlStreaming)
+	if err != nil {
+		return fmt.Errorf("%s 끊김 확인: %w", pod, err)
+	}
+	if strings.TrimSpace(out) != "0" {
+		return fmt.Errorf("%s 끊김 유지 실패 — walreceiver streaming", pod)
+	}
+	return nil
+}
+
+// freezePrimary 는 primary 컨테이너 프로세스 트리 전부(매니저 PID 1 + postmaster + 자식)를 세우고 깨우는 함수를 낸다.
+// 위에서 아래로 세운다 — 매니저가 먼저 서야 postmaster 를 되살리지 못한다. 펜스가 죽였거나 파드가 지워졌으면
+// 깨울 프로세스가 없다(신호 실패는 무시).
+func freezePrimary(m member) (func() error, error) {
+	pid1, err := containerPID(m.Node, m.ContainerID)
+	if err != nil {
+		return nil, err
+	}
+	out, err := nodeExec(m.Node, "pgrep", "-P", pid1)
+	if err != nil {
+		return nil, fmt.Errorf("%s postmaster 없음: %w", m.Pod, err)
+	}
+	tree := []string{pid1, firstLine(out)}
+	thaw := func() error {
+		for _, pid := range tree {
+			_ = signalTree(m.Node, "CONT", pid)
+		}
+		return nil
+	}
+	for _, pid := range tree {
+		if err := signalTree(m.Node, "STOP", pid); err != nil {
+			return nil, errors.Join(err, thaw())
+		}
+	}
+	return thaw, nil
 }
 
 // stallRollout 은 S8 — CR 파드 템플릿(CPU 요청 +1m)을 바꿔 단계화 롤아웃을 열고, 첫 교체 replica 의 새 postgres 가
