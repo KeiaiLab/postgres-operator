@@ -140,7 +140,7 @@ func (o cpuAugmentingObserver) cpuPercentForPod(ctx context.Context, namespace, 
 		return 0, false // request 미설정 → utilization % 정의 불가.
 	}
 	pct := max(usedMillis*100/reqMillis, 0)
-	return int32(pct), true
+	return clampInt32(pct), true
 }
 
 // podCPURequestMillis 는 Pod 의 컨테이너 CPU request 합(millicores)을 반환한다.

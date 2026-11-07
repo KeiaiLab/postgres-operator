@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -95,6 +96,12 @@ func TestCPUAugmentingObserver(t *testing.T) {
 			metrics:    fakePodMetrics{present: map[string]bool{"demo-shard-0-0": false}},
 			wantCPU:    0,
 			wantSize:   3 * bytesPerGB,
+		},
+		{
+			name:       "int32 를 넘는 % → MaxInt32 로 포화(wrap 금지)",
+			cpuRequest: "1m",
+			metrics:    fakePodMetrics{millis: map[string]int64{"demo-shard-0-0": 1 << 40}},
+			wantCPU:    math.MaxInt32,
 		},
 		{
 			name:       "request 미설정 → CPU 0 (utilization % 정의 불가)",

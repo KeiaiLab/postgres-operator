@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -868,8 +869,8 @@ func (r *PostgresClusterReconciler) endPosition(ctx context.Context, p *rebuildP
 			continue
 		}
 		position, known := r.receivePositions(ctx, p.cluster, p.shards[i])[pod.Name]
-		if known && leads(formatLSN(uint64(position)), e.PromotionLSN) {
-			return formatLSN(uint64(position))
+		if known && leads(positionLSN(position), e.PromotionLSN) {
+			return positionLSN(position)
 		}
 	}
 	return ""
@@ -909,6 +910,14 @@ func formatLSN(position uint64) string {
 	return fmt.Sprintf("%X/%X", position>>32, position&0xFFFFFFFF)
 }
 
+// positionLSN 은 수신 위치(바이트, int64)를 LSN 표기로 쓴다 — 음수는 위치가 아니라 "" 다.
+func positionLSN(position int64) string {
+	if position < 0 {
+		return ""
+	}
+	return formatLSN(uint64(position))
+}
+
 // walLead 는 끝 위치 − 분기점(바이트)이다 — 어느 쪽이든 모르면 known=false.
 func walLead(end, fork string) (int64, bool) {
 	e, err := parseLSN(end)
@@ -919,7 +928,16 @@ func walLead(end, fork string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return int64(e) - int64(f), true
+
+	// 차이가 int64 를 넘으면 부호가 wrap 된다 — 모름으로 둔다.
+	sign, gap := int64(1), e-f
+	if e < f {
+		sign, gap = -1, f-e
+	}
+	if gap > math.MaxInt64 {
+		return 0, false
+	}
+	return sign * int64(gap), true
 }
 
 // leads 는 위치가 분기점을 넘는다는 양성 증거인지다.

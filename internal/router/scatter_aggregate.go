@@ -14,6 +14,7 @@
 package router
 
 import (
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -192,6 +193,9 @@ func toInt64(v any) (int64, bool) {
 	case int64:
 		return n, true
 	case uint:
+		if uint64(n) > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(n), true
 	case uint8:
 		return int64(n), true
@@ -200,6 +204,9 @@ func toInt64(v any) (int64, bool) {
 	case uint32:
 		return int64(n), true
 	case uint64:
+		if n > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(n), true
 	case string:
 		// PG 텍스트 프로토콜은 모든 값을 문자열로 준다 — 부분 집계(count/sum)의 재결합에

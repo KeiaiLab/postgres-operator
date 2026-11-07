@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"hash/fnv"
+	"math"
 	"sort"
 	"strconv"
 
@@ -187,7 +188,8 @@ func murmur3Sum32(data []byte, seed uint32) uint32 {
 		k *= c2
 		h ^= k
 	}
-	h ^= uint32(n)
+	// 참조 구현은 길이를 32 bit 로 자른다(len mod 2^32).
+	h ^= uint32(uint64(n) & math.MaxUint32)
 	h ^= h >> 16
 	h *= 0x85ebca6b
 	h ^= h >> 13

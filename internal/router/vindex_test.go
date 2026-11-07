@@ -157,5 +157,10 @@ func TestResolveShard(t *testing.T) {
 		if h := murmur3Sum32(nil, 0); h != 0 {
 			t.Fatalf("murmur3('') seed=0 want=0 got=0x%08x", h)
 		}
+
+		// 길이 혼합(h ^= len)을 지나는 벡터 — 공개 MurmurHash3_x86_32 참조값.
+		if h := murmur3Sum32([]byte("hello"), 0); h != 0x248bfa47 {
+			t.Fatalf("murmur3('hello') seed=0 want=0x248bfa47 got=0x%08x", h)
+		}
 	})
 }

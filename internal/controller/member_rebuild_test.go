@@ -1437,6 +1437,30 @@ func TestParseLSN(t *testing.T) {
 	if got := formatLSN(0x1A_05000060); got != "1A/5000060" {
 		t.Errorf("formatLSN = %q, want 1A/5000060", got)
 	}
+	if got := positionLSN(0x1A_05000060); got != "1A/5000060" {
+		t.Errorf("positionLSN = %q, want 1A/5000060", got)
+	}
+	if got := positionLSN(-1); got != "" {
+		t.Errorf("positionLSN(-1) = %q, want \"\" (not a position)", got)
+	}
+
+	// walLead 는 int64 차이가 넘치면 모름이다(wrap 된 부호를 앞섬 증거로 쓰지 않는다).
+	leadCases := []struct {
+		end, fork string
+		want      int64
+		known     bool
+	}{
+		{"0/100", "0/40", 0xC0, true},
+		{"0/40", "0/100", -0xC0, true},
+		{"ffffffff/ffffffff", "0/0", 0, false},
+		{"0/0", "ffffffff/ffffffff", 0, false},
+	}
+	for _, c := range leadCases {
+		got, known := walLead(c.end, c.fork)
+		if got != c.want || known != c.known {
+			t.Errorf("walLead(%q, %q) = %d, %v; want %d, %v", c.end, c.fork, got, known, c.want, c.known)
+		}
+	}
 	if got, want := rebuildToken(rebuildT0, 1), strconv.FormatInt(rebuildT0.Unix(), rebuildTokenBase)+"-1"; got != want {
 		t.Errorf("rebuildToken = %q, want %q", got, want)
 	}

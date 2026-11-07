@@ -57,7 +57,7 @@ const (
 
 	// poolerBuiltinAuthSecretSuffix 는 auto-generated userlist.txt Secret 이름의
 	// suffix 다. 최종 이름은 `<pooler-name><suffix>` 형식이다.
-	poolerBuiltinAuthSecretSuffix = "-builtin-auth"
+	poolerBuiltinAuthSecretSuffix = "-builtin-auth" // #nosec G101 -- Secret name suffix, not a credential
 
 	// PoolerRotateAuthAnnotation 은 사용자가 built-in auth password 의 force
 	// rotation 을 트리거하는 annotation key 다. value 가 `true` 면 reconciler 가
@@ -68,7 +68,7 @@ const (
 	// poolerAutoTLSServerSecretSuffix / poolerAutoTLSClientSecretSuffix 는
 	// AutoTLS 가 cert-manager Certificate CR 로 발급하는 Secret 이름의 suffix 다.
 	// 사용자가 ServerTLSSecret / ClientTLSSecret 을 명시한 경우 그 값을 우선한다.
-	poolerAutoTLSServerSecretSuffix = "-server-tls"
+	poolerAutoTLSServerSecretSuffix = "-server-tls" // #nosec G101 -- Secret name suffix, not a credential
 	poolerAutoTLSClientSecretSuffix = "-client-tls"
 
 	// Certificate GVK 는 keiailab-commons pkg/certmanager 의
@@ -1245,7 +1245,7 @@ func (r *PoolerReconciler) reconcilePoolerConfigReload(
 	if err != nil {
 		return false, err
 	}
-	if int32(len(readyPods)) < instances {
+	if len(readyPods) < int(instances) {
 		return false, nil
 	}
 
@@ -1296,7 +1296,7 @@ func (r *PoolerReconciler) reconcilePoolerPause(
 	if err != nil {
 		return pooler.Status.Paused, false, err
 	}
-	if int32(len(readyPods)) < instances {
+	if len(readyPods) < int(instances) {
 		return pooler.Status.Paused, false, nil
 	}
 
