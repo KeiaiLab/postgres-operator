@@ -76,115 +76,131 @@ func parseRanges(s string) []v1alpha1.ShardRangeEntry {
 	return out
 }
 
-func main() {
-	src := os.Getenv("PGROUTER_SOURCE_DSN")
-	tgt := os.Getenv("PGROUTER_TARGET_DSN")
-	table := os.Getenv("PGROUTER_COPY_TABLE")
-	targetShard := os.Getenv("PGROUTER_RESHARD_TARGET_SHARD")
-	mode := os.Getenv("PGROUTER_RESHARD_MODE")
-	cdcMode := mode == "cdc-setup" || mode == "cdc-finalize" || mode == "cdc-abort"
+// defaultCopyTimeout 은 RESHARD_COPY_TIMEOUT 미지정 시 복사 제한시간이다.
+const defaultCopyTimeout = 15 * time.Minute
+
+// pocConfig 는 main 이 읽는 env 설정이다.
+type pocConfig struct {
+	src, tgt, table, targetShard, mode string
+	cdcMode                            bool
 	// delete-only: cutover 후 source 에서 이동분 삭제만(복사 없음, Cleanup phase). target 불요.
-	deleteOnly := os.Getenv("PGROUTER_RESHARD_DELETE_ONLY") != ""
+	deleteOnly bool
+}
+
+func loadConfig() pocConfig {
+	mode := os.Getenv("PGROUTER_RESHARD_MODE")
+	return pocConfig{
+		src:         os.Getenv("PGROUTER_SOURCE_DSN"),
+		tgt:         os.Getenv("PGROUTER_TARGET_DSN"),
+		table:       os.Getenv("PGROUTER_COPY_TABLE"),
+		targetShard: os.Getenv("PGROUTER_RESHARD_TARGET_SHARD"),
+		mode:        mode,
+		cdcMode:     mode == "cdc-setup" || mode == "cdc-finalize" || mode == "cdc-abort",
+		deleteOnly:  os.Getenv("PGROUTER_RESHARD_DELETE_ONLY") != "",
+	}
+}
+
+// problem 은 설정이 모드에 맞지 않으면 사용법 오류 메시지를, 맞으면 "" 를 반환한다.
+func (c pocConfig) problem() string {
 	switch {
-	case src == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_SOURCE_DSN required")
-		os.Exit(2)
-	case cdcMode && targetShard == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_RESHARD_TARGET_SHARD")
-		os.Exit(2)
-	case cdcMode && tgt == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: CDC requires PGROUTER_TARGET_DSN")
-		os.Exit(2)
-	case deleteOnly && targetShard == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: DELETE_ONLY requires PGROUTER_RESHARD_TARGET_SHARD")
-		os.Exit(2)
-	case !deleteOnly && tgt == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: PGROUTER_TARGET_DSN required (unless DELETE_ONLY)")
-		os.Exit(2)
-	case !cdcMode && targetShard == "" && table == "":
-		fmt.Fprintln(os.Stderr, "reshard-copy-poc: full copy requires PGROUTER_COPY_TABLE")
+	case c.src == "":
+		return "reshard-copy-poc: PGROUTER_SOURCE_DSN required"
+	case c.cdcMode && c.targetShard == "":
+		return "reshard-copy-poc: CDC requires PGROUTER_RESHARD_TARGET_SHARD"
+	case c.cdcMode && c.tgt == "":
+		return "reshard-copy-poc: CDC requires PGROUTER_TARGET_DSN"
+	case c.deleteOnly && c.targetShard == "":
+		return "reshard-copy-poc: DELETE_ONLY requires PGROUTER_RESHARD_TARGET_SHARD"
+	case !c.deleteOnly && c.tgt == "":
+		return "reshard-copy-poc: PGROUTER_TARGET_DSN required (unless DELETE_ONLY)"
+	case !c.cdcMode && c.targetShard == "" && c.table == "":
+		return "reshard-copy-poc: full copy requires PGROUTER_COPY_TABLE"
+	}
+	return ""
+}
+
+func main() {
+	cfg := loadConfig()
+	if msg := cfg.problem(); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
 		os.Exit(2)
 	}
-	// 복사 제한시간. offline(범위복사) 기본값이 60s 로 하드코딩돼 있어 조금만 큰 테이블이면
-	// `context deadline exceeded` 로 InitialCopy 가 실패했다 (B-15, 4노드 라이브 실측
-	// 2026-07-14: orders 10만행 복사가 60s 를 넘겨 ShardSplitJob 이 Failed). 데이터 크기는
-	// 클러스터마다 다르므로 env 로 조정 가능하게 하고, 기본값도 현실적인 값으로 올린다.
-	timeout := 15 * time.Minute
-	if v := os.Getenv("RESHARD_COPY_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			timeout = d
-		} else {
-			fmt.Fprintf(os.Stderr, "reshard-copy-poc: invalid RESHARD_COPY_TIMEOUT=%q (using %s)\n", v, timeout)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), copyTimeout())
 	defer cancel()
 
 	// CDC(online) 모드: 논리복제 setup(스키마+pub+sub+lag대기) 또는 finalize(drain+drop+범위정리).
-	if cdcMode {
-		runCDC(ctx, mode, src, tgt, targetShard)
+	if cfg.cdcMode {
+		runCDC(ctx, cfg.mode, cfg.src, cfg.tgt, cfg.targetShard)
 		return
 	}
 
 	// Full copy (no target shard) vs range-filtered copy (the real split).
-	if targetShard == "" {
-		fmt.Printf("reshard-copy-poc: InitialCopy (full) table=%q source→target\n", table)
-		n, err := router.CopyTable(ctx, src, tgt, table)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "reshard-copy-poc: %v (copied %d before error)\n", err, n)
-			os.Exit(1)
-		}
-		fmt.Printf("reshard-copy-poc: copied %d row(s) source→target (rollback=drop target)\n", n)
+	if cfg.targetShard == "" {
+		runFullCopy(ctx, cfg)
 		return
 	}
+	runRangeCopy(ctx, cfg)
+}
 
+// copyTimeout 은 복사 제한시간이다. offline(범위복사) 기본값이 60s 로 하드코딩돼 있어 조금만
+// 큰 테이블이면 `context deadline exceeded` 로 InitialCopy 가 실패했다 (B-15, 4노드 라이브 실측
+// 2026-07-14: orders 10만행 복사가 60s 를 넘겨 ShardSplitJob 이 Failed). 데이터 크기는
+// 클러스터마다 다르므로 env 로 조정 가능하게 하고, 기본값도 현실적인 값으로 올린다.
+func copyTimeout() time.Duration {
+	v := os.Getenv("RESHARD_COPY_TIMEOUT")
+	if v == "" {
+		return defaultCopyTimeout
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	fmt.Fprintf(os.Stderr, "reshard-copy-poc: invalid RESHARD_COPY_TIMEOUT=%q (using %s)\n", v, defaultCopyTimeout)
+	return defaultCopyTimeout
+}
+
+// runFullCopy 는 table 전체를 source→target 으로 복사한다.
+func runFullCopy(ctx context.Context, cfg pocConfig) {
+	fmt.Printf("reshard-copy-poc: InitialCopy (full) table=%q source→target\n", cfg.table)
+	n, err := router.CopyTable(ctx, cfg.src, cfg.tgt, cfg.table)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reshard-copy-poc: %v (copied %d before error)\n", err, n)
+		os.Exit(1)
+	}
+	fmt.Printf("reshard-copy-poc: copied %d row(s) source→target (rollback=drop target)\n", n)
+}
+
+// runRangeCopy 는 targetShard 로 가는 키 범위만 옮긴다 — delete-only 면 source 정리만,
+// 아니면 복사 후 PGROUTER_RESHARD_DELETE_AFTER 가 있으면 source 정리까지.
+func runRangeCopy(ctx context.Context, cfg pocConfig) {
 	col := os.Getenv("PGROUTER_VINDEX_COLUMN")
 	if col == "" {
 		col = "id"
 	}
 	spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col,
 		os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
-
-	// 옮길 테이블 결정: COPY_TABLE 지정 시 그 하나, 아니면 source 의 모든 user 테이블에서
-	// reference 테이블(PGROUTER_REFERENCE_TABLES, 전 샤드 복제라 이동 대상 아님)을 뺀 전부.
-	var tables []string
-	if table != "" {
-		tables = []string{table}
-	} else {
-		all, err := router.ListUserTables(ctx, src)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "reshard-copy-poc: list tables: %v\n", err)
-			os.Exit(1)
-		}
-		tables = router.FilterTables(all, csv(os.Getenv("PGROUTER_REFERENCE_TABLES")))
-		fmt.Printf("reshard-copy-poc: discovered %d table(s) to reshard: %v\n", len(tables), tables)
-	}
+	tables := reshardTables(ctx, cfg)
 
 	// Cleanup(delete-only): cutover 후 source 에서 targetShard 로 이동한 row 삭제만.
-	if deleteOnly {
+	if cfg.deleteOnly {
 		for _, tbl := range tables {
-			deleted, err := router.DeleteShardRange(ctx, src, tbl, spec, targetShard)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "reshard-copy-poc: delete: %v (deleted %d before error)\n", err, deleted)
-				os.Exit(1)
-			}
-			fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q (%s keys) from source\n", deleted, tbl, targetShard)
+			deleted := deleteMoved(ctx, cfg, tbl, spec)
+			fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q (%s keys) from source\n", deleted, tbl, cfg.targetShard)
 		}
 		fmt.Printf("reshard-copy-poc: cleanup complete — %s rows reclaimed from source across %d table(s)\n",
-			targetShard, len(tables))
+			cfg.targetShard, len(tables))
 		return
 	}
 
 	for _, tbl := range tables {
 		fmt.Printf("reshard-copy-poc: InitialCopy (range) table=%q vindex=%s target=%s source→target\n",
-			tbl, col, targetShard)
-		copied, scanned, err := router.CopyShardRange(ctx, src, tgt, tbl, spec, targetShard)
+			tbl, col, cfg.targetShard)
+		copied, scanned, err := router.CopyShardRange(ctx, cfg.src, cfg.tgt, tbl, spec, cfg.targetShard)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "reshard-copy-poc: %v (copied %d/%d before error)\n", err, copied, scanned)
 			os.Exit(1)
 		}
 		fmt.Printf("reshard-copy-poc: copied %d/%d row(s) of %q (only %s keys) source→target\n",
-			copied, scanned, tbl, targetShard)
+			copied, scanned, tbl, cfg.targetShard)
 	}
 
 	if os.Getenv("PGROUTER_RESHARD_DELETE_AFTER") == "" {
@@ -192,15 +208,39 @@ func main() {
 	}
 	// Cutover cleanup: delete moved rows from source (run only after routing switch).
 	for _, tbl := range tables {
-		fmt.Printf("reshard-copy-poc: Cutover cleanup — deleting %s keys from %q in source\n", targetShard, tbl)
-		deleted, err := router.DeleteShardRange(ctx, src, tbl, spec, targetShard)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "reshard-copy-poc: delete: %v (deleted %d before error)\n", err, deleted)
-			os.Exit(1)
-		}
+		fmt.Printf("reshard-copy-poc: Cutover cleanup — deleting %s keys from %q in source\n", cfg.targetShard, tbl)
+		deleted := deleteMoved(ctx, cfg, tbl, spec)
 		fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q from source\n", deleted, tbl)
 	}
-	fmt.Printf("reshard-copy-poc: split complete — %s now owns its range across %d table(s)\n", targetShard, len(tables))
+	fmt.Printf("reshard-copy-poc: split complete — %s now owns its range across %d table(s)\n",
+		cfg.targetShard, len(tables))
+}
+
+// reshardTables 는 옮길 테이블을 정한다: COPY_TABLE 지정 시 그 하나, 아니면 source 의 모든
+// user 테이블에서 reference 테이블(PGROUTER_REFERENCE_TABLES, 전 샤드 복제라 이동 대상 아님)을
+// 뺀 전부.
+func reshardTables(ctx context.Context, cfg pocConfig) []string {
+	if cfg.table != "" {
+		return []string{cfg.table}
+	}
+	all, err := router.ListUserTables(ctx, cfg.src)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reshard-copy-poc: list tables: %v\n", err)
+		os.Exit(1)
+	}
+	tables := router.FilterTables(all, csv(os.Getenv("PGROUTER_REFERENCE_TABLES")))
+	fmt.Printf("reshard-copy-poc: discovered %d table(s) to reshard: %v\n", len(tables), tables)
+	return tables
+}
+
+// deleteMoved 는 source 의 tbl 에서 targetShard 로 이동한 row 를 지우고 삭제 수를 반환한다.
+func deleteMoved(ctx context.Context, cfg pocConfig, tbl string, spec v1alpha1.ShardRangeSpec) int {
+	deleted, err := router.DeleteShardRange(ctx, cfg.src, tbl, spec, cfg.targetShard)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reshard-copy-poc: delete: %v (deleted %d before error)\n", err, deleted)
+		os.Exit(1)
+	}
+	return deleted
 }
 
 // runCDC 는 online resharding 의 논리복제 단계를 수행한다.

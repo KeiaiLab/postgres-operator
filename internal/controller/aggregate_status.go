@@ -13,6 +13,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -119,36 +120,13 @@ func aggregateShardStatusMatching(
 	// restores standby.signal pointing at it, rewinding the real primary's
 	// post-failover writes. (A returning old primary briefly self-reports Primary
 	// before the fence stops it; this keeps it out of the status primary slot.)
-	fencedPVC := map[string]bool{}
-	{
-		var pvcs corev1.PersistentVolumeClaimList
-		if err := c.List(ctx, &pvcs, &client.ListOptions{Namespace: cluster.Namespace}); err != nil {
-			logger.V(1).Info("aggregateShardStatus: pvc list for fence check failed", "error", err)
-		} else {
-			for i := range pvcs.Items {
-				if pvcs.Items[i].Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
-					fencedPVC[pvcs.Items[i].Name] = true
-				}
-			}
-		}
-	}
+	fencedPVC := fencedPVCNames(log.IntoContext(ctx, logger), c, cluster.Namespace)
 
 	// #220: detect whether a *promoted* primary (carries the operator-promote
 	// marker) exists. If so, any other Primary-reporting pod is a rogue old primary
 	// that booted empty from a stale env — never the shard primary, and flagged for
 	// reseed. This protects the real (data-holding) primary from ever being reseeded.
-	hasPromotedPrimary := false
-	for i := range pods.Items {
-		if !matches(&pods.Items[i]) {
-			continue
-		}
-		if st, ok := parsePodStatus(&pods.Items[i]); ok &&
-			st.Role == statusapi.RolePrimary && st.Promoted &&
-			!fencedPVC["data-"+pods.Items[i].Name] {
-			hasPromotedPrimary = true
-			break
-		}
-	}
+	hasPromotedPrimary := anyPromotedPrimary(pods.Items, matches, fencedPVC)
 
 	now := time.Now().UTC()
 	var primaryCandidate *postgresv1alpha1.ShardEndpoint
@@ -188,42 +166,8 @@ func aggregateShardStatusMatching(
 			replicas = append(replicas, ep)
 			continue
 		}
-		ready := st.Ready
-		if st.IsStale(now, statusStaleThresh) {
-			logger.Info("instance status stale (heartbeat lost)",
-				"pod", pod.Name, "lastUpdate", st.LastUpdate)
-			ready = false
-		}
-		podNotReady := kubernetesPodNotReady(pod)
-		if podNotReady {
-			ready = false
-		}
-		ep := postgresv1alpha1.ShardEndpoint{
-			Pod:      pod.Name,
-			Endpoint: st.Endpoint,
-			Ready:    ready,
-			LagBytes: maxInt64(0, st.LagBytes), // -1 (unknown) → 0 표기 (status schema 가 음수 부재).
-			Reason:   st.Reason,
-			Message:  st.Message,
-		}
-		if podNotReady {
-			if ep.Reason == "" {
-				ep.Reason = podNotReadyReason
-			}
-			if ep.Message == "" {
-				ep.Message = "Kubernetes Pod or postgres container is not ready"
-			}
-		}
+		ep := statusEndpoint(logger, pod, st, now, fencedPVC)
 		podFenced := fencedPVC["data-"+pod.Name]
-		if podFenced {
-			ep.Ready = false
-			if ep.Reason == "" {
-				ep.Reason = fencedMemberReason
-			}
-			if ep.Message == "" {
-				ep.Message = "PVC is fenced; member is excluded from promotion candidates"
-			}
-		}
 		switch {
 		case st.Role == statusapi.RolePrimary && podFenced:
 			// #220: fenced known-failed primary (e.g. a returning old primary that
@@ -263,6 +207,87 @@ func aggregateShardStatusMatching(
 		out.SizeBytes = primarySizeBytes
 	}
 	return out
+}
+
+// fencedPVCNames 는 namespace 에서 fence 라벨이 붙은 PVC 이름 집합을 반환한다. 목록
+// 실패는 빈 집합(fence 미관측)으로 둔다.
+func fencedPVCNames(ctx context.Context, c client.Client, namespace string) map[string]bool {
+	fencedPVC := map[string]bool{}
+	var pvcs corev1.PersistentVolumeClaimList
+	if err := c.List(ctx, &pvcs, &client.ListOptions{Namespace: namespace}); err != nil {
+		log.FromContext(ctx).V(1).Info("aggregateShardStatus: pvc list for fence check failed", "error", err)
+		return fencedPVC
+	}
+	for i := range pvcs.Items {
+		if pvcs.Items[i].Labels[fencing.FenceLabelKey] == fencing.FenceLabelValue {
+			fencedPVC[pvcs.Items[i].Name] = true
+		}
+	}
+	return fencedPVC
+}
+
+// anyPromotedPrimary 는 fence 되지 않은 matching pod 중 promote marker 를 단 primary 가
+// 있는지 본다.
+func anyPromotedPrimary(pods []corev1.Pod, matches func(*corev1.Pod) bool, fencedPVC map[string]bool) bool {
+	for i := range pods {
+		if !matches(&pods[i]) {
+			continue
+		}
+		if st, ok := parsePodStatus(&pods[i]); ok &&
+			st.Role == statusapi.RolePrimary && st.Promoted &&
+			!fencedPVC["data-"+pods[i].Name] {
+			return true
+		}
+	}
+	return false
+}
+
+// statusEndpoint 는 status annotation 이 있는 pod 의 endpoint 를 만든다. heartbeat
+// stale · Kubernetes NotReady · fence 는 Ready=false 로 내리고 빈 사유를 채운다.
+func statusEndpoint(
+	logger logr.Logger,
+	pod *corev1.Pod,
+	st statusapi.Status,
+	now time.Time,
+	fencedPVC map[string]bool,
+) postgresv1alpha1.ShardEndpoint {
+	ready := st.Ready
+	if st.IsStale(now, statusStaleThresh) {
+		logger.Info("instance status stale (heartbeat lost)",
+			"pod", pod.Name, "lastUpdate", st.LastUpdate)
+		ready = false
+	}
+	podNotReady := kubernetesPodNotReady(pod)
+	if podNotReady {
+		ready = false
+	}
+	ep := postgresv1alpha1.ShardEndpoint{
+		Pod:      pod.Name,
+		Endpoint: st.Endpoint,
+		Ready:    ready,
+		LagBytes: maxInt64(0, st.LagBytes), // -1 (unknown) → 0 표기 (status schema 가 음수 부재).
+		Reason:   st.Reason,
+		Message:  st.Message,
+	}
+	if podNotReady {
+		if ep.Reason == "" {
+			ep.Reason = podNotReadyReason
+		}
+		if ep.Message == "" {
+			ep.Message = "Kubernetes Pod or postgres container is not ready"
+		}
+	}
+	podFenced := fencedPVC["data-"+pod.Name]
+	if podFenced {
+		ep.Ready = false
+		if ep.Reason == "" {
+			ep.Reason = fencedMemberReason
+		}
+		if ep.Message == "" {
+			ep.Message = "PVC is fenced; member is excluded from promotion candidates"
+		}
+	}
+	return ep
 }
 
 func activeNamedShardStatuses(
