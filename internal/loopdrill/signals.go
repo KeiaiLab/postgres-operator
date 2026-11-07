@@ -117,3 +117,33 @@ func ReadyFromEvents(marks []SnapshotMark, events []EventMark) []SnapshotMark {
 	}
 	return out
 }
+
+// CountMark 는 셈이 바뀐 시각이다 — 표본은 바뀔 때만 쌓여 값은 다음 표본까지 유지된다.
+type CountMark struct {
+	At    time.Time
+	Count int
+}
+
+// FirstCountAt 은 from 이후 셈이 want 인 첫 시각이다(없으면 zero).
+// from 에 이미 want 로 서 있으면 from — 바뀔 때만 쌓으니 from 뒤 표본이 없을 수 있다.
+// 예: [{0s 1}] · from 57s → 57s (V1 5판 S10 -rw Endpoints).
+func FirstCountAt(marks []CountMark, from time.Time, want int) time.Time {
+	// from 에 서 있던 값 — from 이하 마지막 표본
+	current, seen := 0, false
+	for _, m := range marks {
+		if m.At.After(from) {
+			break
+		}
+		current, seen = m.Count, true
+	}
+	if seen && current == want {
+		return from
+	}
+
+	for _, m := range marks {
+		if m.At.After(from) && m.Count == want {
+			return m.At
+		}
+	}
+	return time.Time{}
+}

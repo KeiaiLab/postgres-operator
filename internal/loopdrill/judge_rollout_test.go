@@ -128,6 +128,7 @@ func TestConvergeJudge(t *testing.T) {
 		{"수렴 미관측", ScenarioS3, func(_, a *ClusterSnap) { a.ConvergedAt = time.Time{} }},
 		{"풀림 미관측", ScenarioS3, func(_, a *ClusterSnap) { a.ReleasedAt = time.Time{} }},
 		{"수렴 상한 초과", ScenarioS6, func(_, a *ClusterSnap) { a.ConvergedAt = a.ReleasedAt.Add(ConvergeBound + time.Second) }},
+		{"예산 소진 상한 초과", ScenarioS7, func(_, a *ClusterSnap) { a.ConvergedAt = a.ReleasedAt.Add(ExhaustConvergeBound + time.Second) }},
 		{"롤아웃 상한 초과", ScenarioS0, func(_, a *ClusterSnap) {
 			a.ConvergedAt = a.ReleasedAt.Add(ConvergeBound + RolloutBound(fixtureMembers) + time.Second)
 		}},
@@ -135,6 +136,13 @@ func TestConvergeJudge(t *testing.T) {
 		{"S8 막힘 미관측", ScenarioS8, func(_, a *ClusterSnap) { a.Rollout.BlockedSeen = false }},
 		{"S8 롤아웃 미완", ScenarioS8, func(_, a *ClusterSnap) { a.PodsOnUpdate = fixtureMembers - 1 }},
 	})
+}
+
+// V1 5판 S7 — 셋째 재구축이 BudgetExhausted 로 막혔다가 예산 창이 풀려 26m27s 에 수렴했다(설계대로).
+func TestConvergeAfterBudgetWait(t *testing.T) {
+	before, after := exhaustedPair()
+	after.ConvergedAt = after.ReleasedAt.Add(26*time.Minute + 27*time.Second)
+	wantPass(t, judgeGreen(ScenarioS7, before, after), CheckConverge)
 }
 
 func TestPodOrdinal(t *testing.T) {

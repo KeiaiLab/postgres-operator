@@ -691,7 +691,7 @@ type recorder struct {
 	denied       []float64
 	graph        []loopdrill.GraphMark
 	snapshots    map[string]loopdrill.SnapshotMark
-	endpoints    []endpointMark
+	endpoints    []loopdrill.CountMark
 	budgetBlock  bool
 	blockedSeen  bool
 	blockedNow   bool
@@ -699,12 +699,6 @@ type recorder struct {
 	restarts     map[string]int32 // 파드가 primary 로 보인 마지막 표본의 재시작 수
 	history      []observation
 	last         observation
-}
-
-// endpointMark 는 -rw Service ready 주소 수가 바뀐 시각.
-type endpointMark struct {
-	at    time.Time
-	count int
 }
 
 func newRecorder(base int64, members int, oldPrimary member) *recorder {
@@ -729,8 +723,8 @@ func (r *recorder) sample() {
 		}
 		r.noteSwitchover(st)
 	}
-	if n, err := rwEndpoints(); err == nil && (len(r.endpoints) == 0 || r.endpoints[len(r.endpoints)-1].count != n) {
-		r.endpoints = append(r.endpoints, endpointMark{at: time.Now(), count: n})
+	if n, err := rwEndpoints(); err == nil && (len(r.endpoints) == 0 || r.endpoints[len(r.endpoints)-1].Count != n) {
+		r.endpoints = append(r.endpoints, loopdrill.CountMark{At: time.Now(), Count: n})
 	}
 }
 
@@ -1223,12 +1217,7 @@ func (d *drill) emergencyRecord(rec *recorder, probe loopdrill.ProbeRecord) loop
 	if e.RecoverAt.IsZero() {
 		return e
 	}
-	for _, m := range rec.endpoints {
-		if !m.at.Before(e.RecoverAt) && m.count == 1 {
-			e.EndpointsAt = m.at
-			break
-		}
-	}
+	e.EndpointsAt = loopdrill.FirstCountAt(rec.endpoints, e.RecoverAt, 1)
 	for _, a := range probe.Acks {
 		if !a.At.Before(e.RecoverAt) {
 			e.WriteAt = a.At
