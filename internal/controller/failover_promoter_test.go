@@ -40,9 +40,9 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := readyPromotionPod(namespace, podName)
+	pod := promotionMember(namespace, "demo", podName)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, pod).Build()
-	executor := &fakePromotionPodExecutor{}
+	executor := promotingFake(podName)
 	reconciler := &PostgresClusterReconciler{
 		Client:               c,
 		Scheme:               scheme,
@@ -62,14 +62,16 @@ func TestPostgresClusterPromotionExecutorExecsPodAndPatchesStatus(t *testing.T) 
 		t.Fatalf("executeClusterPromotion: %v", err)
 	}
 
-	// 승격 exec 1회 + 새 타임라인 분기점 읽기 1회(ADR-0030).
-	if executor.called != 2 {
-		t.Fatalf("Exec called %d times, want 2 (promote + timeline history)", executor.called)
+	// 끊기 · 끝 위치(ADR-0036 F2·F3) → 승격 → 새 타임라인 분기점 읽기(ADR-0030).
+	calls := executor.callLog()
+	want := []string{"cut " + podName, "lsn " + podName, "promote " + podName, "history " + podName}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
 	}
 	if executor.target.Namespace != namespace || executor.target.Pod != podName || executor.target.Container != pgContainerName {
 		t.Fatalf("target = %+v, want promotion candidate postgres container", executor.target)
 	}
-	command := strings.Join(executor.commands[0], " ")
+	command := strings.Join(executor.commands[indexOf(calls, "promote "+podName)], " ")
 	for _, want := range []string{"standby.signal", ".keiailab-restart-primary-as-standby", "pg_promote", "promote", "pg_is_in_recovery"} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("promotion command %q missing %q", command, want)
@@ -239,6 +241,9 @@ func (f *fakePromotionPodExecutor) answer(pod, joined string) ([]byte, error) {
 		}
 		return []byte(answer + "\n"), nil
 	case "promote":
+		if f.out != nil {
+			return f.out, nil
+		}
 		return []byte("PROMOTE_RESULT=promoted\n"), nil
 	case "history":
 		return []byte(promotionTestHistory), nil
@@ -251,6 +256,21 @@ func (f *fakePromotionPodExecutor) callLog() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.calls)
+}
+
+// promotionMember 는 cluster 샤드 0 의 멤버 라벨을 단 승격 후보다 — failover 가 멤버로 찾아 끊고 잰다(ADR-0036).
+func promotionMember(namespace, cluster, podName string) *corev1.Pod {
+	pod := readyPromotionPod(namespace, podName)
+	pod.Labels = shardLabels(cluster)
+	return pod
+}
+
+// promotingFake 는 유일한 멤버 pod 의 끊기·끝 위치·승격에 답한다.
+func promotingFake(pod string) *fakePromotionPodExecutor {
+	return &fakePromotionPodExecutor{
+		recovery: map[string]string{pod: pgBoolTrue},
+		lsn:      map[string]string{pod: "0/3000200"},
+	}
 }
 
 func readyPromotionPod(namespace, podName string) *corev1.Pod {
@@ -300,7 +320,7 @@ func TestPostgresClusterPromotionPreFencesFailedOldPrimaryBeforeExec(t *testing.
 			}},
 		},
 	}
-	target := readyPromotionPod(namespace, targetPod)
+	target := promotionMember(namespace, "demo", targetPod)
 	oldPVC := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: oldPrimaryPVC, Namespace: namespace},
 	}
@@ -308,17 +328,16 @@ func TestPostgresClusterPromotionPreFencesFailedOldPrimaryBeforeExec(t *testing.
 		ObjectMeta: metav1.ObjectMeta{Name: "data-" + targetPod, Namespace: namespace},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, target, oldPVC, targetPVC).Build()
-	executor := &fakePromotionPodExecutor{
-		onExec: func(ctx context.Context) error {
-			var got corev1.PersistentVolumeClaim
-			if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: oldPrimaryPVC}, &got); err != nil {
-				return fmt.Errorf("get old primary pvc before promotion exec: %w", err)
-			}
-			if got.Labels[fencing.FenceLabelKey] != fencing.FenceLabelValue {
-				return fmt.Errorf("old primary PVC must be fenced before promotion exec, labels=%v", got.Labels)
-			}
-			return nil
-		},
+	executor := promotingFake(targetPod)
+	executor.onExec = func(ctx context.Context) error {
+		var got corev1.PersistentVolumeClaim
+		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: oldPrimaryPVC}, &got); err != nil {
+			return fmt.Errorf("get old primary pvc before promotion exec: %w", err)
+		}
+		if got.Labels[fencing.FenceLabelKey] != fencing.FenceLabelValue {
+			return fmt.Errorf("old primary PVC must be fenced before promotion exec, labels=%v", got.Labels)
+		}
+		return nil
 	}
 	reconciler := &PostgresClusterReconciler{
 		Client:               c,
@@ -416,7 +435,7 @@ func TestPostgresClusterPromotionUnfencesTargetPVC(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := readyPromotionPod(namespace, podName)
+	pod := promotionMember(namespace, "demo", podName)
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,
@@ -428,7 +447,7 @@ func TestPostgresClusterPromotionUnfencesTargetPVC(t *testing.T) {
 	reconciler := &PostgresClusterReconciler{
 		Client:               c,
 		Scheme:               scheme,
-		PromotionPodExecutor: &fakePromotionPodExecutor{},
+		PromotionPodExecutor: promotingFake(podName),
 	}
 	decision := failover.Decision{
 		Failed: true,
@@ -473,7 +492,7 @@ func TestPostgresClusterPromotionFencesNonTargetMembers(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := readyPromotionPod(namespace, targetPod)
+	pod := promotionMember(namespace, "demo", targetPod)
 	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
 		return &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -491,7 +510,7 @@ func TestPostgresClusterPromotionFencesNonTargetMembers(t *testing.T) {
 	reconciler := &PostgresClusterReconciler{
 		Client:               c,
 		Scheme:               scheme,
-		PromotionPodExecutor: &fakePromotionPodExecutor{},
+		PromotionPodExecutor: promotingFake(targetPod),
 	}
 	decision := failover.Decision{
 		Failed: true,
@@ -547,7 +566,7 @@ func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
 	}
-	pod := readyPromotionPod(namespace, targetPod)
+	pod := promotionMember(namespace, "demo", targetPod)
 	mkPVC := func(name string) *corev1.PersistentVolumeClaim {
 		return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
 	}
@@ -556,10 +575,12 @@ func TestPostgresClusterPromotionNoopDoesNotFence(t *testing.T) {
 		mkPVC("data-demo-shard-0-0"),
 		mkPVC("data-demo-shard-0-1"),
 	).Build()
+	executor := promotingFake(targetPod)
+	executor.out = []byte("PROMOTE_RESULT=noop-already-primary\n")
 	reconciler := &PostgresClusterReconciler{
 		Client:               c,
 		Scheme:               scheme,
-		PromotionPodExecutor: &fakePromotionPodExecutor{out: []byte("PROMOTE_RESULT=noop-already-primary\n")},
+		PromotionPodExecutor: executor,
 	}
 	decision := failover.Decision{
 		Failed: true,

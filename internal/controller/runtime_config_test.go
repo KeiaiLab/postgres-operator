@@ -506,11 +506,17 @@ func TestPromoteAndPublishOrder(t *testing.T) {
 			log := &writeLog{}
 			scheme := runtimeScheme(t)
 			c := fake.NewClientBuilder().WithScheme(scheme).
-				WithObjects(cluster, cm, readyPromotionPod(runtimeTestNS, target)).
+				WithObjects(cluster, cm, promotionMember(runtimeTestNS, name, target)).
 				WithInterceptorFuncs(log.funcs()).Build()
+			// failover 는 승격 전에 유일한 멤버를 끊고 잰다(ADR-0036 F2·F3).
 			exec := &funcExecutor{log: log, respond: func(_ BackupSidecarTarget, command []string) ([]byte, error) {
-				if strings.Contains(strings.Join(command, " "), "pg_read_file") {
+				switch fakeOp(strings.Join(command, " ")) {
+				case "history":
 					return []byte(history), nil
+				case "cut":
+					return []byte(cutResultPrefix + cutResultCut + "\n"), nil
+				case "lsn":
+					return []byte(pgBoolTrue + psqlFieldSeparator + "0/3000200\n"), nil
 				}
 				return []byte("PROMOTE_RESULT=promoted\n"), nil
 			}}
