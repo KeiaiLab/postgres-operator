@@ -112,6 +112,45 @@ func TestPromotionsJudge(t *testing.T) {
 	})
 }
 
+// 계획 switchover 가 관측창 안에 들면 그 승격 하나는 루프가 아니다 — 그 밖의 오름은 여전히 붉다.
+func TestPromotionsPlannedInWindow(t *testing.T) {
+	// switchoverPair 의 switchover(8m~8m20s)·승격(8m15s)을 관측창(7m~) 안에 둔다
+	inWindow := func(a *ClusterSnap) { a.ObserveFrom = at(7 * time.Minute) }
+
+	before, after := switchoverPair()
+	inWindow(&after)
+	wantPass(t, judgeGreen(ScenarioS8, before, after), CheckPromotions)
+
+	before, after = transitionPair()
+	inWindow(&after)
+	wantPass(t, judgeGreen(ScenarioS0, before, after), CheckPromotions)
+
+	runRed(t, CheckPromotions, []redCase{
+		{"SwitchDone 뒤 추가 승격", ScenarioS8, func(_, a *ClusterSnap) {
+			inWindow(a)
+			a.Timeline = append(a.Timeline, TimelineMark{At: at(10 * time.Minute), Timeline: 7, Primary: "p-2"})
+		}},
+		{"switchover 시작 전 창 안 승격", ScenarioS8, func(_, a *ClusterSnap) {
+			inWindow(a)
+			a.Timeline[1].At = at(7*time.Minute + 30*time.Second)
+		}},
+		{"switchover 미관측", ScenarioS8, func(_, a *ClusterSnap) {
+			inWindow(a)
+			a.Rollout.SwitchStart, a.Rollout.SwitchDone = time.Time{}, time.Time{}
+		}},
+		{"승격 0 시나리오의 창 안 switchover", ScenarioS5, func(_, a *ClusterSnap) {
+			a.Rollout.SwitchStart, a.Rollout.SwitchDone = at(11*time.Minute), at(11*time.Minute+20*time.Second)
+			a.Timeline = append(a.Timeline, TimelineMark{At: at(11*time.Minute + 15*time.Second), Timeline: 6, Primary: "p-1"})
+		}},
+	})
+
+	// 붉은 까닭이 관측창 규칙인가
+	before, after = switchoverPair()
+	inWindow(&after)
+	after.Timeline[1].At = at(7*time.Minute + 30*time.Second)
+	wantReason(t, judgeGreen(ScenarioS8, before, after), CheckPromotions, "관측창 추가 승격")
+}
+
 func TestStallJudge(t *testing.T) {
 	runRed(t, CheckStall, []redCase{
 		{"Failed to watch", ScenarioS5, func(_, a *ClusterSnap) { a.FailedWatchLines = 3 }},

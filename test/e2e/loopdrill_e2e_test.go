@@ -75,19 +75,10 @@ const (
 
 // 판정문 결과.
 const (
-	resultRedAsExpected  = "red-as-expected"
-	resultRedMissing     = "red-not-reproduced"
-	resultGreen          = "green"
-	resultNotGreen       = "not-green"
-	resultProbeFailed    = "p1-false"
-	resultScenarioMissed = "incomplete"
+	resultRedAsExpected = loopdrill.ResultRedAsExpected
+	resultGreen         = loopdrill.ResultGreen
+	resultProbeFailed   = "p1-false"
 )
-
-var greenScenarios = []loopdrill.Scenario{
-	loopdrill.ScenarioS0, loopdrill.ScenarioS1, loopdrill.ScenarioS2, loopdrill.ScenarioS3, loopdrill.ScenarioS4,
-	loopdrill.ScenarioS5, loopdrill.ScenarioS5a, loopdrill.ScenarioS6, loopdrill.ScenarioS6b, loopdrill.ScenarioS7,
-	loopdrill.ScenarioS8, loopdrill.ScenarioS9, loopdrill.ScenarioS10,
-}
 
 // Fidelity 는 시험 이미지가 운영과 얼마나 같은가.
 type Fidelity string
@@ -133,7 +124,7 @@ func loadConfig() (drillConfig, error) {
 	}
 	cfg.scenarios = loopdrill.RedScenarios()
 	if cfg.mode == loopdrill.ModeGreen {
-		cfg.scenarios = greenScenarios
+		cfg.scenarios = loopdrill.GreenScenarios()
 	}
 	if raw := os.Getenv(envScenarios); raw != "" {
 		cfg.scenarios = nil
@@ -998,33 +989,11 @@ func waitOperatorGone(op operatorRef) error {
 
 // result 는 모드의 통과 조건으로 판정문 결과를 낸다.
 func (d *drill) result(runs []ScenarioRun) string {
-	if len(runs) < len(d.cfg.scenarios) {
-		return resultScenarioMissed
-	}
-	if d.cfg.mode == loopdrill.ModeRed {
-		verdicts := make([]loopdrill.Verdict, 0, len(runs))
-		for _, r := range runs {
-			verdicts = append(verdicts, r.Verdict)
-		}
-		if loopdrill.RedReproduced(verdicts) {
-			return resultRedAsExpected
-		}
-		return resultRedMissing
-	}
-	byScenario := map[loopdrill.Scenario]loopdrill.Verdict{}
+	verdicts := make([]loopdrill.Verdict, 0, len(runs))
 	for _, r := range runs {
-		byScenario[r.Scenario] = r.Verdict
+		verdicts = append(verdicts, r.Verdict)
 	}
-	for _, scn := range greenScenarios {
-		v, ok := byScenario[scn]
-		if !ok {
-			return resultScenarioMissed
-		}
-		if !v.Green() {
-			return resultNotGreen
-		}
-	}
-	return resultGreen
+	return loopdrill.Outcome(d.cfg.mode, len(d.cfg.scenarios), verdicts)
 }
 
 func summarize(v loopdrill.Verdict) string {

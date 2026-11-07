@@ -538,10 +538,10 @@ func judgePromotions(before, after ClusterSnap, exp Expect) Check {
 		return check
 	}
 
-	// 수렴 뒤 관측창에서 한 번이라도 오르면 루프다
+	// 수렴 뒤 관측창에서 오르면 루프다 — 창 안에 든 계획 switchover 의 승격은 뺀다
 	if !after.ObserveFrom.IsZero() {
 		start := after.timelineAt(after.ObserveFrom)
-		if top > start && start != 0 {
+		if top-start > plannedInWindow(after, exp, start) && start != 0 {
 			check.Detail = fmt.Sprintf("관측창 추가 승격 %d→%d", start, top)
 			return check
 		}
@@ -549,6 +549,23 @@ func judgePromotions(before, after ClusterSnap, exp Expect) Check {
 	check.Pass = true
 	check.Detail = fmt.Sprintf("타임라인 %d→%d(기대 +%d~+%d)", base, top, exp.PromotionsRequired, exp.PromotionsAllowed)
 	return check
+}
+
+// plannedInWindow 는 관측창 안 오름 가운데 계획 switchover 몫이다 — switchover 가 창 안에서 시작·완료했고
+// 창 안 첫 오름이 그 시작 뒤일 때만 PromotionsRequired, 아니면 0.
+func plannedInWindow(after ClusterSnap, exp Expect, start int64) int64 {
+	r := after.Rollout
+	if exp.Promotion != PromotionSwitchover || r.SwitchStart.IsZero() || r.SwitchDone.IsZero() {
+		return 0
+	}
+	if r.SwitchStart.Before(after.ObserveFrom) || r.SwitchDone.After(after.TakenAt) {
+		return 0
+	}
+	rise, ok := after.promotedAt(start)
+	if !ok || rise.At.Before(r.SwitchStart) {
+		return 0
+	}
+	return int64(exp.PromotionsRequired)
 }
 
 // J4 — 관측창 안 status 쓰기 전진 ≥ 하한 ∧ 'Failed to watch' 0 ∧ (GREEN) 게이지 전진 ∧

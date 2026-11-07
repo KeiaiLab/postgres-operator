@@ -125,6 +125,7 @@ type member struct {
 	ContainerID string
 	Restarts    int32
 	Ready       bool
+	ReadySince  time.Time // Ready 조건 lastTransitionTime(Ready=True 일 때만)
 	Terminating bool
 	Created     time.Time
 	Revision    string
@@ -178,8 +179,9 @@ type podJSON struct {
 	Status struct {
 		Phase      string `json:"phase"`
 		Conditions []struct {
-			Type   string `json:"type"`
-			Status string `json:"status"`
+			Type               string    `json:"type"`
+			Status             string    `json:"status"`
+			LastTransitionTime time.Time `json:"lastTransitionTime"`
 		} `json:"conditions"`
 		ContainerStatuses []containerStatus `json:"containerStatuses"`
 	} `json:"status"`
@@ -202,6 +204,16 @@ func (p podJSON) ready() bool {
 		}
 	}
 	return false
+}
+
+// readySince 는 Ready=True 로 바뀐 시각(API 기록) — Ready 가 아니면 0.
+func (p podJSON) readySince() time.Time {
+	for _, c := range p.Status.Conditions {
+		if c.Type == "Ready" && c.Status == "True" {
+			return c.LastTransitionTime
+		}
+	}
+	return time.Time{}
 }
 
 func (p podJSON) pgContainer() (id string, restarts int32, running bool) {
@@ -252,6 +264,7 @@ func probeCluster() (observation, error) {
 			UID:         p.Metadata.UID,
 			Node:        p.Spec.NodeName,
 			Ready:       p.ready(),
+			ReadySince:  p.readySince(),
 			Terminating: p.Metadata.DeletionTimestamp != nil,
 			Created:     p.Metadata.CreationTimestamp,
 			Revision:    p.Metadata.Labels[revisionLabel],
