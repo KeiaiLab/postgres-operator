@@ -119,7 +119,7 @@ func tokenize(s string) []token {
 			}
 		case c == '/' && i+1 < n && s[i+1] == '*': // 블록 주석
 			i += 2
-			for i+1 < n && !(s[i] == '*' && s[i+1] == '/') {
+			for i+1 < n && (s[i] != '*' || s[i+1] != '/') {
 				i++
 			}
 			i += 2

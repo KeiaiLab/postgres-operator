@@ -142,7 +142,7 @@ func TestStatusBackendResolver_ResolveRead(t *testing.T) {
 
 	// 읽기: 두 Ready replica 를 round-robin (primary 아님).
 	seen := map[string]int{}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		got, err := r.ResolveRead("shard-0")
 		if err != nil {
 			t.Fatalf("ResolveRead shard-0: %v", err)
@@ -181,7 +181,7 @@ func TestStatusBackendResolver_LagBound(t *testing.T) {
 		}},
 	})
 	// 읽기는 fresh 만 (round-robin 해도 항상 fresh).
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		got, err := r.ResolveRead("shard-0")
 		if err != nil || got != "fresh:5432" {
 			t.Fatalf("ResolveRead = (%q,%v), want only fresh:5432 (stale 제외)", got, err)

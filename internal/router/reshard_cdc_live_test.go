@@ -66,7 +66,7 @@ func TestCDCLive(t *testing.T) {
 
 	// lag → 0 까지 대기(최대 30s).
 	caughtUp := false
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		lag, err := SubscriptionLagBytes(ctx, sourceDSN, "sub_cdc")
 		if err == nil && lag >= 0 && lag <= 0 {
 			// 추가로 target row 수 확인(스트림 적용 확인).

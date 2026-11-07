@@ -30,7 +30,7 @@ func DetectAggregates(query string) (aggs []AggregateFunc, ok bool) {
 			return nil, false
 		}
 	}
-	if !(toks[0].kind == tokIdent && strings.EqualFold(toks[0].text, "select")) {
+	if toks[0].kind != tokIdent || !strings.EqualFold(toks[0].text, "select") {
 		return nil, false
 	}
 	// DISTINCT 는 보수적으로 제외(집계와 결합 시 재결합 의미 복잡).

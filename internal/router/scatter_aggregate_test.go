@@ -8,7 +8,7 @@ package router
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"testing"
 )
 
@@ -163,7 +163,7 @@ func TestScatterMergeAggregate_EmptyAggregatesFallsBackToConcat(t *testing.T) {
 	}
 	// 순서 무관 확인.
 	vals := []int64{rows[0].Values[0].(int64), rows[1].Values[0].(int64)}
-	sort.Slice(vals, func(i, j int) bool { return vals[i] < vals[j] })
+	slices.Sort(vals)
 	if vals[0] != 1 || vals[1] != 2 {
 		t.Fatalf("concat values = %v, want [1 2]", vals)
 	}

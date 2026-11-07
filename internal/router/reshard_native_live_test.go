@@ -80,17 +80,15 @@ func TestReshardPKlessTargetConcurrentLive(t *testing.T) {
 	// 구독 이후 *동시* 쓰기 스트림: goroutine 이 UPDATE/DELETE 를 흘리는 동안 스트림
 	// 적용을 검증한다. UPDATE: 짝수 id 를 val=-1 로. DELETE: id > 90 제거.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 50; i++ {
+	wg.Go(func() {
+		for i := range 50 {
 			exec(t, src, fmt.Sprintf(`UPDATE kv SET val = -1 WHERE id = %d`, (i%45)*2+2))
 			if i%5 == 0 {
 				exec(t, src, fmt.Sprintf(`DELETE FROM kv WHERE id = %d`, 91+i%10))
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-	}()
+	})
 	wg.Wait()
 
 	// 확정 상태: source 의 최종 상태를 target 이 정확히 반영해야 함(유실0, seq-scan 적용).
@@ -98,7 +96,7 @@ func TestReshardPKlessTargetConcurrentLive(t *testing.T) {
 	wantNeg := countT(t, src, `SELECT count(*) FROM kv WHERE val = -1`)
 
 	converged := false
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		lag, err := SubscriptionLagBytes(ctx, sourceDSN, "sub_pkless")
 		if err == nil && lag >= 0 && lag <= 0 &&
 			countT(t, tgt, `SELECT count(*) FROM kv`) == wantCount &&

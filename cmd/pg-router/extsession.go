@@ -319,9 +319,9 @@ func bindStmtName(m pgMessage) string {
 		return ""
 	}
 	rest := m.Payload[i+1:]
-	j := bytes.IndexByte(rest, 0)
-	if j < 0 {
+	before, _, ok := bytes.Cut(rest, []byte{0})
+	if !ok {
 		return ""
 	}
-	return string(rest[:j])
+	return string(before)
 }

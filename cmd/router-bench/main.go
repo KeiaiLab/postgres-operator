@@ -153,16 +153,13 @@ func seed(shard0DSN, shard1DSN string, spec v1alpha1.ShardRangeSpec, keys int) [
 func run(dsns []string, keys []int, w int, dur time.Duration, mode string, prepared bool) (int64, float64) {
 	n := len(dsns)
 	perDB := make([]int, n) // dsn 별 워커 수(MaxOpenConns 설정용).
-	for i := 0; i < w; i++ {
+	for i := range w {
 		perDB[i%n]++
 	}
 	dbs := make([]*sql.DB, n)
 	for i, dsn := range dsns {
 		db := mustOpen(dsn)
-		c := perDB[i]
-		if c < 1 {
-			c = 1
-		}
+		c := max(perDB[i], 1)
 		db.SetMaxOpenConns(c)
 		db.SetMaxIdleConns(c)
 		dbs[i] = db
@@ -177,7 +174,7 @@ func run(dsns []string, keys []int, w int, dur time.Duration, mode string, prepa
 	var ops, totalNs int64
 	deadline := time.Now().Add(dur)
 	var wg sync.WaitGroup
-	for i := 0; i < w; i++ {
+	for i := range w {
 		wg.Add(1)
 		go func(idx int, seed int64) {
 			defer wg.Done()
@@ -283,7 +280,7 @@ func csvEnv(k string, def []string) []string {
 		return def
 	}
 	var out []string
-	for _, p := range strings.Split(v, ",") {
+	for p := range strings.SplitSeq(v, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}
@@ -306,7 +303,7 @@ func envInts(k string, def []int) []int {
 		return def
 	}
 	var out []int
-	for _, p := range strings.Split(v, ",") {
+	for p := range strings.SplitSeq(v, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
 			out = append(out, n)
 		}

@@ -60,11 +60,11 @@ func (u unstructuredPodMetricsReader) PodCPUUsageMillis(ctx context.Context, nam
 	}
 	var total int64
 	for _, c := range containers {
-		cm, ok := c.(map[string]interface{})
+		cm, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
-		usage, ok := cm["usage"].(map[string]interface{})
+		usage, ok := cm["usage"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -139,10 +139,7 @@ func (o cpuAugmentingObserver) cpuPercentForPod(ctx context.Context, namespace, 
 	if reqMillis <= 0 {
 		return 0, false // request 미설정 → utilization % 정의 불가.
 	}
-	pct := usedMillis * 100 / reqMillis
-	if pct < 0 {
-		pct = 0
-	}
+	pct := max(usedMillis*100/reqMillis, 0)
 	return int32(pct), true
 }
 

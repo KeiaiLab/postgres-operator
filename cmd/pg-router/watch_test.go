@@ -18,8 +18,7 @@ import (
 )
 
 func TestWatchReloader_ForwardsEventsAndReconnects(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	fw1 := watch.NewFakeWithChanSize(4, false)
 	fw2 := watch.NewFakeWithChanSize(4, false)
@@ -83,8 +82,7 @@ func TestWatchReloader_CtxCancelExits(t *testing.T) {
 }
 
 func TestWatchReloader_ReconnectsOnConnectError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var connCount atomic.Int32
 	fw := watch.NewFakeWithChanSize(4, false)
@@ -114,7 +112,7 @@ func TestWatchReloader_ReconnectsOnConnectError(t *testing.T) {
 
 func TestCoalesce_AbsorbsBurst(t *testing.T) {
 	ch := make(chan struct{}, 10)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		ch <- struct{}{}
 	}
 	start := time.Now()

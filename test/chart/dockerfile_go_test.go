@@ -66,7 +66,7 @@ func goModToolchain(t *testing.T) string {
 		t.Fatalf("go.mod: %v", err)
 	}
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		m := toolchainLine.FindStringSubmatch(strings.TrimSpace(line))
 		if m != nil {
 			return m[1]
