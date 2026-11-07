@@ -410,6 +410,34 @@ func TestFailoverFencedWinnerLeftCut(t *testing.T) {
 	}
 }
 
+// TestFailoverCandidateNotMember 는 판정 후보가 샤드 멤버에 없으면 승격하지 않고 생존자를 끊긴 채 두는지 본다
+// (ADR-0036 F3 막힘 → 오류). 끊기 없이 후보를 승격하면 생존자가 옛 primary 에서 계속 받아 분기한다.
+func TestFailoverCandidateNotMember(t *testing.T) {
+	t.Parallel()
+	w := newFenceWorld(t, "fence-nomember", func(pods map[string]*corev1.Pod, _ map[string]*corev1.PersistentVolumeClaim) {
+		cand := pods["fence-nomember-shard-0-1"]
+		delete(cand.Labels, ShardIDLabelKey)
+		delete(cand.Labels, "postgres.keiailab.io/shard")
+	})
+
+	if err := w.promote(); err == nil {
+		t.Fatal("promoted a candidate that is not a shard member")
+	}
+	calls := w.exec.callLog()
+	if slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "promote ") }) {
+		t.Fatalf("calls = %v, want no promote exec", calls)
+	}
+	if indexOf(calls, "cut "+w.other) < 0 || indexOf(calls, "retarget "+w.other) >= 0 {
+		t.Errorf("calls = %v, want %s cut and not retargeted", calls, w.other)
+	}
+	if evs := w.events(); !hasEvent(evs, "Warning "+failoverWinnerUnavailable) {
+		t.Errorf("events = %v, want %s", evs, failoverWinnerUnavailable)
+	}
+	if got := w.publishedPrimary(t); got != podDNS(w.name, w.old) {
+		t.Errorf("published primary = %q, want unchanged %q", got, podDNS(w.name, w.old))
+	}
+}
+
 // TestFailoverFenceWithinPromotionBound 는 S3 최악(디바운스 + reconcile + 펜스 + 끊기 + 재기)이 J8 경계 안인지 본다.
 func TestFailoverFenceWithinPromotionBound(t *testing.T) {
 	t.Parallel()

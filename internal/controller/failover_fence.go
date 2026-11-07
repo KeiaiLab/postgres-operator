@@ -85,7 +85,7 @@ var fenceScriptResults = []fenceOutcome{fenceStopped, fenceKilled, fenceDown, fe
 
 // prepareFailover 는 F1–F3 이다 — 승격할 멤버와 끊긴 생존자를 돌려준다. 후보가 이미 primary 면(앞선 승격 뒤 발행
 // 실패) 후보가 승자이고 F3 를 건너뛴다. 후보가 아닌 생존자가 primary 면 오류다 — 둘째 primary 를 만들지 않는다.
-// 후보가 샤드 멤버에 없으면 판정 후보 그대로다. 승자를 못 정하면 끊기를 그대로 두고 오류다 — CM primary 는
+// 후보가 샤드 멤버에 없거나 승자를 못 정하면 끊기를 그대로 두고 오류다 — CM primary 는
 // 방금 멈춘 파드거나(Unreachable 이면) 아직 쓰기를 받는 옛 primary 라 되돌리면 S3 분기가 다시 생긴다. 디바운스 창은
 // 남아 다음 reconcile 이 곧바로 F1 부터 다시 한다.
 func (r *PostgresClusterReconciler) prepareFailover(
@@ -103,10 +103,6 @@ func (r *PostgresClusterReconciler) prepareFailover(
 	if err != nil {
 		return nil, nil, err
 	}
-	if !slices.ContainsFunc(members, func(p corev1.Pod) bool { return p.Name == candidate.Pod }) {
-		return candidate, nil, nil
-	}
-
 	// 옛 primary 가 standby 로 다시 떠 후보면 끊기·재기에 든다 — 빼면 뒤처진 standby 가 이긴다.
 	exclude := oldPrimary
 	if oldPrimary == candidate.Pod {
@@ -114,7 +110,12 @@ func (r *PostgresClusterReconciler) prepareFailover(
 	}
 	cut, primaries := r.cutSurvivors(ctx, cluster, shard, members, exclude)
 
-	winner, err := r.pickWinner(ctx, cluster, shard, cut, primaries, candidate, ref.service)
+	// 멤버가 아닌 후보는 끊지도 재지도 못했다 — 승격하면 끊긴 생존자보다 뒤처졌을 수 있다.
+	var winner *postgresv1alpha1.ShardEndpoint
+	err = fmt.Errorf("shard %s: candidate %s is not a shard member", shard, candidate.Pod)
+	if slices.ContainsFunc(members, func(p corev1.Pod) bool { return p.Name == candidate.Pod }) {
+		winner, err = r.pickWinner(ctx, cluster, shard, cut, primaries, candidate, ref.service)
+	}
 	if err != nil {
 		commonsevents.EmitWarningf(r.Recorder, cluster, failoverWinnerUnavailable,
 			"shard %s: %d survivors left cut, no promotion: %v", shard, len(cut), err)
