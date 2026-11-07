@@ -319,6 +319,7 @@ type recordingCommandRunner struct {
 	calls     []recordedCommand
 	err       error
 	errByName map[string]error
+	onRun     func(name string, args []string) error
 }
 
 type recordedCommand struct {
@@ -328,8 +329,109 @@ type recordedCommand struct {
 
 func (r *recordingCommandRunner) Run(_ context.Context, name string, args ...string) error {
 	r.calls = append(r.calls, recordedCommand{name: name, args: append([]string(nil), args...)})
+	if r.onRun != nil {
+		if err := r.onRun(name, args); err != nil {
+			return err
+		}
+	}
 	if err := r.errByName[name]; err != nil {
 		return err
 	}
 	return r.err
+}
+
+// basebackupTarget 은 pg_basebackup 인자의 -D 값이다.
+func basebackupTarget(args []string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-D" {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// writeTree 는 dir 아래에 이름 → 내용 파일을 만든다.
+func writeTree(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, body := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// 2026-11-07 V1 드릴: 복사 4초째 파드가 지워져(SIGKILL) PG_VERSION 없는 부분 복사본이
+// pgdata 자리에 남았다. 복사 중 어느 순간에 죽어도 dataDir 은 옛 완전한 PGDATA 여야 한다.
+func TestReplaceDataDirWithBasebackup_KilledMidCopyKeepsPGData(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "pgdata")
+	writeTree(t, dataDir, map[string]string{"PG_VERSION": "18", RestartPrimaryAsStandbyMarker: "1"})
+
+	// 복사 중의 파일 상태가 곧 SIGKILL 뒤 다음 파드가 보는 상태다.
+	var target string
+	var pgVersionAtKill bool
+	runner := &recordingCommandRunner{onRun: func(_ string, args []string) error {
+		target = basebackupTarget(args)
+		writeTree(t, target, map[string]string{"backup_label": "START TIMELINE: 5", "base/1/1": "x"})
+		_, err := os.Stat(filepath.Join(dataDir, "PG_VERSION"))
+		pgVersionAtKill = err == nil
+		return context.Canceled
+	}}
+
+	if err := replaceDataDirWithBasebackup(t.Context(), runner, "/postgres/bin", dataDir, "primary.svc:5432"); err == nil {
+		t.Fatal("err = nil, want interrupted basebackup error")
+	}
+	if !pgVersionAtKill {
+		t.Fatalf("dataDir lacked PG_VERSION while pg_basebackup -D %s was copying", target)
+	}
+	if target == dataDir {
+		t.Fatal("pg_basebackup must not write into dataDir itself")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "PG_VERSION")); err != nil {
+		t.Fatalf("dataDir PG_VERSION missing after failure: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "backup_label")); !os.IsNotExist(err) {
+		t.Fatalf("partial copy leaked into dataDir: %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("basebackup tmp %s should be removed after failure: %v", target, err)
+	}
+}
+
+func TestReplaceDataDirWithBasebackup_SwapsInCompleteCopy(t *testing.T) {
+	parent := t.TempDir()
+	dataDir := filepath.Join(parent, "pgdata")
+	writeTree(t, dataDir, map[string]string{"PG_VERSION": "18", "old": "1"})
+	// 지난 중단이 남긴 tmp 는 새 복사 전에 지운다.
+	writeTree(t, dataDir+".basebackup-tmp", map[string]string{"backup_label": "stale"})
+
+	runner := &recordingCommandRunner{onRun: func(_ string, args []string) error {
+		target := basebackupTarget(args)
+		if _, err := os.Stat(filepath.Join(target, "backup_label")); !os.IsNotExist(err) {
+			t.Errorf("stale tmp not cleared before basebackup: %v", err)
+		}
+		writeTree(t, target, map[string]string{"PG_VERSION": "18", "new": "1"})
+		return nil
+	}}
+
+	if err := replaceDataDirWithBasebackup(t.Context(), runner, "/postgres/bin", dataDir, "primary.svc:5432"); err != nil {
+		t.Fatalf("replaceDataDirWithBasebackup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "new")); err != nil {
+		t.Fatalf("dataDir is not the new copy: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "old")); !os.IsNotExist(err) {
+		t.Fatalf("old PGDATA content still in dataDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, RestartPrimaryAsStandbyMarker)); err != nil {
+		t.Fatalf("fallback marker missing: %v", err)
+	}
+	for _, leftover := range []string{dataDir + ".basebackup-tmp", dataDir + ".rewind-failed"} {
+		if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+			t.Fatalf("%s should be gone after success: %v", leftover, err)
+		}
+	}
 }

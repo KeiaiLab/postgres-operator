@@ -185,39 +185,58 @@ func PrepareRestartedPrimaryAsStandbyWithRewind(ctx context.Context, opts Rejoin
 	return true, nil
 }
 
+// Sibling directories of PGDATA used by the rewind fallback.
+const (
+	basebackupTmpSuffix = ".basebackup-tmp"
+	quarantineSuffix    = ".rewind-failed"
+)
+
 func replaceDataDirWithBasebackup(ctx context.Context, runner CommandRunner, binDir, dataDir, endpoint string) error {
 	if dataDir == "" || dataDir == string(filepath.Separator) {
 		return fmt.Errorf("refuse to replace unsafe dataDir %q", dataDir)
 	}
-	quarantine := dataDir + ".rewind-failed"
+
+	// Copy beside dataDir, never into it: a pod killed mid-copy must leave the old
+	// complete PGDATA (PG_VERSION) in place, not a partial tree bootstrap cannot reuse.
+	tmp := dataDir + basebackupTmpSuffix
+	if err := os.RemoveAll(tmp); err != nil {
+		return fmt.Errorf("remove stale basebackup tmp %s: %w", tmp, err)
+	}
+	swapped := false
+	defer func() {
+		if swapped {
+			return
+		}
+		if rmErr := os.RemoveAll(tmp); rmErr != nil {
+			slog.Warn("basebackup tmp cleanup failed", "path", tmp, "error", rmErr)
+		}
+	}()
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		return fmt.Errorf("create basebackup tmp %s: %w", tmp, err)
+	}
+	if err := runPgBasebackup(ctx, runner, binDir, tmp, endpoint); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(tmp, RestartPrimaryAsStandbyMarker), []byte("basebackup-fallback"), 0o600); err != nil {
+		return fmt.Errorf("write fallback marker: %w", err)
+	}
+
+	// Swap: dataDir → quarantine, tmp → dataDir. Each rename is atomic; between
+	// them dataDir is absent and bootstrap reseeds an empty PGDATA.
+	quarantine := dataDir + quarantineSuffix
 	if err := os.RemoveAll(quarantine); err != nil {
 		return fmt.Errorf("remove old quarantine %s: %w", quarantine, err)
 	}
 	if err := os.Rename(dataDir, quarantine); err != nil {
 		return fmt.Errorf("quarantine %s to %s: %w", dataDir, quarantine, err)
 	}
-	restored := false
-	defer func() {
-		if restored {
-			return
-		}
-		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
-			slog.Warn("quarantine rollback: RemoveAll failed", "path", dataDir, "error", rmErr)
-		}
+	if err := os.Rename(tmp, dataDir); err != nil {
 		if mvErr := os.Rename(quarantine, dataDir); mvErr != nil {
 			slog.Warn("quarantine rollback: Rename failed", "from", quarantine, "to", dataDir, "error", mvErr)
 		}
-	}()
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return fmt.Errorf("create fresh dataDir %s: %w", dataDir, err)
+		return fmt.Errorf("install basebackup %s to %s: %w", tmp, dataDir, err)
 	}
-	if err := runPgBasebackup(ctx, runner, binDir, dataDir, endpoint); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dataDir, RestartPrimaryAsStandbyMarker), []byte("basebackup-fallback"), 0o600); err != nil {
-		return fmt.Errorf("write fallback marker: %w", err)
-	}
-	restored = true
+	swapped = true
 	_ = os.RemoveAll(quarantine)
 	return nil
 }
