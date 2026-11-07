@@ -120,7 +120,7 @@ type PostgresUserStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Namespaced,shortName=pguser,categories=postgres;role;all
+// +kubebuilder:resource:scope=Namespaced,shortName=pguser,categories=postgres;all
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type=string,JSONPath=`.spec.cluster.name`
 // +kubebuilder:printcolumn:name="Role",type=string,JSONPath=`.spec.name`

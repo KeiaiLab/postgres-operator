@@ -10,7 +10,6 @@ spec:
   names:
     categories:
     - postgres
-    - role
     - all
     kind: PostgresUser
     listKind: PostgresUserList
