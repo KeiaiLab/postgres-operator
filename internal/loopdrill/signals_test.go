@@ -111,3 +111,28 @@ func TestReadyFromEvents(t *testing.T) {
 		t.Fatalf("J6 붉음: %s", c.Detail)
 	}
 }
+
+func TestFirstCountAt(t *testing.T) {
+	t0 := time.Date(2026, 11, 8, 2, 16, 0, 0, time.UTC)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	from := at(57)
+	cases := []struct {
+		name  string
+		marks []CountMark
+		want  time.Time
+	}{
+		// V1 5판 S10 — -rw 가 recover 전부터 1 로 서 있어 뒤 표본이 없다
+		{"앞에서 이미 1", []CountMark{{at(0), 1}}, from},
+		{"앞 0 뒤 1", []CountMark{{at(0), 1}, {at(52), 0}, {at(59), 1}}, at(59)},
+		{"앞 2 뒤 1", []CountMark{{at(0), 2}, {at(60), 1}}, at(60)},
+		{"꼭 from 에 1", []CountMark{{at(0), 0}, {from, 1}}, from},
+		{"끝까지 0", []CountMark{{at(0), 1}, {at(52), 0}}, time.Time{}},
+		{"표본 없음", nil, time.Time{}},
+		{"뒤에만 1", []CountMark{{at(70), 1}}, at(70)},
+	}
+	for _, c := range cases {
+		if got := FirstCountAt(c.marks, from, 1); !got.Equal(c.want) {
+			t.Fatalf("%s: FirstCountAt = %s(기대 %s)", c.name, got, c.want)
+		}
+	}
+}

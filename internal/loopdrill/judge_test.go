@@ -253,7 +253,7 @@ func TestExpectFor(t *testing.T) {
 		ScenarioS6b: {Promotion: PromotionFailover, PromotionsAllowed: 1, PromotionsRequired: 1, Budget: 2, Members: members, GaugeRequired: true,
 			GapBound: FailoverGapBound, LongGaps: 1, LossAllowed: 1, ConvergeWithin: ConvergeBound, DetachedData: true},
 		ScenarioS7: {Promotion: PromotionNone, BudgetExhaust: true, Budget: 2, Members: members, GaugeRequired: true,
-			GapBound: ReplicaGapBudget, ConvergeWithin: ConvergeBound},
+			GapBound: ReplicaGapBudget, ConvergeWithin: ExhaustConvergeBound},
 		ScenarioS8: {Promotion: PromotionSwitchover, PromotionsAllowed: 1, PromotionsRequired: 1, GenerationDelta: 1, Budget: 2, Members: members,
 			GaugeRequired: true, GapBound: WriteGapBudget, LongGaps: 1, ConvergeWithin: ConvergeBound + RolloutBound(members), RolloutBlock: true},
 		ScenarioS9: {Promotion: PromotionFailover, PromotionsAllowed: 1, Budget: 2, Members: members, GaugeRequired: true,
@@ -324,6 +324,10 @@ func TestWindowsCoverSpec(t *testing.T) {
 	// 설계 §3.12 — 창 = 수렴 상한 + 관측 reseedCooldown, S5 정지 > force delete 문턱 + Stale 판정
 	if ConvergeBound != StaleBound+SnapshotReadyBound+CooldownBound {
 		t.Fatalf("ConvergeBound %s", ConvergeBound)
+	}
+	// S7 — 예산 밖 재구축은 창 안 가장 오랜 해제가 rebuildBudgetWindow 를 넘길 때까지 막힌다
+	if ExhaustConvergeBound != RebuildBudgetWindow+ConvergeBound {
+		t.Fatalf("ExhaustConvergeBound %s", ExhaustConvergeBound)
 	}
 	if StallStopDuration <= StuckTerminatingBound+StaleBound {
 		t.Fatalf("StallStopDuration %s ≤ 설계 하한", StallStopDuration)

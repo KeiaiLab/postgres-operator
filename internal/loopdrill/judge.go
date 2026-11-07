@@ -267,6 +267,7 @@ func ExpectFor(scn Scenario, mode Mode, replicas int) Expect {
 		exp.PromotionsRequired = 1 // 승격 0 은 유발이 무효다(ADR-0036 §B)
 	case ScenarioS7:
 		exp.BudgetExhaust = true
+		exp.ConvergeWithin = ExhaustConvergeBound
 	case ScenarioS8:
 		exp.RolloutBlock = true
 	case ScenarioS9:

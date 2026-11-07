@@ -38,6 +38,8 @@ func TestLoopDrillBudgetsCoverOperator(t *testing.T) {
 		{"CooldownBound", loopdrill.CooldownBound, reseedCooldown, "reseedCooldown"},
 		{"StuckTerminatingBound", loopdrill.StuckTerminatingBound, stuckTerminatingForceDeleteThreshold, "stuckTerminatingForceDeleteThreshold"},
 		{"ConvergeBound", loopdrill.ConvergeBound, 2*staleStandbyReseedTimeout + reseedCooldown, "Stale 판정 + snapshotReadyTimeout + reseedCooldown"},
+		{"RebuildBudgetWindow", loopdrill.RebuildBudgetWindow, rebuildBudgetWindow, "rebuildBudgetWindow"},
+		{"ExhaustConvergeBound", loopdrill.ExhaustConvergeBound, rebuildBudgetWindow + 2*staleStandbyReseedTimeout + reseedCooldown, "S7 예산 창 대기 + 수렴 상한"},
 		{"LoopObservationWindow", loopdrill.LoopObservationWindow, reseedCooldown, "관측창 = reseedCooldown"},
 		{"StallStopDuration", loopdrill.StallStopDuration, stuckTerminatingForceDeleteThreshold + staleStandbyReseedTimeout, "설계 S5 하한"},
 		{"StallStopDuration", loopdrill.StallStopDuration, statusStaleThresh + reseedCooldown, "기점 정지 = 끊김 판정 + 두 번째 재시드"},

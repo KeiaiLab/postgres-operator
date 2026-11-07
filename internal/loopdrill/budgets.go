@@ -88,6 +88,11 @@ const (
 	// LoopObservationWindow 는 수렴 뒤 추가 승격·정지를 보는 창 = reseedCooldown(루프 주기 ≈3분의 3배 이상).
 	LoopObservationWindow = CooldownBound
 
+	// ExhaustConvergeBound 는 S7 수렴 상한 = rebuildBudgetWindow + ConvergeBound.
+	// 예산 밖 재구축은 창 안 가장 오랜 해제가 rebuildBudgetWindow 를 넘길 때까지 BudgetExhausted 로 막힌다
+	// (member_rebuild.go released). 앞 시나리오·앞 판의 해제가 창에 남아 대기는 풀림 시각과 무관하다.
+	ExhaustConvergeBound = RebuildBudgetWindow + ConvergeBound
+
 	// StallStopDuration 은 S5 가 워커를 세워 두는 시간.
 	// 기점 정지는 두 번째 재시드에서 온다: 끊김 판정(statusStaleThresh) 뒤 첫 재시드가 파드를 지우고,
 	// reseedCooldown 뒤 둘째가 Terminating ≥ stuckTerminatingForceDeleteThreshold 인 파드의 노드를 읽는다.
