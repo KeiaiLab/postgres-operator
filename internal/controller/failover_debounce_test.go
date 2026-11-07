@@ -138,11 +138,13 @@ const promotionTestHistory = "1\t0/3000160\tno recovery target specified\n"
 // wideEventBuffer 는 승격이 되풀이될 수 있는 시나리오의 FakeRecorder 채널 크기다 — 넘치면 Eventf 가 막힌다.
 const wideEventBuffer = 64
 
-// promotingExecutor 는 승격 exec 에 promoted, history 에 분기점, pg_is_in_recovery 에 f 로 답한다.
+// promotingExecutor 는 승격 exec 에 promoted, history 에 분기점, pg_is_in_recovery 에 f(끊기 exec 도 primary)로 답한다.
 func promotingExecutor(log *writeLog) *funcExecutor {
 	return &funcExecutor{log: log, respond: func(_ BackupSidecarTarget, command []string) ([]byte, error) {
 		joined := strings.Join(command, " ")
 		switch {
+		case strings.Contains(joined, cutResultPrefix):
+			return []byte(cutResultPrefix + cutResultPrim + "\n"), nil
 		case strings.Contains(joined, "pg_promote"):
 			return []byte("PROMOTE_RESULT=promoted\n"), nil
 		case strings.Contains(joined, "pg_read_file"):
