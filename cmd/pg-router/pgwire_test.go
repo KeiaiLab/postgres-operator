@@ -40,7 +40,7 @@ func TestQuerySQL_NonQuery(t *testing.T) {
 
 // TestParseSQL 은 'P'(Parse, extended) 메시지에서 쿼리 텍스트를 뽑음을 검증.
 func TestParseSQL(t *testing.T) {
-	var payload []byte
+	payload := make([]byte, 0, 64)
 	payload = append(payload, cstring("")...)                             // 무명 statement
 	payload = append(payload, cstring("SELECT v FROM t WHERE id='x'")...) // 쿼리
 	payload = append(payload, 0, 0)                                       // Int16 param 수 = 0
@@ -55,7 +55,7 @@ func TestParseSQL(t *testing.T) {
 
 // TestBindParams 는 'B'(Bind) 메시지에서 파라미터 값 추출(NULL 포함)을 검증.
 func TestBindParams(t *testing.T) {
-	var p []byte
+	p := make([]byte, 0, 64)
 	p = append(p, cstring("")...) // portal
 	p = append(p, cstring("")...) // statement
 	p = append(p, 0, 0)           // numFormatCodes = 0

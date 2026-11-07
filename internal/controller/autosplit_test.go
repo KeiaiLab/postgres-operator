@@ -70,7 +70,7 @@ func TestAutoSplitTriggerBreached(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, _, _, _, _ := autoSplitTriggerBreached(tc.triggers, tc.obs)
+			got, _, _ := autoSplitTriggerBreached(tc.triggers, tc.obs)
 			if got != tc.want {
 				t.Fatalf("breached = %v, want %v", got, tc.want)
 			}
@@ -151,7 +151,7 @@ func TestComputeHashSplitTargets(t *testing.T) {
 }
 
 func TestSanitizeNameAndJobName(t *testing.T) {
-	if got := sanitizeName("Shard_0"); got != "shard-0" {
+	if got := sanitizeName("Shard_0"); got != shard0 {
 		t.Fatalf("sanitizeName = %q, want shard-0", got)
 	}
 	name := autoSplitJobName("myks", "shard-0", "0x00000000", "0xffffffff")
@@ -202,7 +202,7 @@ func TestStatusShardObserver(t *testing.T) {
 	if len(obs) != 2 {
 		t.Fatalf("expected 2 observations, got %d", len(obs))
 	}
-	if obs[0].ShardID != "shard-0" || obs[0].SizeBytes != 42 {
+	if obs[0].ShardID != shard0 || obs[0].SizeBytes != 42 {
 		t.Fatalf("obs[0] = %+v", obs[0])
 	}
 	if obs[0].CPUPercent != 0 || obs[0].P99LatencyMs != 0 {
@@ -245,7 +245,7 @@ func autoSplitShardRange(cluster, ns, keyspace, shard string) *postgresv1alpha1.
 
 func TestReconcileAutoSplit_CreatesApprovalGatedJob(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := autoSplitCluster("demo", ns, true)
 	sr := autoSplitShardRange("demo", ns, "myks", "shard-0")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, sr).Build()
@@ -274,25 +274,25 @@ func TestReconcileAutoSplit_CreatesApprovalGatedJob(t *testing.T) {
 		t.Fatalf("expected 1 ShardSplitJob, got %d", len(jobs.Items))
 	}
 	job := jobs.Items[0]
-	if job.Annotations[AnnotationAutoSplit] != "true" {
+	if job.Annotations[AnnotationAutoSplit] != labelTrue {
 		t.Fatalf("job missing autosplit annotation")
 	}
-	if job.Annotations[AnnotationAutoSplitApproval] != "required" {
+	if job.Annotations[AnnotationAutoSplitApproval] != autoSplitApprovalRequired {
 		t.Fatalf("approval = %q, want required", job.Annotations[AnnotationAutoSplitApproval])
 	}
 	if !autoSplitHoldForApproval(&job) {
 		t.Fatalf("generated job should hold for approval")
 	}
-	if job.Spec.Cluster != "demo" || job.Spec.Keyspace != "myks" {
+	if job.Spec.Cluster != demoCluster || job.Spec.Keyspace != "myks" {
 		t.Fatalf("job spec target wrong: %+v", job.Spec)
 	}
-	if len(job.Spec.Sources) != 1 || job.Spec.Sources[0] != "shard-0" {
+	if len(job.Spec.Sources) != 1 || job.Spec.Sources[0] != shard0 {
 		t.Fatalf("job sources = %v", job.Spec.Sources)
 	}
 	if len(job.Spec.Targets) != 2 {
 		t.Fatalf("job targets = %d, want 2", len(job.Spec.Targets))
 	}
-	if len(job.OwnerReferences) != 1 || job.OwnerReferences[0].Name != "demo" {
+	if len(job.OwnerReferences) != 1 || job.OwnerReferences[0].Name != demoCluster {
 		t.Fatalf("job owner ref = %v", job.OwnerReferences)
 	}
 
@@ -310,7 +310,7 @@ func TestReconcileAutoSplit_CreatesApprovalGatedJob(t *testing.T) {
 
 func TestReconcileAutoSplit_NoCandidateBelowThreshold(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := autoSplitCluster("demo", ns, false)
 	sr := autoSplitShardRange("demo", ns, "myks", "shard-0")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, sr).Build()
@@ -336,7 +336,7 @@ func TestReconcileAutoSplit_NoCandidateBelowThreshold(t *testing.T) {
 
 func TestReconcileAutoSplit_UnsourcedMetricsReason(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := autoSplitCluster("demo", ns, false)
 	// p99 latency 트리거를 추가 — 라우터 지연 메트릭 미결선이라 breach 불가.
 	// (cpu 는 이제 cpuAugmentingObserver 로 결선되어 unsourced 아님.)
@@ -386,11 +386,11 @@ func TestPVCUtilizationBreached(t *testing.T) {
 func TestAutoSplitTriggerBreached_PVC(t *testing.T) {
 	trig := &postgresv1alpha1.AutoSplitTriggers{PVCUtilizationPercent: 80}
 	// 85% → breach
-	if b, _, _, _, enPVC := autoSplitTriggerBreached(trig, ShardObservation{SizeBytes: 85, PVCCapacityBytes: 100}); !b || !enPVC {
+	if b, _, enPVC := autoSplitTriggerBreached(trig, ShardObservation{SizeBytes: 85, PVCCapacityBytes: 100}); !b || !enPVC {
 		t.Fatalf("85%% 사용 시 breach=true enPVC=true 기대, got b=%v enPVC=%v", b, enPVC)
 	}
 	// 50% → no breach
-	if b, _, _, _, _ := autoSplitTriggerBreached(trig, ShardObservation{SizeBytes: 50, PVCCapacityBytes: 100}); b {
+	if b, _, _ := autoSplitTriggerBreached(trig, ShardObservation{SizeBytes: 50, PVCCapacityBytes: 100}); b {
 		t.Fatalf("50%% 사용 시 breach=false 기대")
 	}
 }

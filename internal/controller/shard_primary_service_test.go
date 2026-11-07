@@ -54,7 +54,7 @@ func TestBuildShardPrimaryService(t *testing.T) {
 
 func TestReconcileShardPrimaryServices_PublishAndFailoverUpdate(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := &postgresv1alpha1.PostgresCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns},
 	}
@@ -80,7 +80,7 @@ func TestReconcileShardPrimaryServices_PublishAndFailoverUpdate(t *testing.T) {
 	}
 
 	// 2) failover: 승격이 CM 을 pod-1 로 바꿈 → ExternalName 이 새 primary 로 갱신되어야 함.
-	authorities[0].primary = "demo-shard-0-1"
+	authorities[0].primary = bootReplica
 	authorities[0].endpoint = "demo-shard-0-1.hdl.default.svc.cluster.local:5432"
 	if err := r.reconcileShardPrimaryServices(context.Background(), cluster, authorities); err != nil {
 		t.Fatalf("reconcile (failover): %v", err)
@@ -95,7 +95,7 @@ func TestReconcileShardPrimaryServices_PublishAndFailoverUpdate(t *testing.T) {
 
 func TestReconcileShardPrimaryServices_SkipNotReadyOrNoPrimary(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := &postgresv1alpha1.PostgresCluster{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: ns}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
 	r := &PostgresClusterReconciler{Client: c, Scheme: scheme}
@@ -125,7 +125,7 @@ func TestObservedAuthorities(t *testing.T) {
 		{Name: "shard-2"},
 	}
 	got := observedAuthorities(shards)
-	if len(got) != 1 || got[0].shard != "shard-0" || got[0].writable() != "a" || got[0].endpoint != "a.hdl:5432" {
+	if len(got) != 1 || got[0].shard != shard0 || got[0].writable() != "a" || got[0].endpoint != "a.hdl:5432" {
 		t.Fatalf("observedAuthorities = %+v, want only shard-0 → a", got)
 	}
 }

@@ -43,7 +43,7 @@ func TestTopologyShard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Shard(%q): %v", key, err)
 		}
-		if shard != "shard-0" && shard != "shard-1" {
+		if shard != shard0 && shard != "shard-1" {
 			t.Fatalf("Shard(%q) = %q, unexpected", key, shard)
 		}
 	}

@@ -43,25 +43,25 @@ func run(dir, base string, stdout, stderr io.Writer) int {
 
 	// Unresolvable base or unreadable git fails closed.
 	if err := r.verify(base); err != nil {
-		fmt.Fprintf(stderr, "i26guard: base %q: %v\n", base, err)
+		_, _ = fmt.Fprintf(stderr, "i26guard: base %q: %v\n", base, err) // best-effort
 		return rcGit
 	}
 	commits, err := r.commits(base)
 	if err != nil {
-		fmt.Fprintf(stderr, "i26guard: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "i26guard: %v\n", err) // best-effort
 		return rcGit
 	}
 	adrs, err := r.adrs()
 	if err != nil {
-		fmt.Fprintf(stderr, "i26guard: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "i26guard: %v\n", err) // best-effort
 		return rcGit
 	}
 
 	vs := i26guard.Check(commits, adrs)
 	for _, v := range vs {
-		fmt.Fprintln(stdout, v)
+		_, _ = fmt.Fprintln(stdout, v) // best-effort
 	}
-	fmt.Fprintf(stdout, "checked %d commits, %d violations\n", len(commits), len(vs))
+	_, _ = fmt.Fprintf(stdout, "checked %d commits, %d violations\n", len(commits), len(vs)) // best-effort
 
 	if len(vs) > 0 {
 		return rcViolation

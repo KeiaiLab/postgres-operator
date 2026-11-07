@@ -101,7 +101,9 @@ func main() {
 // refresh loop for any dynamic source. The read resolver routes read-only queries
 // to replicas (env: PGROUTER_BACKEND_<SHARD>_REPLICA; status: Ready replica from
 // PostgresCluster.status, failover-aware). nil read resolver ⇒ reads use primary.
-func buildRouting(ctx context.Context) (router.TopologyProvider, router.BackendResolver, router.BackendResolver, error) {
+func buildRouting(
+	ctx context.Context,
+) (router.TopologyProvider, router.BackendResolver, router.BackendResolver, error) {
 	topoMode := strings.ToLower(env("PGROUTER_TOPOLOGY", "static"))
 	backendMode := strings.ToLower(env("PGROUTER_BACKEND", "env"))
 	ns := env("PGROUTER_NAMESPACE", "default")
@@ -125,7 +127,9 @@ func buildRouting(ctx context.Context) (router.TopologyProvider, router.BackendR
 		provider = router.StaticTopologyProvider{T: router.Topology{Cluster: cluster, Keyspace: keyspace, Spec: shardSpec()}}
 		setRouterReady(true) // static 토폴로지는 즉시 라우팅 가능.
 	case "crd":
-		crdProvider = &router.CRDTopologyProvider{Lister: clientLister{c: k8s}, Namespace: ns, Cluster: cluster, Keyspace: keyspace}
+		crdProvider = &router.CRDTopologyProvider{
+			Lister: clientLister{c: k8s}, Namespace: ns, Cluster: cluster, Keyspace: keyspace,
+		}
 		if _, err := crdProvider.Refresh(ctx); err != nil {
 			log.Printf("pg-router: initial topology refresh: %v (will retry)", err)
 		} else {
@@ -161,7 +165,8 @@ func buildRouting(ctx context.Context) (router.TopologyProvider, router.BackendR
 		resolve = statusRes.Resolve
 		readResolve = statusRes.ResolveRead // Ready replica, falls back to primary.
 	default:
-		return nil, nil, nil, fmt.Errorf("unknown PGROUTER_BACKEND %q (want env|template|primary-service|status)", backendMode)
+		return nil, nil, nil, fmt.Errorf(
+			"unknown PGROUTER_BACKEND %q (want env|template|primary-service|status)", backendMode)
 	}
 
 	if crdProvider != nil || statusRes != nil {
@@ -196,7 +201,14 @@ func newK8sClient() (client.WithWatch, error) {
 // PostgresCluster primary-endpoint status. Watch-driven refresh shortens the failover /
 // resharding hot-reload window vs. interval-only polling; the interval remains as a safety
 // net if watches drop.
-func refreshLoop(ctx context.Context, cp *router.CRDTopologyProvider, reader router.ClusterStatusReader, res *router.StatusBackendResolver, ns, cluster string, changeCh <-chan struct{}) {
+func refreshLoop(
+	ctx context.Context,
+	cp *router.CRDTopologyProvider,
+	reader router.ClusterStatusReader,
+	res *router.StatusBackendResolver,
+	ns, cluster string,
+	changeCh <-chan struct{},
+) {
 	t := time.NewTicker(envDuration("PGROUTER_REFRESH", 10*time.Second))
 	defer t.Stop()
 	debounce := envDuration("PGROUTER_WATCH_DEBOUNCE", 200*time.Millisecond)
@@ -251,7 +263,12 @@ func coalesce(ctx context.Context, changeCh <-chan struct{}, debounce time.Durat
 
 // updateStatus reads the cluster's per-shard status and updates the failover-aware
 // backend resolver with the current Ready primary endpoints.
-func updateStatus(ctx context.Context, reader router.ClusterStatusReader, res *router.StatusBackendResolver, ns, cluster string) error {
+func updateStatus(
+	ctx context.Context,
+	reader router.ClusterStatusReader,
+	res *router.StatusBackendResolver,
+	ns, cluster string,
+) error {
 	shards, err := reader.ClusterShardStatus(ctx, ns, cluster)
 	if err != nil {
 		return err
@@ -274,7 +291,9 @@ func (l clientLister) ListShardRanges(ctx context.Context, ns string) ([]v1alpha
 // clusterStatusReader reads PostgresCluster.status.shards via controller-runtime.
 type clusterStatusReader struct{ c client.Client }
 
-func (r clusterStatusReader) ClusterShardStatus(ctx context.Context, ns, cluster string) ([]v1alpha1.ShardStatus, error) {
+func (r clusterStatusReader) ClusterShardStatus(
+	ctx context.Context, ns, cluster string,
+) ([]v1alpha1.ShardStatus, error) {
 	var pc v1alpha1.PostgresCluster
 	if err := r.c.Get(ctx, client.ObjectKey{Namespace: ns, Name: cluster}, &pc); err != nil {
 		return nil, err
@@ -282,7 +301,12 @@ func (r clusterStatusReader) ClusterShardStatus(ctx context.Context, ns, cluster
 	return pc.Status.Shards, nil
 }
 
-func handleConn(clientConn net.Conn, provider router.TopologyProvider, resolve router.BackendResolver, dialer *backendDialer) {
+func handleConn(
+	clientConn net.Conn,
+	provider router.TopologyProvider,
+	resolve router.BackendResolver,
+	dialer *backendDialer,
+) {
 	defer func() { _ = clientConn.Close() }()
 
 	raw, params, err := readStartup(clientConn)

@@ -81,7 +81,8 @@ func TestBackendForUsesEnvMapping(t *testing.T) {
 // TestTemplateResolver 는 DNS 템플릿 resolver 가 {cluster}/{shard}/{namespace}
 // 를 치환해 per-shard env 없이 backend 를 만든다.
 func TestTemplateResolver(t *testing.T) {
-	t.Setenv("PGROUTER_BACKEND_TEMPLATE", "{cluster}-{shard}-0.{cluster}-{shard}-headless.{namespace}.svc.cluster.local:5432")
+	t.Setenv("PGROUTER_BACKEND_TEMPLATE",
+		"{cluster}-{shard}-0.{cluster}-{shard}-headless.{namespace}.svc.cluster.local:5432")
 	t.Setenv("PGROUTER_CLUSTER", "demo")
 	t.Setenv("PGROUTER_NAMESPACE", "prod")
 	got, err := templateResolver()("shard-1")

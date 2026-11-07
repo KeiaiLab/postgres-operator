@@ -69,7 +69,7 @@ func TestBuildCertificateCommonsShapePreserved(t *testing.T) {
 		t.Fatalf("spec.secretName = %q, want demo-tls", secretName)
 	}
 	commonName, _, _ := unstructured.NestedString(cert.Object, "spec", "commonName")
-	if commonName != "demo" {
+	if commonName != demoCluster {
 		t.Fatalf("spec.commonName = %q, want demo", commonName)
 	}
 	dnsNames, _, _ := unstructured.NestedSlice(cert.Object, "spec", "dnsNames")

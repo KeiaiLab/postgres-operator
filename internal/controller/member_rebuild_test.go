@@ -140,7 +140,7 @@ func newRebuildWorld(t *testing.T, name string, extra ...client.Object) *rebuild
 	t.Helper()
 	cluster, cm := runtimeCluster(name)
 	cluster.Spec.Shards.Replicas = rebuildTestReplicas
-	withCanon(cluster, rebuildTestShard, shardCanon{Epoch: 1, Initialized: true, PromotionLSN: rebuildTestFork})
+	withCanon(cluster, shardCanon{Epoch: 1, Initialized: true, PromotionLSN: rebuildTestFork})
 	log := &writeLog{}
 	exec := &rebuildExecutor{log: log, ends: map[string]string{}, recovery: map[string]string{}, applied: map[string]string{}}
 	graph := replicationGraph{root: podDNS(name, graphMember(name, 0)), known: true, linked: map[string]bool{}, upstream: map[string]string{}}
@@ -649,7 +649,7 @@ func TestRebuildDataBearing(t *testing.T) {
 			w := newRebuildWorld(t, "bearing-"+strconv.Itoa(i))
 			if tc.fork != rebuildTestFork {
 				cluster := w.cluster(t)
-				withCanon(cluster, rebuildTestShard, shardCanon{Epoch: 1, Initialized: true, PromotionLSN: tc.fork})
+				withCanon(cluster, shardCanon{Epoch: 1, Initialized: true, PromotionLSN: tc.fork})
 				if err := w.c.Update(context.Background(), cluster); err != nil {
 					t.Fatalf("update canon: %v", err)
 				}

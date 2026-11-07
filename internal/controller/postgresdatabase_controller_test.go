@@ -55,7 +55,7 @@ func TestPostgresDatabaseReconcileCreatesDatabaseOnReadyPrimary(t *testing.T) {
 		t.Fatalf("executor calls = %d, want 1", len(executor.calls))
 	}
 	call := executor.calls[0]
-	if call.target.Namespace != "default" || call.target.Pod != "demo-db-shard-0-0" || call.target.Container != pgContainerName {
+	if call.target.Namespace != metav1.NamespaceDefault || call.target.Pod != "demo-db-shard-0-0" || call.target.Container != pgContainerName {
 		t.Fatalf("target = %+v, want ready primary postgres container", call.target)
 	}
 	command := strings.Join(call.command, " ")

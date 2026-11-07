@@ -18,8 +18,8 @@ import (
 
 func TestScatterQuery_NoShardsSendsReadyForQuery(t *testing.T) {
 	client, routerSide := net.Pipe()
-	defer client.Close()
-	defer routerSide.Close()
+	defer func() { _ = client.Close() }()     // teardown
+	defer func() { _ = routerSide.Close() }() // teardown
 
 	qr := queryRouter{
 		provider: router.StaticTopologyProvider{T: router.Topology{}},
@@ -90,7 +90,7 @@ func TestMergeScatterRows_GlobalOrderBy(t *testing.T) {
 		{Type: 'D', Payload: encodeDataRow([]any{"bob"})},
 	}
 	got := mergeScatterRows("SELECT tenant_id FROM t ORDER BY tenant_id", rd, partials)
-	var out []string
+	out := make([]string, 0, len(got))
 	for _, m := range got {
 		vals, _ := decodeDataRow(m.Payload)
 		out = append(out, fmt.Sprintf("%v", vals[0]))

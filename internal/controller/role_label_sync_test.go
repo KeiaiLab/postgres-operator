@@ -184,7 +184,7 @@ func TestReconcilePrimaryRoleLabels_SyncedFalseWhenPrimaryPatchFails(t *testing.
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(primaryPod).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Patch: func(ctx context.Context, cli client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-				if obj.GetName() == "demo-shard-0-1" {
+				if obj.GetName() == bootReplica {
 					return injectedErr
 				}
 				return cli.Patch(ctx, obj, patch, opts...)
@@ -293,7 +293,7 @@ func drainEvents(rec *events.FakeRecorder) []string {
 func TestPrimaryLabelsFollowRuntime(t *testing.T) {
 	t.Parallel()
 	const name = "authority"
-	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 1, Initialized: true})
 	first, second := shardMember(name, 0, statusapi.RolePrimary), shardMember(name, 1, statusapi.RolePrimary)
 	cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
@@ -351,7 +351,7 @@ func TestPrimaryLabelsFollowRuntime(t *testing.T) {
 func TestPrimaryLabelsFailClosed(t *testing.T) {
 	t.Parallel()
 	const name = "failclosed"
-	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 1, Initialized: true})
 	demoted := shardMember(name, 0, statusapi.RoleReplica)
 	demoted.Labels[InstanceRoleLabelKey] = InstanceRoleLabelPrimary

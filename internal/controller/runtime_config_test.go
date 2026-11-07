@@ -70,9 +70,9 @@ func haCluster(name string, mode postgresv1alpha1.ShardingMode) *postgresv1alpha
 	}
 }
 
-// withCanon 은 CR 정본 애노테이션을 단다.
-func withCanon(cluster *postgresv1alpha1.PostgresCluster, shard string, canon shardCanon) *postgresv1alpha1.PostgresCluster {
-	raw, _ := json.Marshal(runtimeState{Version: runtimeStateVersion, Shards: map[string]shardCanon{shard: canon}})
+// withCanon 은 샤드 0 의 CR 정본 애노테이션을 단다.
+func withCanon(cluster *postgresv1alpha1.PostgresCluster, canon shardCanon) *postgresv1alpha1.PostgresCluster {
+	raw, _ := json.Marshal(runtimeState{Version: runtimeStateVersion, Shards: map[string]shardCanon{shard0: canon}})
 	if cluster.Annotations == nil {
 		cluster.Annotations = map[string]string{}
 	}
@@ -498,7 +498,7 @@ func TestPromoteAndPublishOrder(t *testing.T) {
 			t.Parallel()
 			name := "pub-" + tc.name
 			target := ShardStatefulSetName(name, 0) + "-1"
-			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 				shardCanon{Epoch: 2, Initialized: true})
 			cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
 				PrimaryEndpoint: podDNS(name, ShardStatefulSetName(name, 0)+"-0"), PromotionEpoch: 2, ClusterInitialized: true,
@@ -683,7 +683,7 @@ func TestRuntimeWithheldWithoutSinglePrimary(t *testing.T) {
 func TestRuntimeRecreatedFromCanon(t *testing.T) {
 	t.Parallel()
 	const name = "recreate"
-	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 3, Initialized: true, PromotionLSN: "0/5000060"})
 	primary := shardMember(name, 1, statusapi.RolePrimary)
 	log := &writeLog{}
@@ -725,7 +725,7 @@ func TestRuntimeRecreatedFromCanon(t *testing.T) {
 func TestStalePrimaryLeavesRuntime(t *testing.T) {
 	t.Parallel()
 	const name = "stale"
-	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 1, Initialized: true})
 	primary0 := ShardStatefulSetName(name, 0) + "-0"
 	cm := buildRuntimeConfigMap(cluster, "shard-0", shardRuntime{
@@ -771,7 +771,7 @@ func TestAdoptPrimary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			name := "adopt-" + strings.ReplaceAll(tc.name, " ", "-")
-			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+			cluster := withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 				shardCanon{Epoch: epoch, Initialized: true})
 			old := shardMember(name, 0, statusapi.RoleReplica)
 			promoted := shardMember(name, 1, statusapi.RolePrimary)

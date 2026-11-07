@@ -142,7 +142,8 @@ func main() {
 	if col == "" {
 		col = "id"
 	}
-	spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
+	spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col,
+		os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
 
 	// 옮길 테이블 결정: COPY_TABLE 지정 시 그 하나, 아니면 source 의 모든 user 테이블에서
 	// reference 테이블(PGROUTER_REFERENCE_TABLES, 전 샤드 복제라 이동 대상 아님)을 뺀 전부.
@@ -169,12 +170,14 @@ func main() {
 			}
 			fmt.Printf("reshard-copy-poc: deleted %d row(s) of %q (%s keys) from source\n", deleted, tbl, targetShard)
 		}
-		fmt.Printf("reshard-copy-poc: cleanup complete — %s rows reclaimed from source across %d table(s)\n", targetShard, len(tables))
+		fmt.Printf("reshard-copy-poc: cleanup complete — %s rows reclaimed from source across %d table(s)\n",
+			targetShard, len(tables))
 		return
 	}
 
 	for _, tbl := range tables {
-		fmt.Printf("reshard-copy-poc: InitialCopy (range) table=%q vindex=%s target=%s source→target\n", tbl, col, targetShard)
+		fmt.Printf("reshard-copy-poc: InitialCopy (range) table=%q vindex=%s target=%s source→target\n",
+			tbl, col, targetShard)
 		copied, scanned, err := router.CopyShardRange(ctx, src, tgt, tbl, spec, targetShard)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "reshard-copy-poc: %v (copied %d/%d before error)\n", err, copied, scanned)
@@ -241,7 +244,8 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 		if col == "" {
 			col = "id"
 		}
-		spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col, os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
+		spec := reshardSpec(os.Getenv("PGROUTER_VINDEX_TYPE"), col,
+			os.Getenv("PGROUTER_VINDEX_FUNCTION"), os.Getenv("PGROUTER_RANGES"))
 		tables := cdcTables(ctx, src)
 		fmt.Printf("reshard-copy-poc: cdc-finalize target=%s (write-block 하 최종 drain)\n", targetShard)
 		waitLag(ctx, src, sub, 0) // write-block 하 → 새 쓰기 없음 → lag→0 수렴.
@@ -273,7 +277,8 @@ func runCDC(ctx context.Context, mode, src, tgt, targetShard string) {
 		// 2) publication drop 은 best-effort — source 불통이면 어차피 불가하고, orphan
 		//    slot 은 source 복구 후 정리한다(target 정리 우선).
 		if err := router.DropPublication(ctx, src, pub); err != nil {
-			fmt.Printf("reshard-copy-poc: cdc-abort publication drop best-effort 실패(%v) — source 불통 가정, orphan slot 는 source 복구 후 정리\n", err)
+			fmt.Printf("reshard-copy-poc: cdc-abort publication drop best-effort 실패(%v) — "+
+				"source 불통 가정, orphan slot 는 source 복구 후 정리\n", err)
 		}
 		fmt.Printf("reshard-copy-poc: cdc-abort 완료 — subscription %s 정리(fallback 포함)\n", sub)
 	}

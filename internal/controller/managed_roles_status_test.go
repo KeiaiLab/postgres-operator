@@ -40,7 +40,7 @@ func TestManagedRolesStatusForUsersBucketsAndPasswordState(t *testing.T) {
 
 	otherCluster := newManagedRoleUser("ignored-other-cluster", "other")
 	otherNamespace := newManagedRoleUser("ignored-other-namespace", "demo")
-	otherNamespace.Namespace = "other"
+	otherNamespace.Namespace = otherNamespaceName
 
 	status := managedRolesStatusForUsers(cluster, []postgresv1alpha1.PostgresUser{
 		*stale,

@@ -66,7 +66,7 @@ func clusterWithPrimary(name, ns, shard, pod string) *postgresv1alpha1.PostgresC
 
 func TestCPUAugmentingObserver(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	cluster := clusterWithPrimary("demo", ns, "shard-0", "demo-shard-0-0")
 
 	tests := []struct {

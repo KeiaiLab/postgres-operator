@@ -119,7 +119,7 @@ func TestRejudgeUnknownField(t *testing.T) {
 
 func TestOutcome(t *testing.T) {
 	green := Verdict{Scenario: ScenarioS0, Checks: []Check{{ID: CheckTemplate, Pass: true}}}
-	var all []Verdict
+	all := make([]Verdict, 0, len(GreenScenarios()))
 	for _, scn := range GreenScenarios() {
 		v := green
 		v.Scenario = scn

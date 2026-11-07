@@ -20,7 +20,7 @@ import (
 // 검증한다 — envtest 매니저 경합 없이 sourceObservationExcluded 로직만 격리.
 func TestSourceObservationExcluded(t *testing.T) {
 	scheme := newScheme(t)
-	ns := "default"
+	ns := metav1.NamespaceDefault
 	ssj := &postgresv1alpha1.ShardSplitJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "ssj", Namespace: ns},
 		Spec: postgresv1alpha1.ShardSplitJobSpec{

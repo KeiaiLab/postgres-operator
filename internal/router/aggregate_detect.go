@@ -121,14 +121,6 @@ func segmentAggregate(seg []token) (fn AggregateFunc, pure bool) {
 	if len(seg) == 0 {
 		return AggNone, false
 	}
-	// SELECT * / t.* 같은 star 는 집계 위치 매핑 불가.
-	for _, t := range seg {
-		if t.kind == tokSym && t.text == "*" {
-			// count(*) 의 '*' 는 괄호 안 — 아래 집계 분기에서 소비된다. 여기서는 top-level
-			// '*'(예: SELECT *)만 문제. 괄호 depth 로 구분.
-		}
-	}
-
 	first := seg[0]
 	af, isAgg := aggregateFuncName(first)
 	if isAgg && len(seg) >= 2 && seg[1].kind == tokSym && seg[1].text == "(" {

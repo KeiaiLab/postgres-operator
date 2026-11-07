@@ -166,7 +166,7 @@ func rolloutPod(t *testing.T, name string, ordinal int, role statusapi.Role, rev
 func newRolloutWorld(t *testing.T, name string, primary int, mutate ...func(*postgresv1alpha1.PostgresCluster)) *rolloutWorld {
 	t.Helper()
 	primaryPod := graphMember(name, primary)
-	cluster := withRecordedPrimary(withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone), "shard-0",
+	cluster := withRecordedPrimary(withCanon(haCluster(name, postgresv1alpha1.ShardingModeNone),
 		shardCanon{Epoch: 1, Initialized: true}), primaryPod)
 	cluster.Spec.Shards.Replicas = rolloutMembers - 1
 	cluster.Status.Phase = postgresv1alpha1.ClusterPhaseReady
@@ -609,7 +609,7 @@ func rolloutSequence(t *testing.T, name string, primary int, order [2]int, winne
 	w.reconcile(t)
 	w.assertDeleted(t, order[0], order[1])
 	state := w.mustState(t)
-	if state.Reason != switchoverRollout || state.Phase != switchoverPreparing || state.Shard != "shard-0" || state.Target != "" {
+	if state.Reason != switchoverRollout || state.Phase != switchoverPreparing || state.Shard != shard0 || state.Target != "" {
 		t.Fatalf("switchover state = %+v, want Preparing(Rollout) of shard-0 with no target", state)
 	}
 

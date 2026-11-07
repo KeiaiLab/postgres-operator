@@ -42,7 +42,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 
 	It("각 target 의 복사 Job 을 올바른 env 로 생성하고 완료를 집계한다", func() {
 		clusterName := fmt.Sprintf("rsdcopy-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 
 		// vindex 출처가 되는 ShardRange.
 		sr := &postgresv1alpha1.ShardRange{
@@ -122,7 +122,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 
 	It("복사 Job 이 실패하면 failure 를 보고한다", func() {
 		clusterName := fmt.Sprintf("rsdfail-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{
@@ -166,7 +166,7 @@ var _ = Describe("ShardSplitJob InitialCopy 복사 Job 결선", func() {
 
 	It("Cleanup 이 각 target 의 삭제(delete-only) Job 을 source 대상으로 생성한다", func() {
 		clusterName := fmt.Sprintf("rsdclean-%d", GinkgoRandomSeed())
-		keyspace := "default"
+		keyspace := metav1.NamespaceDefault
 		sr := &postgresv1alpha1.ShardRange{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-sr", Namespace: ns},
 			Spec: postgresv1alpha1.ShardRangeSpec{

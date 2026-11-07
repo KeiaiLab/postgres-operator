@@ -56,8 +56,8 @@ func TestQueryRouter_routeKey(t *testing.T) {
 
 func TestSession_KeylessWriteDoesNotScatter(t *testing.T) {
 	client, routerSide := net.Pipe()
-	defer client.Close()
-	defer routerSide.Close()
+	defer func() { _ = client.Close() }()     // teardown
+	defer func() { _ = routerSide.Close() }() // teardown
 
 	s := &session{client: routerSide, qr: testQR()}
 	done := make(chan bool, 1)

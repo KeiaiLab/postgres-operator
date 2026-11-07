@@ -55,20 +55,23 @@ func benchSpec() v1alpha1.ShardRangeSpec {
 func main() {
 	var (
 		routerDSN = env("BENCH_ROUTER", "host=pgrouter port=5432 user=postgres dbname=postgres sslmode=disable")
-		shard0DSN = env("BENCH_SHARD0", "host=pg-shard-0 port=5432 user=postgres password=secret dbname=postgres sslmode=disable")
-		shard1DSN = env("BENCH_SHARD1", "host=pg-shard-1 port=5432 user=postgres password=secret dbname=postgres sslmode=disable")
-		keys      = envInt("BENCH_KEYS", 10000)
-		dur       = envDur("BENCH_DURATION", 5*time.Second)
-		workers   = envInts("BENCH_WORKERS", []int{1, 2, 4, 8, 16, 32})
-		mode      = env("BENCH_MODE", "select")
-		prepared  = env("BENCH_PREPARED", "") != ""
+		shard0DSN = env("BENCH_SHARD0",
+			"host=pg-shard-0 port=5432 user=postgres password=secret dbname=postgres sslmode=disable")
+		shard1DSN = env("BENCH_SHARD1",
+			"host=pg-shard-1 port=5432 user=postgres password=secret dbname=postgres sslmode=disable")
+		keys     = envInt("BENCH_KEYS", 10000)
+		dur      = envDur("BENCH_DURATION", 5*time.Second)
+		workers  = envInts("BENCH_WORKERS", []int{1, 2, 4, 8, 16, 32})
+		mode     = env("BENCH_MODE", "select")
+		prepared = env("BENCH_PREPARED", "") != ""
 		// BENCH_ROUTERS: 여러 라우터 인스턴스 DSN(csv) — 멀티 라우터 수평확장 측정용.
 		routerDSNs = csvEnv("BENCH_ROUTERS", nil)
 	)
 
 	spec := benchSpec()
 	keysOnShard0 := seed(shard0DSN, shard1DSN, spec, keys)
-	log.Printf("seeded %d keys: shard-0=%d shard-1=%d (mode=%s dur=%s prepared=%v)", keys, len(keysOnShard0), keys-len(keysOnShard0), mode, dur, prepared)
+	log.Printf("seeded %d keys: shard-0=%d shard-1=%d (mode=%s dur=%s prepared=%v)",
+		keys, len(keysOnShard0), keys-len(keysOnShard0), mode, dur, prepared)
 
 	allKeys := make([]int, keys)
 	for i := range allKeys {
@@ -118,8 +121,8 @@ func main() {
 func seed(shard0DSN, shard1DSN string, spec v1alpha1.ShardRangeSpec, keys int) []int {
 	db0 := mustOpen(shard0DSN)
 	db1 := mustOpen(shard1DSN)
-	defer db0.Close()
-	defer db1.Close()
+	defer func() { _ = db0.Close() }() // teardown
+	defer func() { _ = db1.Close() }() // teardown
 	for _, db := range []*sql.DB{db0, db1} {
 		mustExec(db, `DROP TABLE IF EXISTS kv`)
 		mustExec(db, `CREATE TABLE kv (id int PRIMARY KEY, val int)`)
@@ -163,7 +166,7 @@ func run(dsns []string, keys []int, w int, dur time.Duration, mode string, prepa
 		db.SetMaxOpenConns(c)
 		db.SetMaxIdleConns(c)
 		dbs[i] = db
-		defer db.Close()
+		defer func() { _ = db.Close() }() // teardown
 	}
 
 	query := `SELECT val FROM kv WHERE id=$1`
@@ -188,14 +191,14 @@ func run(dsns []string, keys []int, w int, dur time.Duration, mode string, prepa
 				log.Printf("conn: %v", err)
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }() // teardown
 			var stmt *sql.Stmt
 			if prepared {
 				if stmt, err = conn.PrepareContext(ctx, query); err != nil {
 					log.Printf("prepare: %v", err)
 					return
 				}
-				defer stmt.Close()
+				defer func() { _ = stmt.Close() }() // teardown
 			}
 
 			for time.Now().Before(deadline) {

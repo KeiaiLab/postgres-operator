@@ -39,6 +39,8 @@ const (
 	// AnnotationAutoSplitApproved 는 운영자가 승인 시 "true" 로 설정한다(수동). 이 값이
 	// 있어야 approval=required 인 job 이 Pending 을 벗어난다.
 	AnnotationAutoSplitApproved = "postgres.keiailab.io/autosplit-approved"
+	// autoSplitApprovalRequired 는 AnnotationAutoSplitApproval 의 수동 승인 대기 값이다.
+	autoSplitApprovalRequired = "required"
 
 	// bytesPerGB 는 sizeThresholdGB(GB) → bytes 환산 상수(10진 GB, disk 표기 관례).
 	bytesPerGB = int64(1_000_000_000)
@@ -106,37 +108,37 @@ func (statusShardObserver) ObserveShards(_ context.Context, cluster *postgresv1a
 // autoSplitTriggerBreached 는 관측치가 활성 트리거(임계값 > 0)를 *모두* 만족하는지
 // 판정한다(스키마 정의: 모든 트리거 AND). 반환:
 //   - breached: 활성 트리거가 1개 이상이고 그 전부가 임계 이상.
-//   - enabledSize/enabledCPU/enabledLat: 각 트리거 활성 여부(condition 메시지용).
+//   - enabledLat/enabledPVC: 각 트리거 활성 여부(condition 메시지용).
 //
 // size 는 GB → bytes 환산 후 비교. cpu / latency 는 관측치가 임계 이상이어야 한다 —
 // 현재 관측치가 0(소스 미결선)이면 임계(>0)를 넘지 못해 breached=false 가 되어 오탐을
 // 막는다.
-func autoSplitTriggerBreached(t *postgresv1alpha1.AutoSplitTriggers, obs ShardObservation) (breached, enabledSize, enabledCPU, enabledLat, enabledPVC bool) {
+func autoSplitTriggerBreached(t *postgresv1alpha1.AutoSplitTriggers, obs ShardObservation) (breached, enabledLat, enabledPVC bool) {
 	if t == nil {
-		return false, false, false, false, false
+		return false, false, false
 	}
-	enabledSize = t.SizeThresholdGB > 0
-	enabledCPU = t.CPUPercent > 0
+	enabledSize := t.SizeThresholdGB > 0
+	enabledCPU := t.CPUPercent > 0
 	enabledLat = t.P99LatencyMs > 0
 	enabledPVC = t.PVCUtilizationPercent > 0
 	if !enabledSize && !enabledCPU && !enabledLat && !enabledPVC {
-		return false, false, false, false, false
+		return false, false, false
 	}
 	if enabledSize && obs.SizeBytes < int64(t.SizeThresholdGB)*bytesPerGB {
-		return false, enabledSize, enabledCPU, enabledLat, enabledPVC
+		return false, enabledLat, enabledPVC
 	}
 	if enabledCPU && obs.CPUPercent < t.CPUPercent {
-		return false, enabledSize, enabledCPU, enabledLat, enabledPVC
+		return false, enabledLat, enabledPVC
 	}
 	if enabledLat && obs.P99LatencyMs < t.P99LatencyMs {
-		return false, enabledSize, enabledCPU, enabledLat, enabledPVC
+		return false, enabledLat, enabledPVC
 	}
 	// PVC 사용률(%) = SizeBytes / PVCCapacityBytes * 100. 용량 미상(0) 이면 사용률 미상 →
 	// 오탐 방지로 breach 하지 않는다(K-5: "80% 과적재 시 오토스케일" 을 절대 GB 환산 없이 표현).
 	if enabledPVC && !pvcUtilizationBreached(obs, t.PVCUtilizationPercent) {
-		return false, enabledSize, enabledCPU, enabledLat, enabledPVC
+		return false, enabledLat, enabledPVC
 	}
-	return true, enabledSize, enabledCPU, enabledLat, enabledPVC
+	return true, enabledLat, enabledPVC
 }
 
 // pvcUtilizationBreached 는 shard 데이터 사용률(SizeBytes/PVCCapacityBytes*100)이 threshold%
@@ -238,7 +240,7 @@ func buildAutoSplitJob(
 ) *postgresv1alpha1.ShardSplitJob {
 	approval := "auto"
 	if requireApproval {
-		approval = "required"
+		approval = autoSplitApprovalRequired
 	}
 	return &postgresv1alpha1.ShardSplitJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -272,13 +274,13 @@ func autoSplitHoldForApproval(ssj *postgresv1alpha1.ShardSplitJob) bool {
 	if ssj == nil || ssj.Annotations == nil {
 		return false
 	}
-	if ssj.Annotations[AnnotationAutoSplit] != "true" {
+	if ssj.Annotations[AnnotationAutoSplit] != labelTrue {
 		return false
 	}
-	if ssj.Annotations[AnnotationAutoSplitApproval] != "required" {
+	if ssj.Annotations[AnnotationAutoSplitApproval] != autoSplitApprovalRequired {
 		return false
 	}
-	return ssj.Annotations[AnnotationAutoSplitApproved] != "true"
+	return ssj.Annotations[AnnotationAutoSplitApproved] != labelTrue
 }
 
 // shardSplitJobActive 는 job 이 아직 종료(Completed/Failed/Aborted)되지 않았는지 본다.
@@ -385,7 +387,7 @@ func (r *PostgresClusterReconciler) reconcileAutoSplit(
 				continue
 			}
 			obs := obsByShard[entry.Shard]
-			breached, _, _, enLat, _ := autoSplitTriggerBreached(as.Triggers, obs)
+			breached, enLat, _ := autoSplitTriggerBreached(as.Triggers, obs)
 			// P99 latency 는 아직 metrics 소스 미결선(CPU 는 cpuAugmentingObserver 로
 			// metrics.k8s.io 결선됨). latency 트리거만 unsourced 로 표기한다.
 			if enLat {
