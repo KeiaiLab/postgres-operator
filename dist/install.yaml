@@ -18883,6 +18883,16 @@ spec:
                         format: int32
                         minimum: 0
                         type: integer
+                      pvcUtilizationPercent:
+                        description: |-
+                          PVCUtilizationPercent is the per-shard data-PVC utilization threshold (%,
+                          dbSize/pvcCapacity). 0 disables. Unlike SizeThresholdGB (absolute GB), this expresses
+                          "split when the shard fills X% of its PVC" directly, so no manual GB conversion is needed
+                          and it self-adjusts on PVC resize (K-5 gap closure).
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
                       sizeThresholdGB:
                         description: SizeThresholdGB is the per-shard size threshold
                           (GB). 0 disables this trigger.
@@ -19177,6 +19187,20 @@ spec:
                   PostgreSQL is the PostgreSQL runtime configuration. GUCs that may not be set directly,
                   such as synchronous_standby_names, are generated only via this structured surface.
                 properties:
+                  hostAuthCIDRs:
+                    description: |-
+                      HostAuthCIDRs are the client address ranges pg_hba.conf admits over TCP, always with
+                      scram-sha-256. Empty means 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16.
+                    items:
+                      format: cidr
+                      type: string
+                    type: array
+                  maxConnections:
+                    description: MaxConnections is max_connections. Unset renders
+                      no line (the PostgreSQL default).
+                    format: int32
+                    minimum: 1
+                    type: integer
                   synchronous:
                     description: Synchronous is the physical synchronous-replication
                       configuration. nil disables it.
@@ -19211,6 +19235,16 @@ spec:
                     - method
                     - number
                     type: object
+                  walKeepSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      WALKeepSize is wal_keep_size: WAL kept for standbys that fall behind (rounded up to MiB). Unset renders no
+                      line. The operator owns rendered settings: an ALTER SYSTEM value for one of them is reset when it is not
+                      larger than the rendered value, and kept with condition AutoConfOverride when it is.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                 type: object
               replica:
                 description: Replica defines standalone/distributed replica-cluster
@@ -19260,10 +19294,22 @@ spec:
                         format: int32
                         minimum: 1
                         type: integer
+                      scaleOnActiveConnections:
+                        default: false
+                        description: |-
+                          ScaleOnActiveConnections enables an additional Pods metric on the router HPA that
+                          scales on the average active client-connection count per router Pod (metric
+                          RouterActiveConnectionsMetric, exposed by pg-router's /metrics endpoint). Default
+                          false keeps the HPA CPU-only. Requires a custom-metrics adapter (e.g.
+                          prometheus-adapter) in the cluster that maps the scraped gauge into the
+                          custom.metrics.k8s.io API; without it the Pods metric reports unavailable and the
+                          HPA falls back to CPU.
+                        type: boolean
                       targetActiveConnections:
                         default: 1000
-                        description: TargetActiveConnections is the HPA active-connection
-                          target.
+                        description: |-
+                          TargetActiveConnections is the HPA active-connection target (average value per Pod).
+                          Only used when ScaleOnActiveConnections=true.
                         format: int32
                         minimum: 1
                         type: integer
@@ -20300,8 +20346,9 @@ spec:
                     minimum: 0
                     type: integer
                   resources:
-                    description: Resources is the resource requirements for the shard
-                      PG container.
+                    description: |-
+                      Resources is the resource requirements for the shard PG container. limits.memory also renders
+                      shared_buffers (1/4) and effective_cache_size (3/4).
                     properties:
                       claims:
                         description: |-
@@ -20602,6 +20649,25 @@ spec:
                 - initialCount
                 - storage
                 type: object
+              superuserSecretRef:
+                description: |-
+                  SuperuserSecretRef names a Secret in the cluster namespace with keys username (postgres)
+                  and password. The operator keeps the postgres role's SCRAM verifier equal to that password,
+                  and members use it for replication, pg_rewind and pg_basebackup: pg_hba.conf trusts no
+                  network range. Until the password is verified on a running shard, that shard's config and
+                  pod template are not changed (condition SuperuserAuthPending).
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               tls:
                 description: |-
                   TLS is the PostgreSQL server-side TLS configuration (Pillar P7 §7).
@@ -21374,7 +21440,6 @@ spec:
   names:
     categories:
     - postgres
-    - role
     - all
     kind: PostgresUser
     listKind: PostgresUserList
@@ -30983,6 +31048,13 @@ spec:
                 maxItems: 1024
                 minItems: 1
                 type: array
+              referenceTables:
+                description: |-
+                  ReferenceTables은 이 키스페이스에서 *모든 샤드에 복제*되는 reference 테이블 목록이다.
+                  이 테이블만 참조하는 쿼리는 샤딩 키 없이 임의 샤드로 라우팅된다 (분산 조인 우회).
+                items:
+                  type: string
+                type: array
               vindex:
                 description: Vindex은 키 → 샤드 매핑 함수 정의이다.
                 properties:
@@ -31029,6 +31101,12 @@ spec:
                 required:
                 - type
                 type: object
+              writeBlocked:
+                description: |-
+                  WriteBlocked은 true 면 라우터가 이 키스페이스로의 *쓰기*를 일시 거부한다(읽기는 통과).
+                  online resharding 의 Cutover 동안 라우팅 전환 중 쓰기 유실을 막는 write-block 신호로
+                  ShardSplitJob 컨트롤러가 설정/해제한다(Cutover=true, RoutingUpdate 완료 시 false).
+                type: boolean
             required:
             - cluster
             - keyspace
@@ -31195,13 +31273,16 @@ spec:
           metadata:
             type: object
           spec:
-            description: ShardSplitJobSpec 는 사용자 의도된 shard split/merge 작업이다.
+            description: |-
+              ShardSplitJobSpec 는 사용자 의도된 shard split 작업이다. merge 값은 향후 API
+              호환성을 위해 예약되어 있지만 현재 controller가 모든 부수효과 전에 거부한다.
             properties:
               allowForwardOnly:
                 default: false
                 description: |-
-                  AllowForwardOnly 는 true 면 cutover 이후 rollback 불가 (D.9.10).
-                  기본 false — rollback 가능 (역방향 logical replication 유지).
+                  AllowForwardOnly 는 향후 forward-only cutover 의도를 위한 필드이다.
+                  현재 controller는 true를 routing 전에 거부한다. false는 진행을 허용하지만
+                  역방향 logical replication이나 자동 rollback을 보장하지 않는다.
                 type: boolean
               cdcMaxLag:
                 default: 16777216
@@ -31217,12 +31298,14 @@ spec:
               cutoverWindow:
                 default: 60s
                 description: |-
-                  CutoverWindow 는 cutover phase 의 최대 write-block 시간이다 (예: "30s").
-                  초과 시 자동 abort + rollback. 기본 60s.
+                  CutoverWindow 는 향후 최대 write-block 시간 enforcement를 위한 예약 필드이다.
+                  현재 controller는 이 값을 측정하거나 자동 abort/rollback에 사용하지 않는다. 기본 60s.
                 type: string
               direction:
                 default: split
-                description: Direction 은 split 또는 merge 방향. 기본 split.
+                description: |-
+                  Direction 은 향후 split 또는 merge 방향을 표현한다. 현재는 split만 구현되어
+                  controller가 merge를 부수효과 전에 거부한다. 기본 split.
                 enum:
                 - split
                 - merge
@@ -31231,18 +31314,29 @@ spec:
                 description: Keyspace 는 ShardRange 의 keyspace 식별자.
                 pattern: ^[a-z][a-z0-9_]{0,62}$
                 type: string
+              online:
+                default: false
+                description: |-
+                  Online 은 true 면 CDC(논리복제) 기반 *무중단* 이동을 쓴다 — InitialCopy 의 정적 bulk
+                  복사 대신 CDCCatchup phase 가 subscription(copy_data=true)으로 라이브 쓰기를 따라잡고,
+                  write-block 은 최종 drain 구간만 짧게 건다. false(기본)는 offline 모드(InitialCopy
+                  범위복사 + cutover write-block) — 동시 쓰기 없는 유지보수 창에 단순·빠름.
+                type: boolean
               sources:
-                description: 'Sources 는 source shard ID 목록 (split: 1, merge: N).'
+                description: |-
+                  Sources 는 source shard ID 목록이다. 현재 split은 정확히 1개만 허용하며
+                  merge용 다중 source는 예약 상태다.
                 items:
                   type: string
                 minItems: 1
                 type: array
               targets:
                 description: |-
-                  Targets 는 target shard 정의 목록 (split: N, merge: 1).
+                  Targets 는 target shard 정의 목록이다. 현재 split은 1개 이상을 허용하며
+                  merge용 단일 target 의미는 예약 상태다.
                   각 target 은 자체 키 범위와 placement hint 를 갖는다.
                 items:
-                  description: ShardSplitTarget 는 split/merge 의 target shard 1건 정의.
+                  description: ShardSplitTarget 는 split target shard 1건을 정의한다.
                   properties:
                     placement:
                       description: Placement 는 target shard 의 nodeAffinity / topology
@@ -31305,10 +31399,10 @@ spec:
             - targets
             type: object
             x-kubernetes-validations:
-            - message: sources must not be empty
-              rule: size(self.sources) > 0
             - message: targets must not be empty
               rule: size(self.targets) > 0
+            - message: spec is immutable after creation
+              rule: self == oldSelf
           status:
             description: ShardSplitJobStatus 는 reconciler 가 관찰한 7-step state machine
               상태.
@@ -31404,12 +31498,15 @@ spec:
                 - Cutover
                 - RoutingUpdate
                 - Cleanup
+                - Promote
                 - Completed
                 - Failed
                 - Aborted
                 type: string
               snapshotLSN:
-                description: SnapshotLSN 은 SnapshotWAL phase 에서 확정된 source 시점 LSN.
+                description: |-
+                  SnapshotLSN 은 향후 snapshot 기준점 기록을 위한 예약 필드이다.
+                  현재 SnapshotWAL 은 no-op 이므로 컨트롤러가 이 값을 채우지 않는다.
                 type: string
               startedAt:
                 description: StartedAt 은 본 작업이 Pending → SnapshotWAL 으로 진입한 시각.
@@ -31495,13 +31592,19 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - persistentvolumeclaims
   verbs:
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -31532,6 +31635,18 @@ rules:
   resources:
   - deployments
   - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
   verbs:
   - create
   - delete
@@ -31577,6 +31692,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
   - policy
   resources:
   - poddisruptionbudgets
@@ -31597,6 +31719,7 @@ rules:
   - postgresdatabases
   - postgresusers
   - scheduledbackups
+  - shardsplitjobs
   verbs:
   - create
   - delete
@@ -31643,7 +31766,6 @@ rules:
   - postgres.keiailab.io
   resources:
   - shardranges
-  - shardsplitjobs
   verbs:
   - get
   - list
@@ -31663,6 +31785,15 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - snapshot.storage.k8s.io
+  resources:
+  - volumesnapshots
+  verbs:
+  - create
+  - delete
+  - get
+  - list
 - apiGroups:
   - storage.k8s.io
   resources:
@@ -31795,7 +31926,10 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.8
+        env:
+        - name: RESHARD_COPY_IMAGE
+          value: ghcr.io/keiailab/reshard-copy:latest
+        image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.12
         livenessProbe:
           httpGet:
             path: /healthz

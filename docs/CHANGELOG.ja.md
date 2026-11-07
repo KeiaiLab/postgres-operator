@@ -13,6 +13,33 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.12] - 2026-11-07
+
+### Fixed (failover 安全性 — kind ループドリル V1, GitHub #290)
+
+- *(failover)* failover は昇格前に旧 primary をフェンシングし、生存メンバーを切断する(ADR-0036 F1-F5)。従来の昇格経路は起動時にのみ読まれる PVC フェンスラベルを付けるだけで、停止しているが生きている旧 primary が分岐点を越えてコミット・ストリーミングを続けていた(#290 D1 split-brain ウィンドウ)。既に primary の候補が勝者となり、他の生存メンバーが primary と応答すれば failover を中止する(fail-closed)。
+- *(instance)* rewind フォールバックの basebackup を crash-safe 化 — 一時ディレクトリへコピーし完了時に入れ替え、`PG_VERSION` のない空でない PGDATA は bootstrap が中断したコピーとして扱う(Forgejo #3)。コピー中に Pod が kill されると恒久 crashloop になっていた。
+- *(instance)* PGDATA 権限・primary リースの起動時強化(fsGroup ドリフト後の再起動がリースを保持したまま crashloop していた) — postgres fork 直前ごとに `chmod 0700`、`fsGroupChangePolicy: OnRootMismatch`、postgres が接続を受け付けてから選出を開始。
+- *(controller)* shard・reshard 対象 Pod に `postgres.keiailab.io/cluster` ラベルを付与し、spread・anti-affinity セレクターが一致する(#290 D7)。
+- *(crd)* PostgresUser から `role` カテゴリを削除 — `kubectl get role` が再び RBAC Role を表示する(Forgejo #1)。
+
+### Changed
+
+- *(build)* Go ビルド Dockerfile をすべて Go 1.26.10・単一ダイジェストに固定し、`go.mod` と照合するテストを追加。
+- *(deps)* 上流 #298–#304 をマージ — Go 依存・ベースイメージ固定、ワークフロー action 固定、Citus 署名付き apt ソース、scorecard-action v2.4.4、範囲外 int の拒否(ファズテスト)、grpc 1.83.2(GO-2026-6443)。
+- *(ci)* I26 diff チェックを ADR-0037 トレーラー規則に置換 — `cmd/i26guard` が `cmd/instance`・`internal/instance`・`Dockerfile.pg` に触れるコミットに Accepted ADR を指す `I26-ADR: NNNN` トレーラーを要求。
+- *(deps)* Go ツールチェーン 1.26.10・`golang.org/x/net` 0.62.0 — govulncheck 残件 0(GO-2026-6599/6600/6603/6605/6607/6608/6610/6611/6612/6613/6617/6809)。
+- *(build)* pg イメージの instance-builder を golang 1.26.10 に固定(ADR-0038)。
+- *(security)* gosec HIGH 0 — G115 変換に範囲チェック、G101 誤検知に注記。
+- *(lint)* golangci-lint 指摘 92 → 6(#289)。
+- *(ci)* `make validate` のワークフロー許可リスト(ADR-0022)に artifacthub-verify・test ワークフローを追加。
+
+### Added
+
+- *(test)* ループドリル判定の修正(kubelet delete、計画 switchover、J6/J7/J12 レコーダー)と、記録済みランを再判定する `test/e2e/loopdrill/cmd/rejudge`。
+- *(test)* S6b ネットワーク分断シナリオ — iptables による standby 切り離し + primary 凍結。
+- *(docs)* ADR-0036(failover フェンス)・ADR-0037(I26 変更は ADR を伴う)。
+
 ## [0.4.0-beta.11] - 2026-07-29
 
 ### Fixed (rw ルーティング — postgres-prod 2026-07-11 / 2026-07-28 障害, INC-0002 / data#39)

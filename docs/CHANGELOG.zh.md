@@ -13,6 +13,33 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.12] - 2026-11-07
+
+### Fixed (failover 安全 — kind 循环演练 V1, GitHub #290)
+
+- *(failover)* failover 在提升前隔离旧 primary 并切断存活成员(ADR-0036 F1-F5)。此前提升路径只设置启动时才读取的 PVC fence 标签,停滞但仍存活的旧 primary 会越过分叉点继续提交和流复制(#290 D1 split-brain 窗口)。已是 primary 的候选成为胜者;其他存活成员若回答 primary 则中止 failover(fail-closed)。
+- *(instance)* rewind 回退的 basebackup 变为 crash-safe — 先复制到临时目录,完成后再替换;非空但缺少 `PG_VERSION` 的 PGDATA 由 bootstrap 视为中断的复制(Forgejo #3)。此前复制中 Pod 被 kill 会导致永久 crashloop。
+- *(instance)* 启动时加固 PGDATA 权限与 primary lease(fsGroup 漂移后重启会持有 lease 并 crashloop) — 每次 postgres fork 前 `chmod 0700`,`fsGroupChangePolicy: OnRootMismatch`,postgres 接受连接后才开始选举。
+- *(controller)* shard 与 reshard 目标 Pod 带上 `postgres.keiailab.io/cluster` 标签,spread 与 anti-affinity 选择器得以匹配(#290 D7)。
+- *(crd)* PostgresUser 移除 `role` 类别 — `kubectl get role` 重新列出 RBAC Role(Forgejo #1)。
+
+### Changed
+
+- *(build)* 所有 Go 构建 Dockerfile 统一为 Go 1.26.10 与单一 digest,并以测试对照 `go.mod`。
+- *(deps)* 合并上游 #298–#304 — Go 依赖与基础镜像固定、workflow action 固定、Citus 签名 apt 源、scorecard-action v2.4.4、拒绝越界 int(含 fuzz 测试)、grpc 1.83.2(GO-2026-6443)。
+- *(ci)* I26 diff 检查替换为 ADR-0037 trailer 规则 — `cmd/i26guard` 要求触及 `cmd/instance`、`internal/instance` 或 `Dockerfile.pg` 的提交带有指向 Accepted ADR 的 `I26-ADR: NNNN` trailer。
+- *(deps)* Go 工具链 1.26.10、`golang.org/x/net` 0.62.0 — govulncheck 清零(GO-2026-6599/6600/6603/6605/6607/6608/6610/6611/6612/6613/6617/6809)。
+- *(build)* pg 镜像 instance-builder 固定为 golang 1.26.10(ADR-0038)。
+- *(security)* gosec HIGH 清零 — G115 转换加范围检查,G101 误报加注释。
+- *(lint)* golangci-lint 问题 92 → 6(#289)。
+- *(ci)* `make validate` 工作流允许列表(ADR-0022)加入 artifacthub-verify、test 工作流。
+
+### Added
+
+- *(test)* 循环演练判定修复(kubelet delete、计划 switchover、J6/J7/J12 记录器)及重新判定已记录运行的 `test/e2e/loopdrill/cmd/rejudge`。
+- *(test)* S6b 网络分区场景 — iptables 分离 standby + 冻结 primary。
+- *(docs)* ADR-0036(failover fence)与 ADR-0037(I26 变更须附 ADR)。
+
 ## [0.4.0-beta.11] - 2026-07-29
 
 ### Fixed (rw 路由 — postgres-prod 2026-07-11 / 2026-07-28 故障, INC-0002 / data#39)

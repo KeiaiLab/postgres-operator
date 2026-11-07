@@ -14,10 +14,10 @@ kubeVersion: ">=1.26.0-0"
 
 # Chart 자체 버전 — beta 단계, Level 4 Deep Insights. SemVer 준수.
 # beta.N iterative pre-release 표기.
-version: 0.4.0-beta.11
+version: 0.4.0-beta.12
 
 # 본 chart가 packaging하는 operator 버전. cmd/main.go binary 버전과 일치.
-appVersion: "0.4.0-beta.11"
+appVersion: "0.4.0-beta.12"
 
 home: https://github.com/keiailab/postgres-operator
 sources:
@@ -256,7 +256,7 @@ annotations:
           - name: pgcrypto
   artifacthub.io/images: |
     - name: manager
-      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.11
+      image: ghcr.io/keiailab/postgres-operator:0.4.0-beta.12
   artifacthub.io/changes: |
     - kind: changed
       description: "Package operator appVersion/image 0.4.0-beta.8 and publish all 10 CRDs, including ShardRange and ShardSplitJob."

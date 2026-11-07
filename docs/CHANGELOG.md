@@ -4,6 +4,33 @@ This project follows SemVer.
 
 ## [Unreleased]
 
+## [0.4.0-beta.12] - 2026-11-07
+
+### Fixed (failover safety — kind loop drill V1, GitHub #290)
+
+- *(failover)* Failover fences the old primary and cuts the survivors before promotion (ADR-0036 F1-F5). Previously the promotion path only set a PVC fence label read at boot, so a stalled-but-alive old primary kept committing and streaming past the fork (#290 D1 split-brain window). A candidate already primary becomes the winner; any other survivor answering primary stops the failover (fail-closed).
+- *(instance)* Rewind-fallback basebackup is crash-safe: it copies into a temp dir and swaps on completion, and bootstrap treats a non-empty PGDATA without `PG_VERSION` as an interrupted copy (Forgejo #3). A pod kill mid-copy previously left a permanent crashloop.
+- *(instance)* PGDATA mode and primary lease hardened on start (a restart after fsGroup drift crashlooped while holding the lease): `chmod 0700` before each postgres fork, `fsGroupChangePolicy: OnRootMismatch`, and election starts only once postgres accepts connections.
+- *(controller)* Shard and reshard-target pods carry the `postgres.keiailab.io/cluster` label, so spread and anti-affinity selectors match them (#290 D7).
+- *(crd)* PostgresUser drops the `role` category; `kubectl get role` lists RBAC Roles again (Forgejo #1).
+
+### Changed
+
+- *(build)* All Go-build Dockerfiles use Go 1.26.10 with one pinned digest, checked against `go.mod`.
+- *(deps)* Upstream #298–#304 merged: Go deps and pinned base images, pinned workflow actions, Citus signed apt source, scorecard-action v2.4.4, out-of-range int rejection with a fuzz test, grpc 1.83.2 (GO-2026-6443).
+- *(ci)* The I26 diff check is replaced by the ADR-0037 trailer rule: `cmd/i26guard` requires an `I26-ADR: NNNN` trailer naming an Accepted ADR on commits touching `cmd/instance`, `internal/instance` or `Dockerfile.pg`.
+- *(deps)* Go toolchain 1.26.10 and `golang.org/x/net` 0.62.0; govulncheck clean (GO-2026-6599/6600/6603/6605/6607/6608/6610/6611/6612/6613/6617/6809).
+- *(build)* pg image instance-builder pinned to golang 1.26.10 (ADR-0038).
+- *(security)* gosec HIGH findings 0: G115 conversions bounds-checked, G101 false positives annotated.
+- *(lint)* golangci-lint findings 92 → 6 (#289).
+- *(ci)* `make validate` workflow allowlist (ADR-0022) admits the artifacthub-verify and test workflows.
+
+### Added
+
+- *(test)* Loop drill judge fixes (kubelet deletes, planned switchover, J6/J7/J12 recorder) and `test/e2e/loopdrill/cmd/rejudge` to re-judge recorded runs.
+- *(test)* S6b network-partition scenario: iptables detach of the standby plus primary freeze.
+- *(docs)* ADR-0036 (failover fence) and ADR-0037 (I26 changes carry an ADR).
+
 ## [0.4.0-beta.11] - 2026-07-29
 
 ### Fixed (rw routing — postgres-prod 2026-07-11 / 2026-07-28 outages, INC-0002 / data#39)

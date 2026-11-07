@@ -10,9 +10,9 @@
 
 ## 동기
 
-- 포크 `stable` 이 첫 자리다. 상류로는 GitHub 브랜치 `keiailab/loop-fix` 의 PR(merge commit — 해시 보존)로 보낸다.
-  병합 뒤 포크는 GitHub main 을 ff 로 받는다.
-- 상류 main 의 새 커밋: `upstream-main` 을 올리고 `stable` 에 병합 커밋 하나로 land-direct 착지.
+- 포크 `stable` 이 첫 자리다. 상류로는 GitHub 브랜치 `keiailab/loop-fix` 의 PR(rebase-merge — 병합 커밋 없음)로 보낸다.
+  병합 뒤 포크 `stable` 을 GitHub main 에 다시 맞춘다.
+- 상류 main 의 새 커밋: `upstream-main` 을 올리고 `stable` 에 squash 커밋 하나(트레일러 `I26-ADR: 0037`, ADR-0037 결정 6)로 land-direct 착지.
 - 상류 `Dockerfile`·`Makefile`·`.github/`·`.dockerignore` 는 고치지 않는다(재기반 대조용). 포크 빌드는 `Dockerfile.keiailab` 하나.
 
 ## 이미지
