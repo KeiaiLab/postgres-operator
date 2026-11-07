@@ -1,6 +1,7 @@
 # 쓰기 탐침(설계 §3.12 · §3.13 · 부록 A) — 훈련장과 운영 L1 이 같은 파일을 쓴다.
 # 비-superuser 역할 write_probe 가 -rw Service 에 연결 하나로 PROBE_INTERVAL_SECONDS(= writeProbeInterval)마다 INSERT 하고
-# commit 을 받은 행을 "ack <id> <epoch>" 로 남긴다 — 드라이버·L1 이 로그로 쓰기 공백(J10)·유실(J15)을 잰다.
+# commit 을 받은 행을 "ack <id> <exec> <due> <sent>" 로 남긴다 — 드라이버·L1 이 로그로 쓰기 공백(J10)·유실(J15)을 잰다.
+# exec = 서버 clock_timestamp · due = ns 격자 예정 시각 · sent = 공급기가 문장을 낸 시각(ADR-0039). 밀린 틱은 연달아 나간다.
 # 연결이 끊기면 1 s 뒤 다시 붙는다. 죽은 상대는 keepalive·tcp_user_timeout 으로 10 s 안에 끊는다.
 # 역할·표는 write-probe.sql, 비밀번호는 Secret postgres-write-probe(password) 에서만 온다.
 # 망 — postgres-prod 소비자 목록(networkPolicy.allowedClients)에 (data, postgres.keiailab.io/probe=write) 쌍이 있어야 한다.
@@ -38,12 +39,18 @@ spec:
           conn="host=$PROBE_HOST port=5432 dbname=postgres user=write_probe connect_timeout=5 keepalives=1 keepalives_idle=5 keepalives_interval=2 keepalives_count=3 tcp_user_timeout=10000 target_session_attrs=read-write application_name=write-probe"
           while :; do
             echo "connect $(date +%s.%N)"
-            next=$(date +%s)
+            step=$((PROBE_INTERVAL_SECONDS * 1000000000))
+            due=$(date +%s%N)
             while :; do
-              echo "INSERT INTO write_probe.acks DEFAULT VALUES RETURNING 'ack ' || id || ' ' || extract(epoch FROM clock_timestamp());"
-              next=$((next + PROBE_INTERVAL_SECONDS))
-              now=$(date +%s)
-              if [ "$next" -gt "$now" ]; then sleep $((next - now)); fi
+              sent=$(date +%s%N)
+              printf -v at "%d.%09d %d.%09d" $((due / 1000000000)) $((due % 1000000000)) $((sent / 1000000000)) $((sent % 1000000000))
+              echo "INSERT INTO write_probe.acks DEFAULT VALUES RETURNING 'ack ' || id || ' ' || extract(epoch FROM clock_timestamp()) || ' $at';"
+              due=$((due + step))
+              now=$(date +%s%N)
+              if [ "$due" -gt "$now" ]; then
+                gap=$((due - now))
+                sleep "$((gap / 1000000000)).$(printf %09d $((gap % 1000000000)))"
+              fi
             done | psql "$conn" -XAtq -v ON_ERROR_STOP=1
             echo "disconnect $(date +%s.%N) rc=${PIPESTATUS[1]}"
             sleep 1
