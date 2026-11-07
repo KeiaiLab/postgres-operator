@@ -13,7 +13,9 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 // v1Verdict 는 cgroup v1 kind 판(17369c33 · data ea0d0fe4) 판정문 — 교체 6(kubelet 확인 delete) · S0 창 안 switchover.
@@ -43,9 +45,15 @@ func readFixture(t *testing.T, path string) []byte {
 // 다시 판정으로는 못 고친다 — 다시 돈 판만 그것을 싣는다.
 func TestRejudgeV1Verdict(t *testing.T) {
 	raw := readFixture(t, v1Verdict)
-	out, flips, err := Rejudge(raw, v1Verdict)
+	re1, err := Rejudge(raw, v1Verdict)
 	if err != nil {
 		t.Fatal(err)
+	}
+	out, flips := re1.Report, re1.Flips
+
+	// 옛 판정문에는 정지 기록이 없다 — 관측 0
+	if len(re1.Stalls) != 0 {
+		t.Fatalf("정지 관측 %v", re1.Stalls)
 	}
 
 	got := make([]string, 0, len(flips))
@@ -63,6 +71,9 @@ func TestRejudgeV1Verdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, run := range report.Scenarios {
+		if len(run.Observations) != 0 {
+			t.Fatalf("%s 관측 %v", run.Scenario, run.Observations)
+		}
 		if !applies(CheckOrder, run.Scenario) {
 			continue
 		}
@@ -112,9 +123,62 @@ func TestRejudgeV1Verdict(t *testing.T) {
 
 // 모르는 필드는 잃지 않도록 거부한다.
 func TestRejudgeUnknownField(t *testing.T) {
-	if _, _, err := Rejudge([]byte(`{"expect":"green","extra":1}`), "x"); err == nil {
+	if _, err := Rejudge([]byte(`{"expect":"green","extra":1}`), "x"); err == nil {
 		t.Fatal("모르는 필드를 받아들였다")
 	}
+	if _, err := Rejudge([]byte(`{"expect":"green","scenarios":[{"scenario":"S0","extra":1}]}`), "x"); err == nil {
+		t.Fatal("시나리오의 모르는 필드를 받아들였다")
+	}
+}
+
+// stalledReport 는 GREEN 전 시나리오 초록 짝에 S6b 만 판 5 꼴 정지(보정 9.2 s)를 넣은 판정문이다.
+func stalledReport(t *testing.T) []byte {
+	t.Helper()
+	pairs := greenPairs()
+	pairs[ScenarioS6b] = run5Pair
+
+	report := storedReport{Expect: ModeGreen}
+	for _, scn := range GreenScenarios() {
+		before, after := pairs[scn]()
+		exp := ExpectFor(scn, ModeGreen, fixtureReplicas)
+		v := Judge(scn, before, after, exp)
+		report.Scenarios = append(report.Scenarios, storedRun{
+			Scenario: scn, Checks: v.Checks, Round: 1, Expect: exp, Observations: v.Observations,
+			Before: mustJSON(t, before), After: mustJSON(t, after),
+		})
+	}
+	return mustJSON(t, report)
+}
+
+// 정지 기록(after.hostStalls · ack due/sent)만으로 같은 보정을 다시 하고, observations 를 받아들인다.
+func TestRejudgeHostStalls(t *testing.T) {
+	re, err := Rejudge(stalledReport(t), "stalled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(re.Flips) != 0 {
+		t.Fatalf("바뀐 판정 %v", re.Flips)
+	}
+	if len(re.Stalls) != 1 || !strings.HasPrefix(re.Stalls[0], "S6b(1판) H1 ") || !strings.Contains(re.Stalls[0], "보정 1곳 9.2s") {
+		t.Fatalf("정지 관측 %v", re.Stalls)
+	}
+
+	var report storedReport
+	if err := json.Unmarshal(re.Report, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Result != ResultGreenHostStalls {
+		t.Fatalf("result %q(기대 %s)", report.Result, ResultGreenHostStalls)
+	}
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func TestOutcome(t *testing.T) {
@@ -140,6 +204,60 @@ func TestOutcome(t *testing.T) {
 	}
 	if got := Outcome(ModeRed, 0, nil); got != ResultRedMissing {
 		t.Fatalf("RED 판 없음 %s", got)
+	}
+}
+
+// ADR-0039 결과 순서 — incomplete → host-stalled → RED·not-green → green-host-stalls → green.
+func TestOutcomeHostStalls(t *testing.T) {
+	credited := Observation{ID: ObsHostStall, Count: 1, Credited: 1, Credit: 9 * time.Second, Longest: 14 * time.Second}
+	seen := Observation{ID: ObsHostStall, Count: 1, Longest: 14 * time.Second}
+	stalled := Observation{ID: ObsHostStall, Count: 1, Longest: StatusStaleThresh}
+
+	// all 은 GREEN 전 시나리오 초록, i 번째 판에 obs 를 단 판들이다.
+	all := func(i int, obs ...Observation) []Verdict {
+		runs := make([]Verdict, 0, len(greenScenarios))
+		for _, scn := range greenScenarios {
+			runs = append(runs, Verdict{Scenario: scn, Checks: []Check{{ID: CheckTemplate, Pass: true}}})
+		}
+		runs[i].Observations = obs
+		return runs
+	}
+	n := len(greenScenarios)
+
+	cases := []struct {
+		name string
+		mode Mode
+		plan int
+		runs func() []Verdict
+		want string
+	}{
+		{"초록 · H1 보정", ModeGreen, n, func() []Verdict { return all(8, credited) }, ResultGreenHostStalls},
+		{"초록 · H1 보정 0", ModeGreen, n, func() []Verdict { return all(8, seen) }, ResultGreen},
+		{"붉음 · H1 보정", ModeGreen, n, func() []Verdict {
+			runs := all(8, credited)
+			runs[3].Checks = []Check{{ID: CheckTemplate}}
+			return runs
+		}, ResultNotGreen},
+		{"30 s 정지", ModeGreen, n, func() []Verdict { return all(8, stalled) }, ResultHostStalled},
+		{"30 s 정지 · 붉음", ModeGreen, n, func() []Verdict {
+			runs := all(8, stalled)
+			runs[3].Checks = []Check{{ID: CheckTemplate}}
+			return runs
+		}, ResultHostStalled},
+		{"30 s 정지 · RED", ModeRed, 1, func() []Verdict { return all(0, stalled)[:1] }, ResultHostStalled},
+		{"29 s 정지 · RED", ModeRed, 0, func() []Verdict {
+			obs := stalled
+			obs.Longest -= time.Second
+			return all(0, obs)[:1]
+		}, ResultRedMissing},
+		{"계획보다 적음 · 30 s 정지", ModeGreen, n + 1, func() []Verdict { return all(8, stalled) }, ResultScenarioMissed},
+		{"S0 빠짐 · 30 s 정지", ModeGreen, n - 1, func() []Verdict { return all(8, stalled)[1:] }, ResultScenarioMissed},
+		{"RED 계획보다 적음 · 30 s 정지", ModeRed, 2, func() []Verdict { return all(0, stalled)[:1] }, ResultScenarioMissed},
+	}
+	for _, c := range cases {
+		if got := Outcome(c.mode, c.plan, c.runs()); got != c.want {
+			t.Errorf("%s: %s(기대 %s)", c.name, got, c.want)
+		}
 	}
 }
 
