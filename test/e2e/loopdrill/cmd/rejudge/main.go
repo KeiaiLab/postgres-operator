@@ -9,7 +9,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 //	go run ./test/e2e/loopdrill/cmd/rejudge <in.json> <out.json>
 //
 // 기록(입력 · 전후 스냅숏 · 기대)은 그대로 두고 checks · result 를 새로 내며 rejudgedFrom 에 원본을 적는다.
-// 바뀐 판정은 표준 출력에 한 줄씩.
+// 바뀐 판정과 호스트 정지 관측(H1)은 표준 출력에 한 줄씩.
 package main
 
 import (
@@ -37,20 +37,25 @@ func run(in, out string) error {
 	if err != nil {
 		return err
 	}
-	report, flips, err := loopdrill.Rejudge(raw, in)
+	re, err := loopdrill.Rejudge(raw, in)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(out, report, 0o644); err != nil {
+	if err := os.WriteFile(out, re.Report, 0o644); err != nil {
 		return err
 	}
 
 	// 바뀐 판정 — 없으면 그렇다고 적는다
-	if len(flips) == 0 {
+	if len(re.Flips) == 0 {
 		fmt.Println("바뀐 판정 없음")
 	}
-	for _, f := range flips {
+	for _, f := range re.Flips {
 		fmt.Println(f)
+	}
+
+	// 호스트 정지 관측(ADR-0039 H1) — 있는 판만
+	for _, line := range re.Stalls {
+		fmt.Println(line)
 	}
 	return nil
 }
