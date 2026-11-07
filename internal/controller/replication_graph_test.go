@@ -41,6 +41,7 @@ type graphExecutor struct {
 	broken     map[string]bool     // pg_stat_replication exec 가 실패하는 sender
 	recovery   map[string]string   // 파드 → t|f (없으면 exec 실패)
 	retargets  map[string][]string // 파드 → 재지정 exec 명령(합친 문자열)
+	ends       map[string]string   // 파드 → 끝 위치(failover 승자 재기, 없으면 exec 실패)
 	onRetarget func(pod string)
 	// failRetargets 는 앞으로 실패시킬 재지정 exec 수다.
 	failRetargets int
@@ -82,6 +83,11 @@ func (g *graphExecutor) Exec(_ context.Context, target BackupSidecarTarget, comm
 		return []byte("PROMOTE_RESULT=promoted\n"), nil
 	case strings.Contains(joined, "pg_read_file"):
 		return []byte(promotionTestHistory), nil
+	case strings.Contains(joined, cutResultPrefix):
+		g.log.add("exec cut " + target.Pod)
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return cutAnswer(g.recovery, target.Pod)
 	case strings.Contains(joined, "ALTER SYSTEM SET primary_conninfo"):
 		g.log.add("exec retarget " + target.Pod)
 		g.mu.Lock()
@@ -110,6 +116,17 @@ func (g *graphExecutor) Exec(_ context.Context, target BackupSidecarTarget, comm
 			return nil, fmt.Errorf("exec %s: unreachable", target.Pod)
 		}
 		return []byte(g.rows[target.Pod]), nil
+	case strings.Contains(joined, endPositionQuery):
+		// 끝 위치를 심지 않은 멤버는 모두 같은 끝이다 — 동률이라 판정 후보가 이긴다.
+		answer, ok := g.recovery[target.Pod]
+		if !ok {
+			return nil, fmt.Errorf("exec %s: unreachable", target.Pod)
+		}
+		end, ok := g.ends[target.Pod]
+		if !ok {
+			end = graphDefaultEnd
+		}
+		return []byte(answer + psqlFieldSeparator + end + "\n"), nil
 	case strings.Contains(joined, recoveryQuery):
 		g.log.add("exec recovery " + target.Pod)
 		answer, ok := g.recovery[target.Pod]
@@ -120,6 +137,21 @@ func (g *graphExecutor) Exec(_ context.Context, target BackupSidecarTarget, comm
 	}
 	g.log.add("exec other " + target.Pod)
 	return nil, nil
+}
+
+// graphDefaultEnd 는 끝 위치를 심지 않은 멤버의 끝이다.
+const graphDefaultEnd = "0/3000000"
+
+// cutAnswer 는 수신 끊기 exec 의 답이다(ADR-0036 F2) — recovery 답이 없으면 exec 가 실패한다.
+func cutAnswer(recovery map[string]string, pod string) ([]byte, error) {
+	answer, ok := recovery[pod]
+	if !ok {
+		return nil, fmt.Errorf("exec %s: unreachable", pod)
+	}
+	if answer != pgBoolTrue {
+		return []byte(cutResultPrefix + cutResultPrim + "\n"), nil
+	}
+	return []byte(cutResultPrefix + cutResultCut + "\n"), nil
 }
 
 // graphWorld 는 샤드 0 멤버 파드·PVC·런타임 CM(primary = ordinal-0, epoch 1) 위의 reconciler 다.
@@ -699,7 +731,12 @@ func TestFailoverSkipsDetachedStandby(t *testing.T) {
 			c := fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(cluster, cm, linked, detached).
 				WithStatusSubresource(&postgresv1alpha1.PostgresCluster{}).Build()
-			r := &PostgresClusterReconciler{Client: c, Scheme: scheme, PromotionPodExecutor: newGraphExecutor(log)}
+			// 끊긴 생존자의 끝 위치는 애노테이션과 같다(ADR-0036 F3).
+			exec := newGraphExecutor(log)
+			exec.ends = map[string]string{linked.Name: formatLSN(uint64(100 * gib)), detached.Name: formatLSN(uint64(101 * gib))}
+			exec.setRecovery(linked.Name, pgBoolTrue)
+			exec.setRecovery(detached.Name, pgBoolTrue)
+			r := &PostgresClusterReconciler{Client: c, Scheme: scheme, PromotionPodExecutor: exec}
 			defer DeleteMetricsFor(runtimeTestNS, name)
 			now := time.Now()
 			key := runtimeTestNS + "/" + name

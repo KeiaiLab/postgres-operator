@@ -10,7 +10,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -126,6 +128,7 @@ func TestPostgresPromotionCommandMutatesPGDATAOnlyAfterSQLPromote(t *testing.T) 
 }
 
 type fakePromotionPodExecutor struct {
+	mu       sync.Mutex
 	called   int
 	target   BackupSidecarTarget
 	command  []string
@@ -133,6 +136,38 @@ type fakePromotionPodExecutor struct {
 	out      []byte
 	err      error
 	onExec   func(context.Context) error
+
+	// 아래는 failover 펜스·끊기 답이다(ADR-0036) — recovery 가 nil 이면 모든 명령에 out 으로 답한다(옛 시험).
+	recovery map[string]string // 파드 → pg_is_in_recovery t|f (없으면 exec 실패)
+	lsn      map[string]string // 파드 → 끝 위치(in recovery, 없으면 exec 실패)
+	fence    string            // 펜스 exec 출력
+	fenceErr error
+	cutFail  map[string]bool   // 수신 끊기 ALTER 가 실패하는 파드
+	calls    []string          // "<동작> <파드>" — 순서 단언용
+	conninfo map[string]string // 파드 → 마지막 재지정 primary_conninfo
+}
+
+// fakeOp 는 exec 명령의 동작 이름이다 — 끝 위치 질의는 pg_is_in_recovery 를 품어 먼저 가른다.
+func fakeOp(joined string) string {
+	switch {
+	case strings.Contains(joined, fenceResultPrefix):
+		return "fence"
+	case strings.Contains(joined, "primary_conninfo = ''"):
+		return "cut"
+	case strings.Contains(joined, "ALTER SYSTEM SET primary_conninfo"):
+		return "retarget"
+	case strings.Contains(joined, walReceiverQuery):
+		return "receiver"
+	case strings.Contains(joined, endPositionQuery):
+		return "lsn"
+	case strings.Contains(joined, recoveryQuery):
+		return "recovery"
+	case strings.Contains(joined, "pg_promote"):
+		return "promote"
+	case strings.Contains(joined, "pg_read_file"):
+		return "history"
+	}
+	return "other"
 }
 
 func (f *fakePromotionPodExecutor) Exec(
@@ -140,6 +175,8 @@ func (f *fakePromotionPodExecutor) Exec(
 	target BackupSidecarTarget,
 	command []string,
 ) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.called++
 	f.target = target
 	f.command = append([]string{}, command...)
@@ -149,6 +186,9 @@ func (f *fakePromotionPodExecutor) Exec(
 			return nil, err
 		}
 	}
+	if f.recovery != nil {
+		return f.answer(target.Pod, strings.Join(command, " "))
+	}
 	out := f.out
 	if out == nil {
 		// Default to a real promotion so promotion/fence tests exercise the
@@ -156,6 +196,58 @@ func (f *fakePromotionPodExecutor) Exec(
 		out = []byte("PROMOTE_RESULT=promoted\n")
 	}
 	return out, f.err
+}
+
+// answer 는 failover 시험의 동작별 답이다.
+func (f *fakePromotionPodExecutor) answer(pod, joined string) ([]byte, error) {
+	op := fakeOp(joined)
+	f.calls = append(f.calls, op+" "+pod)
+	unreachable := fmt.Errorf("exec %s: unreachable", pod)
+	switch op {
+	case "fence":
+		return []byte(f.fence), f.fenceErr
+	case "cut":
+		answer, ok := f.recovery[pod]
+		if !ok || f.cutFail[pod] {
+			return nil, unreachable
+		}
+		if answer != pgBoolTrue {
+			return []byte(cutResultPrefix + cutResultPrim + "\n"), nil
+		}
+		return []byte(cutResultPrefix + cutResultCut + "\n"), nil
+	case "retarget":
+		if f.conninfo == nil {
+			f.conninfo = map[string]string{}
+		}
+		f.conninfo[pod] = joined
+		return nil, nil
+	case "receiver":
+		return []byte("0\n"), nil
+	case "lsn":
+		lsn, ok := f.lsn[pod]
+		if !ok {
+			return nil, unreachable
+		}
+		return []byte(f.recovery[pod] + psqlFieldSeparator + lsn + "\n"), nil
+	case "recovery":
+		answer, ok := f.recovery[pod]
+		if !ok {
+			return nil, unreachable
+		}
+		return []byte(answer + "\n"), nil
+	case "promote":
+		return []byte("PROMOTE_RESULT=promoted\n"), nil
+	case "history":
+		return []byte(promotionTestHistory), nil
+	}
+	return nil, nil
+}
+
+// callLog 는 동작 기록의 사본이다.
+func (f *fakePromotionPodExecutor) callLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
 }
 
 func readyPromotionPod(namespace, podName string) *corev1.Pod {

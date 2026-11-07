@@ -52,12 +52,19 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 			return fmt.Errorf("pre-fence failed old primary %q: %w", oldPrimary, err)
 		}
 	}
-	if decision.PromotionCandidate != nil {
-		if err := r.promotionCandidateReadyForExec(ctx, cluster.Namespace, decision.PromotionCandidate.Pod); err != nil {
+	winner := decision.PromotionCandidate
+	var cut []corev1.Pod
+	if winner != nil {
+		if err := r.promotionCandidateReadyForExec(ctx, cluster.Namespace, winner.Pod); err != nil {
+			return err
+		}
+		// 옛 primary 를 멈추고 생존자 수신을 끊은 뒤 끝 위치 최대를 고른다(ADR-0036 F1–F3).
+		var err error
+		if winner, cut, err = r.prepareFailover(ctx, cluster, shardName, oldPrimary, winner); err != nil {
 			return err
 		}
 	}
-	plan, err := failover.BuildPromotionPlan(shardName, decision.PromotionCandidate)
+	plan, err := failover.BuildPromotionPlan(shardName, winner)
 	if err != nil {
 		return fmt.Errorf("build plan: %w", err)
 	}
@@ -65,6 +72,8 @@ func (r *PostgresClusterReconciler) executeClusterPromotion(
 	if err := r.promoteAndPublish(ctx, cluster, shardName, plan.Target, oldPrimary, promotionFailover); err != nil {
 		return fmt.Errorf("execute promotion plan for shard %q pod %q: %w", shardName, plan.Target.Pod, err)
 	}
+	// 나머지 생존자는 같은 reconcile 에 승자를 따른다(F5).
+	r.retargetSurvivors(ctx, cluster, shardName, cut, plan.Target)
 	return nil
 }
 

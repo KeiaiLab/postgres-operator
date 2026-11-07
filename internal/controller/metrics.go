@@ -233,6 +233,17 @@ var (
 		},
 		[]string{"namespace", "name", "key"},
 	)
+
+	// MetricFailoverFence 는 failover 승격 전 옛 primary 펜스 결과 수다(ADR-0036) — Stuck·Unreachable 은 옛 primary 가
+	// 멈췄다는 증명이 없다(생존자는 수신 끊기가 지킨다).
+	MetricFailoverFence = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Name:      "failover_fence_total",
+			Help:      "Old-primary fences before a failover promotion, by outcome (Stopped, Killed, Down, Stuck, Unreachable)",
+		},
+		[]string{"namespace", "cluster", "shard", "outcome"},
+	)
 )
 
 // initSeries 는 O1 경보가 읽는 라벨 고정 시계열을 기동 때 0 으로 만든다 — 첫 증분 전에
@@ -261,6 +272,7 @@ func init() {
 		MetricRolloutPendingMembers,
 		MetricHBANetworkTrustRules,
 		MetricAutoConfResets,
+		MetricFailoverFence,
 	)
 	initSeries()
 }
@@ -286,6 +298,7 @@ func DeleteMetricsFor(namespace, name string) {
 	MetricRolloutPendingMembers.DeletePartialMatch(rebuildLabels)
 	MetricHBANetworkTrustRules.DeletePartialMatch(rebuildLabels)
 	MetricAutoConfResets.DeletePartialMatch(rebuildLabels)
+	MetricFailoverFence.DeletePartialMatch(prometheus.Labels{"namespace": namespace, "cluster": name})
 }
 
 // ObservePostgresClusterMetrics 는 PostgresCluster status 기반 운영 metric 을 반영한다.

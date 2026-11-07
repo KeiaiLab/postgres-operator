@@ -97,6 +97,14 @@ func (x *switchoverExecutor) Exec(_ context.Context, target BackupSidecarTarget,
 		return nil, fmt.Errorf("exec %s: no such member", target.Pod)
 	}
 	switch {
+	case strings.Contains(joined, fenceResultPrefix):
+		return x.fence(target.Pod, m)
+	case strings.Contains(joined, cutResultPrefix):
+		x.log.add("exec cut " + target.Pod)
+		if m.role == simStandby {
+			return m.answer(target.Pod, cutResultPrefix+cutResultCut, needRunning)
+		}
+		return m.answer(target.Pod, cutResultPrefix+cutResultPrim, needRunning)
 	case strings.Contains(joined, "pg_promote"):
 		return x.promote(target.Pod, m, command)
 	case strings.Contains(joined, "pg_ctl"):
@@ -127,6 +135,16 @@ func (x *switchoverExecutor) Exec(_ context.Context, target BackupSidecarTarget,
 	}
 	x.log.add("exec other " + target.Pod)
 	return nil, nil
+}
+
+// fence 는 failover 펜스 흉내다(ADR-0036 F1) — 도는 postgres 를 내린다.
+func (x *switchoverExecutor) fence(pod string, m *simMember) ([]byte, error) {
+	x.log.add("exec fence " + pod)
+	if m.role == simDown {
+		return []byte(fenceResultPrefix + string(fenceDown) + "\n"), nil
+	}
+	m.role = simDown
+	return []byte(fenceResultPrefix + string(fenceStopped) + "\n"), nil
 }
 
 // simNeed 는 exec 가 답하려면 멤버가 있어야 할 상태다.
