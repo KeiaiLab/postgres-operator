@@ -48,6 +48,7 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0035](0035-pg-settings-owned-by-operator.md) | PG 설정은 spec 에서 렌더하고 오퍼레이터가 소유한다 (limits.memory → shared_buffers ÷4 · effective_cache_size ×3/4 · walKeepSize·maxConnections · 렌더 키의 auto.conf 항목은 파일 투영 뒤 값이 크지 않을 때만 RESET, 더 크면 남기고 AutoConfOverride) | Accepted | 2026-09-29 |
 | [ADR-0036](0036-failover-fences-old-primary-and-cuts-standbys.md) | failover 는 옛 primary 를 멈추고 생존 standby 의 수신을 끊은 뒤 승격한다 (펜스 exec fast→immediate→SIGKILL · 생존자 primary_conninfo '' · 끝 최대 승자 · 같은 reconcile 재지정 · S6b = iptables 끊기 + primary 트리 SIGSTOP) | Accepted | 2026-11-07 |
 | [ADR-0037](0037-i26-instance-manager-changes-carry-adr.md) | I26 — 인스턴스 매니저·pg 이미지 변경은 `I26-ADR:` 트레일러와 Accepted ADR 로 착지 (기점 = origin/stable · 17369c33·322546d6 소급 승인) | Accepted | 2026-11-07 |
+| [ADR-0038](0038-pg-image-toolchain-security-patches.md) | pg 이미지 Go toolchain 보안 패치(소스 무변 · govulncheck GO-ID)는 `I26-ADR: 0038` 로 승인된 I26 변경 · golang 단계 ≥ go.mod toolchain | Accepted | 2026-11-07 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
