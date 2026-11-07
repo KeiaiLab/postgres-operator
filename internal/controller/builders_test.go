@@ -7,9 +7,11 @@ Licensed under the MIT License. See the LICENSE file for details.
 package controller
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -158,6 +160,40 @@ func TestBuildPGStatefulSet_VolumeClaimTemplateHasClusterLabel(t *testing.T) {
 	labels := sts.Spec.VolumeClaimTemplates[0].Labels
 	if got := labels["postgres.keiailab.io/cluster"]; got != "demo" {
 		t.Fatalf("PVC cluster label = %q, want %q (labels=%v)", got, "demo", labels)
+	}
+}
+
+// #290 D7 — 사용자 TSC·anti-affinity 가 고르는 cluster label 이 pod 에 있어야 분산이 성립한다.
+// 셀렉터는 불변이라 그대로여야 한다.
+func TestBuildPGStatefulSet_PodTemplateHasClusterLabel(t *testing.T) {
+	t.Parallel()
+
+	cluster := &postgresv1alpha1.PostgresCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "ns1"},
+	}
+	build := func(name string, ordinal int32, target string) *appsv1.StatefulSet {
+		return buildPGStatefulSet(
+			cluster, name, name+"-headless", ordinal,
+			"example.com/postgres:18", name+"-config", "18", 1,
+			postgresv1alpha1.StorageSpec{Size: resource.MustParse("1Gi")},
+			corev1.ResourceRequirements{}, "", "test-config-hash", target,
+		)
+	}
+
+	cases := []struct {
+		sts      *appsv1.StatefulSet
+		selector map[string]string
+	}{
+		{build("demo-shard-1", 1, ""), SelectorLabels("demo", "shard", 1)},
+		{build("demo-rsd-t0", 0, "t0"), ReshardTargetSelectorLabels("demo", "t0")},
+	}
+	for _, c := range cases {
+		if got := c.sts.Spec.Template.Labels["postgres.keiailab.io/cluster"]; got != "demo" {
+			t.Fatalf("%s pod cluster label = %q, want demo (labels=%v)", c.sts.Name, got, c.sts.Spec.Template.Labels)
+		}
+		if !maps.Equal(c.sts.Spec.Selector.MatchLabels, c.selector) {
+			t.Fatalf("%s selector changed: got %v, want %v", c.sts.Name, c.sts.Spec.Selector.MatchLabels, c.selector)
+		}
 	}
 }
 

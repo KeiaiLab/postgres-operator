@@ -1373,10 +1373,11 @@ func buildPGStatefulSet(
 	// podLabels 는 셀렉터(labels)의 *superset* — ordinal shard 에 명명 식별 label `shard-id`
 	// 를 부가한다(ADR-0029 P-A). 셀렉터(labels)에는 넣지 않아 기존 STS selector 불변 + 업그레이드
 	// race 회피. reshard target 은 격리 유지(부가 안 함 — 승격 시 부여).
-	podLabels := labels
+	// cluster label 은 양쪽에 부가한다 — 사용자 TSC·anti-affinity 가 이 키로 멤버를 고른다(#290 D7).
+	podLabels := make(map[string]string, len(labels)+2)
+	maps.Copy(podLabels, labels)
+	podLabels[clusterLabelKey] = cluster.Name
 	if reshardTargetID == "" {
-		podLabels = make(map[string]string, len(labels)+1)
-		maps.Copy(podLabels, labels)
 		podLabels[ShardIDLabelKey] = ShardIDForOrdinal(shardOrdinal)
 	}
 	replicaConfig, _ := replicaBootstrapConfigForCluster(cluster)
