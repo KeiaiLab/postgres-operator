@@ -36,7 +36,36 @@ type RolloutStep struct {
 	By        string    `json:"by"`               // 감사 로그 사용자
 	Detached  bool      `json:"detached"`         // 지울 때 그래프에서 끊겼나
 	Streaming bool      `json:"streaming"`        // 지울 때 대상 밖 replica 가 전부 streaming 이었나
-	ReadyAt   time.Time `json:"readyAt,omitzero"` // 새 revision 으로 Ready ∧ 연결된 시각
+	ReadyAt   time.Time `json:"readyAt,omitzero"` // 새 revision 으로 Ready ∧ 연결된 시각(ReturnedAt)
+}
+
+// kubeletUserPrefix 는 kubelet 노드 신원 — 컨테이너가 끝난 뒤 grace 0 으로 내는 종료 확인 delete 의 주체다.
+const kubeletUserPrefix = "system:node:"
+
+// Replacements 는 감사 pod delete 에서 교체만 남긴다 — kubelet 의 종료 확인 delete 는 교체가 아니다.
+//
+//	02:00 op  delete p-2   ← 교체
+//	02:01 node delete p-2  ← 같은 파드의 종료 확인(뺀다)
+func Replacements(steps []RolloutStep) []RolloutStep {
+	return slices.DeleteFunc(slices.Clone(steps), func(s RolloutStep) bool {
+		return strings.HasPrefix(s.By, kubeletUserPrefix)
+	})
+}
+
+// ReturnedAt 는 교체한 파드의 복귀 시각(RolloutStep.ReadyAt)이다.
+// 표본(sampled)은 StatusPollInterval 만큼 늦을 수 있어, API 가 그 파드에 기록한 Ready 전이(readySince)를 쓴다.
+// 연결은 표본으로만 알므로 연결 안 된 채 본 마지막 표본(unlinked)보다 이르지 않다. 전이 기록이 없으면 표본이다.
+//
+//	unlinked(끊김 관측) ─ readySince(Ready=True 전이) ─ 오퍼레이터 다음 삭제 ─ sampled(표본)
+//	                      └─ 복귀
+func ReturnedAt(readySince, unlinked, sampled time.Time) time.Time {
+	if readySince.IsZero() || readySince.After(sampled) {
+		return sampled
+	}
+	if unlinked.After(readySince) {
+		return unlinked
+	}
+	return readySince
 }
 
 // RolloutRecord 는 단계화 롤아웃 기록(J12 · J14).

@@ -7,6 +7,7 @@ Licensed under the MIT License. See the LICENSE file for details.
 package loopdrill
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -57,6 +58,61 @@ func TestOrderJudge(t *testing.T) {
 	after.Rollout.Steps[0].Pod, after.Rollout.Steps[1].Pod = podP1, podP2
 	after.Rollout.Steps[0].Detached = true
 	wantPass(t, judgeGreen(ScenarioS8, before, after), CheckOrder)
+}
+
+// kubelet 의 종료 확인 delete 는 교체가 아니다 — 오퍼레이터의 진짜 두 번째 교체는 센다.
+func TestReplacements(t *testing.T) {
+	const kubelet = "system:node:w2"
+	before, after := switchoverPair()
+	steps := after.Rollout.Steps
+
+	// 교체마다 kubelet 확인 delete 가 1 s 뒤에 붙었다(kind 실측 — 교체 6)
+	var doubled []RolloutStep
+	for _, s := range steps {
+		echo := s
+		echo.DeletedAt, echo.By = s.DeletedAt.Add(time.Second), kubelet
+		doubled = append(doubled, s, echo)
+	}
+	got := Replacements(doubled)
+	if len(got) != len(steps) {
+		t.Fatalf("교체 %d(기대 %d): %+v", len(got), len(steps), got)
+	}
+	after.Rollout.Steps = got
+	wantPass(t, judgeGreen(ScenarioS8, before, after), CheckOrder)
+
+	// 같은 파드를 오퍼레이터가 몇 분 사이로 두 번 지웠다 — 둘 다 교체다
+	twice := append(slices.Clone(steps), RolloutStep{Pod: "p-0", DeletedAt: at(15 * time.Minute), By: operatorUser})
+	if got := Replacements(twice); len(got) != len(steps)+1 {
+		t.Fatalf("교체 %d(기대 %d)", len(got), len(steps)+1)
+	}
+	after.Rollout.Steps = Replacements(twice)
+	wantReason(t, judgeGreen(ScenarioS8, before, after), CheckOrder, "교체 4")
+
+	// 오퍼레이터 밖 사람의 delete 는 남아 주체 판정이 붉힌다
+	stranger := slices.Clone(steps)
+	stranger[0].By = "kubernetes-admin"
+	after.Rollout.Steps = Replacements(stranger)
+	wantReason(t, judgeGreen(ScenarioS8, before, after), CheckOrder, "오퍼레이터 아님")
+}
+
+// 복귀 시각은 API 의 Ready 전이 시각이다 — 표본 간격만큼 늦은 관측이 "하나씩"을 거짓으로 붉히지 않는다.
+func TestReturnedAt(t *testing.T) {
+	sampled := at(5 * time.Minute)
+	cases := []struct {
+		name                 string
+		readySince, unlinked time.Time
+		want                 time.Time
+	}{
+		{"Ready 전이 시각", at(4*time.Minute + 56*time.Second), at(4*time.Minute + 50*time.Second), at(4*time.Minute + 56*time.Second)},
+		{"전이 기록 없음 — 표본", time.Time{}, at(4*time.Minute + 50*time.Second), sampled},
+		{"전이 뒤에도 끊겨 보임 — 끊긴 마지막 표본", at(4*time.Minute + 40*time.Second), at(4*time.Minute + 50*time.Second), at(4*time.Minute + 50*time.Second)},
+		{"표본보다 늦은 전이 — 표본", at(6 * time.Minute), time.Time{}, sampled},
+	}
+	for _, c := range cases {
+		if got := ReturnedAt(c.readySince, c.unlinked, sampled); !got.Equal(c.want) {
+			t.Fatalf("%s: %s(기대 %s)", c.name, got, c.want)
+		}
+	}
 }
 
 func TestOnDeleteJudge(t *testing.T) {

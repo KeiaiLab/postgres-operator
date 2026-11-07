@@ -1002,7 +1002,7 @@ func (d *drill) placement(obs observation) loopdrill.PlacementRecord {
 	return pl
 }
 
-// rollout 은 창 안 멤버 pod delete 마다 그때의 그래프와 교체 복귀 시각을 붙인다(J12).
+// rollout 은 창 안 멤버 pod delete 마다 그때의 그래프와 교체 복귀 시각을 붙인다(J12) — kubelet 종료 확인은 뺀다.
 func (r *recorder) rollout(deletes []podDelete, events []loopdrill.EventMark, operator string) loopdrill.RolloutRecord {
 	rec := loopdrill.RolloutRecord{
 		Operator: operator, OldPrimary: r.oldPrimary.Pod, BlockedSeen: r.blockedSeen, BlockedAtEnd: r.blockedNow,
@@ -1011,10 +1011,11 @@ func (r *recorder) rollout(deletes []podDelete, events []loopdrill.EventMark, op
 	for _, del := range deletes {
 		rec.Steps = append(rec.Steps, r.step(del))
 	}
+	rec.Steps = loopdrill.Replacements(rec.Steps)
 	return rec
 }
 
-// step 은 pod delete 하나 — 직전 표본의 그래프로 끊김·대상 밖 streaming 을, 뒤 표본으로 새 파드 복귀를 본다.
+// step 은 pod delete 하나 — 직전 표본의 그래프로 끊김·대상 밖 streaming 을, 뒤 표본과 Ready 전이로 새 파드 복귀를 본다.
 func (r *recorder) step(del podDelete) loopdrill.RolloutStep {
 	s := loopdrill.RolloutStep{Pod: del.Pod, DeletedAt: del.At, By: del.User}
 	oldUID := ""
@@ -1031,17 +1032,23 @@ func (r *recorder) step(del podDelete) loopdrill.RolloutStep {
 		s.Detached = del.Pod != g.Primary && !slices.Contains(g.Connected, del.Pod)
 		s.Streaming = othersStreaming(obs, g, del.Pod)
 	}
+	// 복귀 — 첫 Ready ∧ 연결 표본에서 API 의 Ready 전이 시각을 쓴다(끊겨 보인 마지막 표본보다 이르지 않게)
+	var unlinked time.Time
 	for _, obs := range r.history {
 		if obs.At.Before(del.At) {
 			continue
 		}
 		g, ok := obs.graphMark()
 		m, found := obs.memberNamed(del.Pod)
-		if !ok || !found || m.UID == oldUID || !m.Ready || m.Revision != obs.UpdateRevision {
+		if !ok || !found || m.UID == oldUID {
 			continue
 		}
-		if m.Pod == g.Primary || slices.Contains(g.Streaming, m.Pod) {
-			s.ReadyAt = obs.At
+		linked := m.Pod == g.Primary || slices.Contains(g.Streaming, m.Pod)
+		if !linked {
+			unlinked = obs.At
+		}
+		if linked && m.Ready && m.Revision == obs.UpdateRevision {
+			s.ReadyAt = loopdrill.ReturnedAt(m.ReadySince, unlinked, obs.At)
 			break
 		}
 	}
