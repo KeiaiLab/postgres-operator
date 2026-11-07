@@ -3,7 +3,7 @@
 # 망은 deps 만(Nexus Go 프록시). build·test 는 --network=none. 베이스는 빌더 mirrors 가 Harbor 로 돌린다.
 
 # 의존 — go.sum 이 모든 zip 해시를 가져 sumdb 조회가 없다.
-FROM --platform=$BUILDPLATFORM golang:1.26.8@sha256:0f063af2d465d8dcae54cce04278ada488b96f77b42449c8d071e47d016cc65a AS deps
+FROM --platform=$BUILDPLATFORM golang:1.26.10@sha256:cfa27959837144bf4649802ba38e59daffd0dd2a7994aa83daaf113285b0f551 AS deps
 ARG GOPROXY=https://pkg.keiailab.com/repository/go/
 WORKDIR /workspace
 COPY go.mod go.sum ./
