@@ -13,6 +13,33 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.12] - 2026-11-07
+
+### Fixed (failover 안전 — kind 루프 드릴 V1, GitHub #290)
+
+- *(failover)* failover 가 승격 전에 옛 primary 를 펜싱하고 생존 멤버를 끊는다(ADR-0036 F1-F5). 기존 승격 경로는 부팅 때만 읽는 PVC 펜스 라벨만 달아, 멈췄지만 살아 있는 옛 primary 가 분기점 너머로 커밋·스트리밍을 계속했다(#290 D1 split-brain 창). 이미 primary 인 후보는 승자가 되고, 다른 생존 멤버가 primary 로 답하면 failover 를 멈춘다(fail-closed).
+- *(instance)* rewind 폴백 basebackup 이 crash-safe 해졌다 — 임시 디렉터리로 복사한 뒤 완료 시 교체하고, `PG_VERSION` 없는 비어 있지 않은 PGDATA 는 bootstrap 이 중단된 복사로 처리한다(Forgejo #3). 복사 중 파드가 죽으면 영구 crashloop 이었다.
+- *(instance)* PGDATA 권한·primary 리스 기동 보강(fsGroup 드리프트 뒤 재시작이 리스를 쥔 채 crashloop) — postgres fork 직전마다 `chmod 0700`, `fsGroupChangePolicy: OnRootMismatch`, postgres 가 접속을 받은 뒤에만 선출 시작.
+- *(controller)* shard·reshard 대상 파드에 `postgres.keiailab.io/cluster` 라벨을 달아 spread·anti-affinity 셀렉터가 맞는다(#290 D7).
+- *(crd)* PostgresUser 의 `role` 카테고리 제거 — `kubectl get role` 이 다시 RBAC Role 을 보인다(Forgejo #1).
+
+### Changed
+
+- *(build)* Go 빌드 Dockerfile 전부 Go 1.26.10 · 단일 디지스트 핀, `go.mod` 와 대조 시험.
+- *(deps)* 상류 #298–#304 병합 — Go 의존·베이스 이미지 핀, 워크플로 action 핀, Citus 서명 apt 소스, scorecard-action v2.4.4, 범위 밖 int 거부(퍼즈 시험), grpc 1.83.2(GO-2026-6443).
+- *(ci)* I26 diff 검사를 ADR-0037 트레일러 규칙으로 교체 — `cmd/i26guard` 가 `cmd/instance`·`internal/instance`·`Dockerfile.pg` 를 건드린 커밋에 Accepted ADR 을 가리키는 `I26-ADR: NNNN` 트레일러를 요구.
+- *(deps)* Go 툴체인 1.26.10 · `golang.org/x/net` 0.62.0 — govulncheck 잔여 0(GO-2026-6599/6600/6603/6605/6607/6608/6610/6611/6612/6613/6617/6809).
+- *(build)* pg 이미지 instance-builder 를 golang 1.26.10 으로 핀(ADR-0038).
+- *(security)* gosec HIGH 0 — G115 변환에 범위 검사, G101 오탐에 주석.
+- *(lint)* golangci-lint 지적 92 → 6(#289).
+- *(ci)* `make validate` 워크플로 허용 목록(ADR-0022)에 artifacthub-verify · test 워크플로 추가.
+
+### Added
+
+- *(test)* 루프 드릴 심판 수정(kubelet delete, 계획 switchover, J6/J7/J12 기록기)과 기록된 런을 다시 판정하는 `test/e2e/loopdrill/cmd/rejudge`.
+- *(test)* S6b 네트워크 분할 시나리오 — iptables 로 standby 분리 + primary 동결.
+- *(docs)* ADR-0036(failover 펜스)·ADR-0037(I26 변경은 ADR 을 단다).
+
 ## [0.4.0-beta.11] - 2026-07-29
 
 ### Fixed (rw 라우팅 — postgres-prod 2026-07-11 / 2026-07-28 장애, INC-0002 / data#39)
