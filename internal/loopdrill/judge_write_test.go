@@ -8,6 +8,7 @@ package loopdrill
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -202,5 +203,120 @@ func TestSampleFloor(t *testing.T) {
 		if got := sampleFloor(c.window, c.bound); got != c.want {
 			t.Fatalf("sampleFloor(%s, %s) = %d(기대 %d)", c.window, c.bound, got, c.want)
 		}
+	}
+}
+
+func TestWriteGapStallCredit(t *testing.T) {
+	// 판 5 S6b — 두 계측기가 함께 멈춘 9.2 s 를 빼면 5.1 s 라 초록, 보정이 Detail 에
+	before, after := run5Pair()
+	v := judgeGreen(ScenarioS6b, before, after)
+	wantPass(t, v, CheckWriteGap)
+	if c := checkOf(t, v, CheckWriteGap); !strings.Contains(c.Detail, "호스트 정지 보정 9.2s") {
+		t.Fatalf("보정이 Detail 에 없음: %s", c.Detail)
+	}
+
+	// 보정 0 인 자리 — 기존 한도 그대로라 붉다
+	runRed(t, CheckWriteGap, []redCase{
+		{"5-필드 ack · 정지 기록 없음", ScenarioS6b, func(b, a *ClusterSnap) {
+			*b, *a = run5Pair()
+			a.HostStalls = nil
+		}},
+		{"정지 기록 · 3-필드 ack", ScenarioS6b, func(b, a *ClusterSnap) {
+			*b, *a = run5Pair()
+			for i := range a.Probe.Acks {
+				a.Probe.Acks[i].Due, a.Probe.Acks[i].Sent = time.Time{}, time.Time{}
+			}
+		}},
+		{"DB 20 s 정지 안 탐침 9.3 s 정지", ScenarioS6b, func(b, a *ClusterSnap) {
+			*b, *a = run5Pair()
+			a.Probe.Acks = slices.DeleteFunc(a.Probe.Acks, func(k ProbeAck) bool { return k.At.After(ms(28370)) && k.At.Before(ms(50000)) })
+			a.Probe.Acks = append(a.Probe.Acks, probeAck(1850, ms(48370), ms(33370), ms(42670)))
+			a.HostStalls = []StallSpan{{From: ms(33370), To: ms(42670)}}
+		}},
+		{"창 끝 공백 안 정지", ScenarioS5, func(_, a *ClusterSnap) {
+			a.Probe = probeFor(drillStart, a.TakenAt, "p-0", span{at(19*time.Minute + 45*time.Second), a.TakenAt.Add(time.Second)})
+			last := len(a.Probe.Acks) - 1
+			a.Probe.Acks[last].Due, a.Probe.Acks[last].Sent = a.Probe.Acks[last].At, a.Probe.Acks[last].At
+			a.HostStalls = []StallSpan{{From: at(19*time.Minute + 46*time.Second), To: a.TakenAt}}
+		}},
+		{"창 시작 공백 안 정지", ScenarioS5, func(_, a *ClusterSnap) {
+			a.Probe = probeFor(drillStart, a.TakenAt, "p-0", span{drillStart.Add(-time.Second), at(15 * time.Second)})
+			a.Probe.Acks[0].Due, a.Probe.Acks[0].Sent = drillStart, a.Probe.Acks[0].At
+			a.HostStalls = []StallSpan{{From: drillStart, To: at(15 * time.Second)}}
+		}},
+	})
+}
+
+func TestStallCredit(t *testing.T) {
+	prev := ProbeAck{ID: 1, At: ms(0)}
+	cases := []struct {
+		name   string
+		cur    ProbeAck
+		stalls []StallSpan
+		want   time.Duration
+	}{
+		{"맹점 ∩ 정지", probeAck(2, ms(14000), ms(5000), ms(13000)), []StallSpan{{From: ms(2000), To: ms(12000)}}, 7 * time.Second},
+		{"공백 밖은 빼지 않는다", probeAck(2, ms(14000), ms(-3000), ms(13000)), []StallSpan{{From: ms(-5000), To: ms(20000)}}, 13 * time.Second},
+		{"겹친 정지를 두 번 세지 않는다", probeAck(2, ms(14000), ms(5000), ms(13000)),
+			[]StallSpan{{From: ms(6000), To: ms(9000)}, {From: ms(7000), To: ms(10000)}, {From: ms(11000), To: ms(12000)}}, 5 * time.Second},
+		{"지연이 문턱과 같다", probeAck(2, ms(14000), ms(5000), ms(5000).Add(HostStallFloor)), []StallSpan{{From: ms(0), To: ms(14000)}}, 0},
+		{"3-필드", ProbeAck{ID: 2, At: ms(14000)}, []StallSpan{{From: ms(0), To: ms(14000)}}, 0},
+		{"정지 없음", probeAck(2, ms(14000), ms(5000), ms(13000)), nil, 0},
+		{"맹점 밖 정지", probeAck(2, ms(14000), ms(5000), ms(13000)), []StallSpan{{From: ms(0), To: ms(4000)}}, 0},
+	}
+	for _, c := range cases {
+		if got := stallCredit(prev, c.cur, c.stalls); got != c.want {
+			t.Errorf("%s: 보정 %s(기대 %s)", c.name, got, c.want)
+		}
+	}
+}
+
+func TestHostStallObservation(t *testing.T) {
+	// 판 5 — 창 안 정지 셋(하나는 보정에 씀), 창 밖 정지는 세지 않는다
+	before, after := run5Pair()
+	after.HostStalls = append(after.HostStalls,
+		StallSpan{From: at(5 * time.Minute), To: at(5*time.Minute + 2*time.Second)},
+		StallSpan{From: at(17 * time.Minute), To: at(17*time.Minute + 20*time.Second)},
+		StallSpan{From: drillStart.Add(-time.Hour), To: drillStart.Add(-50 * time.Minute)})
+	v := judgeGreen(ScenarioS6b, before, after)
+	if len(v.Observations) != 1 {
+		t.Fatalf("관측 %+v", v.Observations)
+	}
+	o := v.Observations[0]
+	if o.ID != ObsHostStall || o.Count != 3 || o.Credited != 1 || o.Longest != 20*time.Second ||
+		o.Credit.Round(100*time.Millisecond) != 9200*time.Millisecond || o.Detail == "" {
+		t.Fatalf("H1 %+v", o)
+	}
+
+	// 정지가 없으면 관측도 없다(옛 판정문과 같다)
+	before, after = quietPair()
+	if v := judgeGreen(ScenarioS5, before, after); len(v.Observations) != 0 {
+		t.Fatalf("정지 없이 관측 %+v", v.Observations)
+	}
+}
+
+func TestGreenIgnoresObservations(t *testing.T) {
+	v := Verdict{
+		Checks:       []Check{{ID: CheckWriteGap, Pass: true}},
+		Observations: []Observation{{ID: ObsHostStall, Count: 2, Credited: 1, Credit: 9 * time.Second, Longest: 40 * time.Second}},
+	}
+	if !v.Green() {
+		t.Fatal("H1 관측이 초록을 막음")
+	}
+}
+
+func TestParseAckFields(t *testing.T) {
+	log := "ack 1 1790000001.5 1790000001.0 1790000001.4\n" +
+		"ack 2 1790000006.0 1790000006.0\n" +
+		"ack 3 1790000011.0 x 1790000011.0\n" +
+		"ack 4 1790000016.0\n" +
+		"ack 5 1790000021.0 1790000021.0 1790000021.0 9\n"
+	got := ParseAcks(log)
+	want := []ProbeAck{
+		{ID: 1, At: time.Unix(1790000001, 5e8).UTC(), Due: time.Unix(1790000001, 0).UTC(), Sent: time.Unix(1790000001, 4e8).UTC()},
+		{ID: 4, At: time.Unix(1790000016, 0).UTC()},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ack %+v(기대 %+v)", got, want)
 	}
 }

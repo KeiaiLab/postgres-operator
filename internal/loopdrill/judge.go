@@ -189,6 +189,7 @@ type ClusterSnap struct {
 	BudgetBlocked    bool              `json:"budgetBlocked"`
 	PodsOnUpdate     int               `json:"podsOnUpdate"`
 	Probe            ProbeRecord       `json:"probe"`
+	HostStalls       []StallSpan       `json:"hostStalls,omitempty"` // 드라이버 정지 시계(ADR-0039 계측기 B) — after 만
 	Placement        PlacementRecord   `json:"placement"`
 	Rollout          RolloutRecord     `json:"rollout"`
 	VAP              VAPOutcome        `json:"vap,omitempty"`
@@ -226,10 +227,27 @@ type Check struct {
 	Detail string  `json:"detail"`
 }
 
+// ObsID 는 관측 식별자 — 관측은 판정이 아니다(Green 이 보지 않는다).
+type ObsID string
+
+// ObsHostStall 은 호스트 정지 관측(ADR-0039 H1).
+const ObsHostStall ObsID = "H1"
+
+// Observation 은 관측 하나 — H1 은 창 안 정지 수 · J10 보정에 쓴 수 · 보정 합 · 가장 긴 정지.
+type Observation struct {
+	ID       ObsID         `json:"id"`
+	Count    int           `json:"count"`
+	Credited int           `json:"credited"`
+	Credit   time.Duration `json:"credit"`
+	Longest  time.Duration `json:"longest"`
+	Detail   string        `json:"detail"`
+}
+
 // Verdict 는 시나리오 하나의 판정.
 type Verdict struct {
-	Scenario Scenario `json:"scenario"`
-	Checks   []Check  `json:"checks"`
+	Scenario     Scenario      `json:"scenario"`
+	Checks       []Check       `json:"checks"`
+	Observations []Observation `json:"observations,omitempty"`
 }
 
 // ExpectFor 는 시나리오·모드의 기대를 낸다.
@@ -331,10 +349,13 @@ func Judge(scn Scenario, before, after ClusterSnap, exp Expect) Verdict {
 	for _, id := range ids {
 		verdict.Checks = append(verdict.Checks, judges[id](before, after, exp))
 	}
+	if obs, ok := observeHostStall(before, after); ok {
+		verdict.Observations = append(verdict.Observations, obs)
+	}
 	return verdict
 }
 
-// Green 은 판정이 하나 이상이고 전부 초록인가.
+// Green 은 판정이 하나 이상이고 전부 초록인가 — 관측(Observations)은 보지 않는다.
 func (v Verdict) Green() bool {
 	if len(v.Checks) == 0 {
 		return false

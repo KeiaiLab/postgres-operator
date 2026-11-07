@@ -289,3 +289,33 @@ func runRed(t *testing.T, id CheckID, cases []redCase) {
 		})
 	}
 }
+
+// run5 은 V1 판 5 S6b 의 둘째 공백을 failoverPair 의 14분 자리에 옮긴 것(ADR-0039).
+//
+//	ack 1849  :28.37 ── WSL2 VM 정지 [:28.4, :42.6] ── ack 1850 :42.69(예정 :33.37 · 보냄 :42.68)
+//	탐침 맹점 [:33.37, :42.68] ∩ 정지 → 보정 ≈ 9.2 s · 보정 공백 ≈ 5.1 s
+var run5 = at(14 * time.Minute)
+
+// run5Pair 는 S6b 초록 짝에 판 5 꼴 공백(5-필드 ack)과 그 정지 구간을 넣은 것.
+func run5Pair() (ClusterSnap, ClusterSnap) {
+	before, after := detachedPair()
+	p := probeFor(drillStart, after.TakenAt, "p-1", span{at(time.Minute), at(110 * time.Second)}, span{run5.Add(20 * time.Second), run5.Add(45 * time.Second)})
+	p.Acks = append(p.Acks,
+		probeAck(1848, ms(23370), ms(23370), ms(23360)),
+		probeAck(1849, ms(28370), ms(28370), ms(28360)),
+		probeAck(1850, ms(42690), ms(33370), ms(42680)),
+		probeAck(1851, ms(42700), ms(38370), ms(42690)),
+		probeAck(1852, ms(43700), ms(43370), ms(43690)))
+	p.Stored = append(p.Stored, IDRange{From: 1848, To: 1852})
+	after.Probe = p
+	after.HostStalls = []StallSpan{{From: ms(28400), To: ms(42600)}}
+	return before, after
+}
+
+// ms 는 run5 에서 n 밀리초 뒤.
+func ms(n int64) time.Time { return run5.Add(time.Duration(n) * time.Millisecond) }
+
+// probeAck 은 5-필드 ack(exec · due · sent).
+func probeAck(id int64, exec, due, sent time.Time) ProbeAck {
+	return ProbeAck{ID: id, At: exec, Due: due, Sent: sent}
+}
