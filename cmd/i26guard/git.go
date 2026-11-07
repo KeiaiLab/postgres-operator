@@ -50,7 +50,7 @@ func (r repo) commits(base string) ([]i26guard.Commit, error) {
 	}
 
 	var cs []i26guard.Commit
-	for _, sha := range strings.Fields(out) {
+	for sha := range strings.FieldsSeq(out) {
 		c, err := r.commit(sha)
 		if err != nil {
 			return nil, err
@@ -89,7 +89,7 @@ func (r repo) adrs() (map[string]i26guard.ADRStatus, error) {
 	}
 
 	m := map[string]i26guard.ADRStatus{}
-	for _, path := range strings.Fields(out) {
+	for path := range strings.FieldsSeq(out) {
 		name := strings.TrimPrefix(path, adrDir+"/")
 		mt := adrFile.FindStringSubmatch(name)
 		if mt == nil {

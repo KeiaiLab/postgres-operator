@@ -735,7 +735,7 @@ func (r *BackupJobReconciler) finalizeSidecarRestore(
 		return ctrl.Result{}, r.statusUpdate(ctx, bj)
 	default:
 		if runner.Status.CompletionTime != nil &&
-			nowFunc().Time.Sub(runner.Status.CompletionTime.Time) > backupRestoreHealthTimeout {
+			nowFunc().Sub(runner.Status.CompletionTime.Time) > backupRestoreHealthTimeout {
 			endedAt := nowFunc()
 			bj.Status.EndedAt = &endedAt
 			bj.Status.Phase = postgresv1alpha1.BackupJobFailed

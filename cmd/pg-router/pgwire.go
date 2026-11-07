@@ -84,11 +84,11 @@ func parseSQL(m pgMessage) (string, bool) {
 		return "", false
 	}
 	rest := m.Payload[i+1:]
-	j := bytes.IndexByte(rest, 0)
-	if j < 0 {
+	before, _, ok := bytes.Cut(rest, []byte{0})
+	if !ok {
 		return "", false
 	}
-	return string(rest[:j]), true
+	return string(before), true
 }
 
 // bindParams 는 'B'(Bind) 메시지에서 파라미터 값들을 추출한다 (NULL 은 nil). payload =
@@ -120,7 +120,7 @@ func bindParams(m pgMessage) ([][]byte, bool) {
 	numParams := int(binary.BigEndian.Uint16(p[pos:]))
 	pos += 2
 	out := make([][]byte, 0, numParams)
-	for k := 0; k < numParams; k++ {
+	for range numParams {
 		if pos+4 > len(p) {
 			return nil, false
 		}

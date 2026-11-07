@@ -36,7 +36,7 @@ func decodeDataRow(p []byte) ([]any, bool) {
 	n := int(binary.BigEndian.Uint16(p[0:2]))
 	vals := make([]any, 0, n)
 	off := 2
-	for i := 0; i < n; i++ {
+	for range n {
 		if off+4 > len(p) {
 			return nil, false
 		}
@@ -81,7 +81,7 @@ func rowDescNames(rd *pgMessage) []string {
 	n := int(binary.BigEndian.Uint16(p[0:2]))
 	names := make([]string, 0, n)
 	off := 2
-	for i := 0; i < n; i++ {
+	for range n {
 		end := off
 		for end < len(p) && p[end] != 0 {
 			end++

@@ -108,7 +108,7 @@ func adrProblem(n string, adrs map[string]ADRStatus) string {
 // either form "- **Status**: Accepted" or "- Status: Accepted", and
 // returns its first word. Empty when there is none.
 func ParseStatus(doc string) ADRStatus {
-	for _, line := range strings.Split(doc, "\n") {
+	for line := range strings.SplitSeq(doc, "\n") {
 		s := strings.TrimSpace(line)
 		s = strings.TrimPrefix(s, "- ")
 		s = strings.ReplaceAll(s, "**", "")

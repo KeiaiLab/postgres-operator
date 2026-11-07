@@ -385,7 +385,7 @@ func TestShard5_RecoveryDeterminism(t *testing.T) {
 	shards[2] = makeFailedShard("shard-2")
 
 	var firstCandidate string
-	for run := 0; run < 100; run++ {
+	for run := range 100 {
 		d := DetectPrimaryFailure(shards[2], nil)
 		if d.PromotionCandidate == nil {
 			t.Fatal("복구 후보가 nil")

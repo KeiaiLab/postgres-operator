@@ -167,7 +167,7 @@ func genNonce() (string, error) {
 // 분리자로 본다(키는 단일 문자).
 func parseScramAttrs(s string) map[string]string {
 	m := map[string]string{}
-	for _, part := range strings.Split(s, ",") {
+	for part := range strings.SplitSeq(s, ",") {
 		if i := strings.IndexByte(part, '='); i > 0 {
 			m[part[:i]] = part[i+1:]
 		}

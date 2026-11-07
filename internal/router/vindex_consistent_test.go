@@ -32,7 +32,7 @@ func chSpec(shards ...string) v1alpha1.ShardRangeSpec {
 func TestConsistentHash_Deterministic(t *testing.T) {
 	spec := chSpec("shard-0", "shard-1", "shard-2")
 	seen := map[string]bool{}
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		key := fmt.Sprintf("tenant-%d", i)
 		a, err := ResolveShard(spec, key)
 		if err != nil {
@@ -58,7 +58,7 @@ func TestConsistentHash_MinimalMovement(t *testing.T) {
 	after := chSpec("shard-0", "shard-1", "shard-2", "shard-3")
 
 	moved := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := fmt.Sprintf("tenant-%d", i)
 		a, _ := ResolveShard(before, key)
 		b, _ := ResolveShard(after, key)
