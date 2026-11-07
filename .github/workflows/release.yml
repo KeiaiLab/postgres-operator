@@ -69,8 +69,8 @@ jobs:
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ vars.GHCR_PUSH_USER || github.actor }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
       - id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
@@ -104,8 +104,8 @@ jobs:
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ vars.GHCR_PUSH_USER || github.actor }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
       - name: cosign sign image (digest-pinned)
         env:
           COSIGN_EXPERIMENTAL: "1"
@@ -128,9 +128,9 @@ jobs:
     with:
       image: ghcr.io/keiailab/postgres-operator
       digest: ${{ needs.image.outputs.digest }}
-      registry-username: ${{ github.actor }}
+      registry-username: ${{ vars.GHCR_PUSH_USER || github.actor }}
     secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
+      registry-password: ${{ secrets.GHCR_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
 
   sbom:
     name: SBOM (syft) + signature
