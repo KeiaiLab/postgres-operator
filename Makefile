@@ -84,7 +84,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests (combined unit + int
 
 .PHONY: test-unit
 test-unit: fmt vet ## Run unit tests only (no envtest — fast feedback).
-	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... -coverprofile cover-unit.out
+	go test -race ./api/... ./internal/version/... ./internal/plugin/... ./internal/instance/fencing/... ./internal/instance/supervise/... ./test/chart/... -coverprofile cover-unit.out
 
 .PHONY: i26guard
 i26guard: ## Check origin/stable..HEAD against I26 ADR trailers (ADR-0037).
