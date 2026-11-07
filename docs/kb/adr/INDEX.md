@@ -46,6 +46,8 @@ Standard path: `<repo>/docs/kb/adr/` (per the org-wide
 | [ADR-0033](0033-staged-rollout-on-delete.md) | 샤드 멤버는 OnDelete 로 두고 오퍼레이터가 하나씩, primary 는 마지막에 교체한다 (옛 replica 하나씩 — streaming 아닌 것 → 서수 높은 것 · 대상 밖 Ready ∧ streaming · 제자리 switchover 뒤 옛 primary 교체 · RolloutBlocked) | Accepted | 2026-09-29 |
 | [ADR-0034](0034-no-network-trust.md) | pg_hba 는 어떤 네트워크 대역도 trust 하지 않는다 (local trust + host scram · postgres 비밀번호는 오퍼레이터가 Secret 에 맞춘다(SCRAM verifier 만 exec) · 확인 전 설정·템플릿 유지 · passfile + PGPASSFILE · 적재 기준 판정·낡은 멤버만 reload) | Accepted | 2026-09-29 |
 | [ADR-0035](0035-pg-settings-owned-by-operator.md) | PG 설정은 spec 에서 렌더하고 오퍼레이터가 소유한다 (limits.memory → shared_buffers ÷4 · effective_cache_size ×3/4 · walKeepSize·maxConnections · 렌더 키의 auto.conf 항목은 파일 투영 뒤 값이 크지 않을 때만 RESET, 더 크면 남기고 AutoConfOverride) | Accepted | 2026-09-29 |
+| [ADR-0036](0036-failover-fences-old-primary-and-cuts-standbys.md) | failover 는 옛 primary 를 멈추고 생존 standby 의 수신을 끊은 뒤 승격한다 (펜스 exec fast→immediate→SIGKILL · 생존자 primary_conninfo '' · 끝 최대 승자 · 같은 reconcile 재지정 · S6b = iptables 끊기 + primary 트리 SIGSTOP) | Accepted | 2026-11-07 |
+| [ADR-0037](0037-i26-instance-manager-changes-carry-adr.md) | I26 — 인스턴스 매니저·pg 이미지 변경은 `I26-ADR:` 트레일러와 Accepted ADR 로 착지 (기점 = origin/stable · 17369c33·322546d6 소급 승인) | Accepted | 2026-11-07 |
 
 ## Archived (v0.x — decisions from before the redesign)
 
