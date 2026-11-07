@@ -541,7 +541,7 @@ func (r *PostgresClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// 3. status 종합.
 	prevPhase := cluster.Status.Phase
 	cluster.Status.Shards = shardStatuses
-	activeShardCount := int32(len(shardStatuses))
+	activeShardCount := clampInt32(int64(len(shardStatuses)))
 	cluster.Status.Router = routerStatus
 	managedRolesStatus, err := r.managedRolesStatus(ctx, &cluster)
 	if err != nil {

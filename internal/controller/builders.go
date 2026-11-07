@@ -90,13 +90,13 @@ const (
 	postgresImageCatalogHashAnnotation = "postgres.keiailab.io/postgres-image-catalog-sha256"
 
 	externalClusterCredentialsVolumeName = "external-cluster-credentials"
-	externalClusterCredentialsMountPath  = "/etc/postgres-external/source"
+	externalClusterCredentialsMountPath  = "/etc/postgres-external/source" // #nosec G101 -- path, not a credential
 
 	// backupRepoMountPath 는 filesystem pgBackRest repo (#209) 위치다.
 	// 별도 subPath mount는 kubelet이 root-owned 디렉터리를 만들 수 있어 non-root
 	// postgres 컨테이너가 쓰지 못한다. 이미 writable인 data PVC 내부 경로를 쓴다.
 	backupRepoMountPath   = pgDataMountPath + "/pgbackrest"
-	primaryPGPassFile     = "/tmp/primary.pgpass"
+	primaryPGPassFile     = "/tmp/primary.pgpass" // #nosec G101 -- path, not a credential
 	primaryClientKeyFile  = "/tmp/primary-client.key"
 	primaryClientCertFile = "/tmp/primary-client.crt"
 	primaryRootCertFile   = "/tmp/primary-root.crt"
@@ -544,9 +544,7 @@ func synchronousConfigForShard(
 	number := sync.Number
 	if durability == postgresv1alpha1.SynchronousReplicationDataDurabilityPreferred {
 		names = preferredSynchronousStandbyNames(cluster, shardOrdinal)
-		if int32(len(names)) < number {
-			number = int32(len(names))
-		}
+		number = min(number, clampInt32(int64(len(names))))
 	}
 	if number <= 0 || len(names) == 0 {
 		return nil

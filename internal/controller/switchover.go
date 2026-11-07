@@ -365,7 +365,7 @@ func (r *PostgresClusterReconciler) switchoverTarget(
 	}
 	commonsevents.EmitWarningf(r.Recorder, s.cluster, switchoverTargetBehindReason,
 		"shard %s: %s is not the streaming standby furthest ahead (%s at %s); switchover not started",
-		s.state.Shard, s.state.Target, best.Name, formatLSN(uint64(positions[best.Name])))
+		s.state.Shard, s.state.Target, best.Name, positionLSN(positions[best.Name]))
 	return nil, true, nil
 }
 
