@@ -1057,6 +1057,7 @@ func (d *drill) collect(
 	snap.Rollout = rec.rollout(audit.podDeletes, events, d.operator.user())
 	finishSwitchover(&snap, events)
 	snap.Probe = probeRecord(before.TakenAt, snap.TakenAt, obs)
+	snap.HostStalls = d.hostStalls(before.TakenAt, snap.TakenAt)
 	snap.HBA = d.hbaRecord(obs)
 	snap.Emergency = d.emergencyRecord(rec, snap.Probe)
 	if scn == loopdrill.ScenarioS0 {

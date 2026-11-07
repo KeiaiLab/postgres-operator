@@ -77,6 +77,7 @@ const (
 const (
 	resultRedAsExpected = loopdrill.ResultRedAsExpected
 	resultGreen         = loopdrill.ResultGreen
+	resultGreenStalls   = loopdrill.ResultGreenHostStalls
 	resultProbeFailed   = "p1-false"
 )
 
@@ -237,12 +238,13 @@ func TestLoopDrill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := resultRedAsExpected
+	// V1 통과 — green-host-stalls 도 통과다(예산 그대로, 두 계측기가 함께 멈춘 시간만 뺐다 · ADR-0039)
+	want := []string{resultRedAsExpected}
 	if cfg.mode == loopdrill.ModeGreen {
-		want = resultGreen
+		want = []string{resultGreen, resultGreenStalls}
 	}
-	if report.Result != want {
-		t.Fatalf("판정문 결과 %s(기대 %s) — %s", report.Result, want, d.reportPath(report))
+	if !slices.Contains(want, report.Result) {
+		t.Fatalf("판정문 결과 %s(기대 %s) — %s", report.Result, strings.Join(want, "|"), d.reportPath(report))
 	}
 }
 
@@ -257,6 +259,9 @@ func (d *drill) run() (*DrillReport, error) {
 	started := time.Now()
 	if err := d.prepareState(); err != nil {
 		return nil, err
+	}
+	if err := d.startStallClock(); err != nil {
+		return nil, fmt.Errorf("호스트 정지 시계: %w", err)
 	}
 	if err := d.ensureCluster(); err != nil {
 		return nil, err
@@ -1004,6 +1009,11 @@ func summarize(v loopdrill.Verdict) string {
 			mark = "✗"
 		}
 		parts = append(parts, fmt.Sprintf("%s%s(%s)", c.ID, mark, c.Detail))
+	}
+
+	// 관측(H1 등)은 판정이 아니라 표식 없이 붙인다
+	for _, o := range v.Observations {
+		parts = append(parts, fmt.Sprintf("%s(%s)", o.ID, o.Detail))
 	}
 	return strings.Join(parts, " · ")
 }
