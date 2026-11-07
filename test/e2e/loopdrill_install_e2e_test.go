@@ -12,6 +12,7 @@ package e2e
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -358,7 +359,7 @@ func ensureWriteProbe(primary string, s secrets) (bool, error) {
 		"sh", "-c", setup); err != nil {
 		return false, err
 	}
-	if _, err := kubectl("apply", "-f", testdataPath(writeProbeFile)); err != nil {
+	if err := applyWriteProbe(); err != nil {
 		return false, err
 	}
 	deadline := time.Now().Add(warmupBound)
@@ -371,23 +372,63 @@ func ensureWriteProbe(primary string, s secrets) (bool, error) {
 	return false, nil
 }
 
-// probeIntervalMatches 는 탐침 매니페스트 간격이 writeProbeInterval 과 같은지 본다 — J10 표본 하한이 그 간격을 쓴다.
-func probeIntervalMatches() error {
+// probePod 는 탐침 매니페스트에서 설치기가 보는 칸.
+type probePod struct {
+	Spec struct {
+		Containers []struct {
+			Args []string `json:"args"`
+			Env  []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"env"`
+		} `json:"containers"`
+	} `json:"spec"`
+}
+
+func readProbePod() (probePod, error) {
+	var pod probePod
 	raw, err := os.ReadFile(testdataPath(writeProbeFile))
+	if err != nil {
+		return pod, err
+	}
+	return pod, yaml.Unmarshal(raw, &pod)
+}
+
+// applyWriteProbe 는 탐침 파드를 파일대로 세운다 — 파드 spec 은 불변이라 살아 있는 파드의 args 가
+// 파일과 다르면(옛 3-필드 공급기) apply 대신 replace --force 로 갈아 끼운다.
+func applyWriteProbe() error {
+	pod, err := readProbePod()
 	if err != nil {
 		return err
 	}
-	var pod struct {
-		Spec struct {
-			Containers []struct {
-				Env []struct {
-					Name  string `json:"name"`
-					Value string `json:"value"`
-				} `json:"env"`
-			} `json:"containers"`
-		} `json:"spec"`
+	if len(pod.Spec.Containers) != 1 {
+		return fmt.Errorf("%s 컨테이너 %d개(기대 1)", writeProbeFile, len(pod.Spec.Containers))
 	}
-	if err := yaml.Unmarshal(raw, &pod); err != nil {
+	live, err := kubectl("get", "pod", "-n", dataNamespace, writeProbePod, "--ignore-not-found",
+		"-o", "jsonpath={.spec.containers[0].args}")
+	if err != nil {
+		return err
+	}
+
+	// 없으면 · 같으면 apply(멱등), 다르면 지우고 다시 만든다
+	var liveArgs []string
+	if live = strings.TrimSpace(live); live != "" {
+		if err := json.Unmarshal([]byte(live), &liveArgs); err != nil {
+			return fmt.Errorf("탐침 파드 args 해석: %w", err)
+		}
+	}
+	verb := []string{"apply"}
+	if live != "" && !slices.Equal(liveArgs, pod.Spec.Containers[0].Args) {
+		verb = []string{"replace", "--force"}
+	}
+	_, err = kubectl(append(verb, "-f", testdataPath(writeProbeFile))...)
+	return err
+}
+
+// probeIntervalMatches 는 탐침 매니페스트 간격이 writeProbeInterval 과 같은지 본다 — J10 표본 하한이 그 간격을 쓴다.
+func probeIntervalMatches() error {
+	pod, err := readProbePod()
+	if err != nil {
 		return err
 	}
 	for _, c := range pod.Spec.Containers {
