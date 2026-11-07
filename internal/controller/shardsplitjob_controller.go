@@ -53,10 +53,28 @@ type ShardSplitJobReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
+const (
+	// splitJobPoll 은 copy·CDC·cleanup Job 과 promote 선결 조건을 다시 볼 간격이다.
+	splitJobPoll = 3 * time.Second
+	// splitBootstrapPoll 은 target pod Ready 를 다시 볼 간격이다.
+	splitBootstrapPoll = 5 * time.Second
+)
+
+// phaseStep 은 phase 작업 뒤 Reconcile 이 할 일이다.
+type phaseStep int
+
+const (
+	// stepAdvance 는 nextPhase 전이로 진행한다.
+	stepAdvance phaseStep = iota
+	// stepReturn 은 phase 작업이 낸 result·err 를 그대로 반환한다.
+	stepReturn
+)
+
+// splitJobWork 는 완료 여부·실패 사유를 내는 Job 기반 phase 작업이다.
+type splitJobWork func(context.Context, *postgresv1alpha1.ShardSplitJob) (bool, string, error)
+
 // Reconcile 은 ShardSplitJob 의 다음 phase 로 한 단계 전이한다 (즉시 requeue 로 진행).
 func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var ssj postgresv1alpha1.ShardSplitJob
 	if err := r.Get(ctx, req.NamespacedName, &ssj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -77,11 +95,7 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 적용 전에 진행 중이던 요청은 승인 게이트·phase 부수효과보다 먼저 Failed 처리한다.
 	// Failed/Aborted의 안전 cleanup은 위 terminal 분기에서 계속 허용한다.
 	if reason := unsupportedSplitSpecReason(&ssj); reason != "" {
-		ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-		ssj.Status.FailureReason = reason
-		now := metav1.Now()
-		ssj.Status.CompletedAt = &now
-		ssj.Status.ObservedGeneration = ssj.Generation
+		markSplitFailed(&ssj, reason)
 		if err := r.Status().Update(ctx, &ssj); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -94,159 +108,159 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 승인 annotation 편집이 재-reconcile 을 트리거해 SnapshotWAL 로 진행한다.
 	if (ssj.Status.Phase == "" || ssj.Status.Phase == postgresv1alpha1.ShardSplitPhasePending) &&
 		autoSplitHoldForApproval(&ssj) {
-		if ssj.Status.Phase == "" {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhasePending
-			ssj.Status.ObservedGeneration = ssj.Generation
-			if err := r.Status().Update(ctx, &ssj); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		logger.Info("ShardSplitJob 승인 대기 (autosplit requireApproval)", "name", ssj.Name)
-		return ctrl.Result{}, nil
+		return r.holdForApproval(ctx, &ssj)
 	}
+
+	// phase 별 부수효과 — 완료 전이면 여기서 requeue·Failed 로 반환한다.
+	if res, step, err := r.runPhaseWork(ctx, &ssj); step == stepReturn {
+		return res, err
+	}
+
+	return r.advancePhase(ctx, &ssj)
+}
+
+// markSplitFailed 는 job 을 사유와 함께 Failed 종료 상태로 표시한다(저장은 호출자).
+func markSplitFailed(ssj *postgresv1alpha1.ShardSplitJob, reason string) {
+	ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
+	ssj.Status.FailureReason = reason
+	now := metav1.Now()
+	ssj.Status.CompletedAt = &now
+	ssj.Status.ObservedGeneration = ssj.Generation
+}
+
+// failPhase 는 phase 작업 실패를 Failed 로 저장한다. 저장 오류는 무시한다 — 다음
+// reconcile 이 같은 실패를 다시 만난다.
+func (r *ShardSplitJobReconciler) failPhase(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, reason string) (ctrl.Result, phaseStep, error) {
+	markSplitFailed(ssj, reason)
+	_ = r.Status().Update(ctx, ssj)
+	return ctrl.Result{}, stepReturn, nil
+}
+
+// holdForApproval 은 승인 대기 job 을 Pending 으로 기록하고 멈춘다.
+func (r *ShardSplitJobReconciler) holdForApproval(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (ctrl.Result, error) {
+	if ssj.Status.Phase == "" {
+		ssj.Status.Phase = postgresv1alpha1.ShardSplitPhasePending
+		ssj.Status.ObservedGeneration = ssj.Generation
+		if err := r.Status().Update(ctx, ssj); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	log.FromContext(ctx).Info("ShardSplitJob 승인 대기 (autosplit requireApproval)", "name", ssj.Name)
+	return ctrl.Result{}, nil
+}
+
+// runPhaseWork 는 현재 phase 의 부수효과를 수행한다. stepAdvance 면 nextPhase 전이로 간다.
+func (r *ShardSplitJobReconciler) runPhaseWork(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (ctrl.Result, phaseStep, error) {
+	switch ssj.Status.Phase {
+	case postgresv1alpha1.ShardSplitPhaseBootstrap:
+		return r.bootstrapPhase(ctx, ssj)
+
+	// InitialCopy phase: source→target 데이터 복사 Job 을 띄우고 완료를 기다린다. 완료
+	// 전엔 phase 를 전이하지 않고 requeue 한다(가역 — Job 실패 시 Failed, target drop 으로
+	// rollback). 실 데이터 이동이 끝나야 CDCCatchup/Cutover 가 의미를 가진다.
+	case postgresv1alpha1.ShardSplitPhaseInitialCopy:
+		return r.jobPhase(ctx, ssj, r.reconcileInitialCopy)
+
+	// CDCCatchup phase (online): 논리복제로 라이브 쓰기를 따라잡고, 거의 catch-up 되면
+	// write-block 을 켠 뒤 최종 drain·정리한다(reconcileCDC). 완료 전엔 전이하지 않는다.
+	// offline 모드는 no-op(nextPhase 가 즉시 Cutover 로).
+	case postgresv1alpha1.ShardSplitPhaseCDCCatchup:
+		if !ssj.Spec.Online {
+			return ctrl.Result{}, stepAdvance, nil
+		}
+		return r.jobPhase(ctx, ssj, r.reconcileCDC)
+
+	// Cutover phase: 라우팅 전환 직전 write-block 을 켠다(라우터가 쓰기 거부, 읽기는 통과) —
+	// RoutingUpdate 가 ranges 를 flip 하고 동시에 write-block 을 해제한다. forward-only(비가역)는
+	// nextPhase 가 Failed 로 막으므로 write-block 을 켜지 않는다.
+	case postgresv1alpha1.ShardSplitPhaseCutover:
+		if ssj.Spec.AllowForwardOnly {
+			return ctrl.Result{}, stepAdvance, nil
+		}
+		if err := r.setWriteBlock(ctx, ssj, true); err != nil {
+			return ctrl.Result{}, stepReturn, err
+		}
 
 	// RoutingUpdate phase: 실 routing 전환 — 해당 keyspace 의 ShardRange CRD 의 ranges 를
 	// target 으로 갱신한다. *가역* cutover 결과(rollback=ShardRange 원복, §6 L3 안전망).
 	// 사용자 비가역 승인(2026-06-04) 하에 진입. write-block(운영 write freeze) + CDC
 	// logical replication 은 운영 cluster 연동 후속(별 트랙).
-	// Bootstrap phase: target shard 의 실 K8s 자원 (ConfigMap + headless Service +
-	// StatefulSet) 을 격리 식별로 생성한다 (ADR-0027). 가역 (rollback = target 자원
-	// delete). 실패 시 Failed 로 종료 — 다음 phase (InitialCopy) 가 target 부재로
-	// 진행 불가하므로 fail-fast.
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseBootstrap {
-		if err := r.reconcileBootstrapTargets(ctx, &ssj); err != nil {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = err.Error()
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
+	case postgresv1alpha1.ShardSplitPhaseRoutingUpdate:
+		if err := r.applyRouting(ctx, ssj); err != nil {
+			return r.failPhase(ctx, ssj, err.Error())
 		}
-		// #B-28: target StatefulSet 을 upsert 했다고 곧장 InitialCopy 로 넘어가면, copy Job 이
-		// target pod 부팅(및 headless DNS 등록) 전에 실행돼 "no such host" 로 실패한다(E-1 에서
-		// 수동 "target Ready 후 재적용" 으로 우회했던 race). target pod 가 Ready 될 때까지
-		// Bootstrap 에 머물며 requeue 한다 — nextPhase 전이 게이트.
-		ready, err := r.bootstrapTargetsReady(ctx, &ssj)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if !ready {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-	}
-
-	// InitialCopy phase: source→target 데이터 복사 Job 을 띄우고 완료를 기다린다. 완료
-	// 전엔 phase 를 전이하지 않고 requeue 한다(가역 — Job 실패 시 Failed, target drop 으로
-	// rollback). 실 데이터 이동이 끝나야 CDCCatchup/Cutover 가 의미를 가진다.
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseInitialCopy {
-		done, failure, err := r.reconcileInitialCopy(ctx, &ssj)
-		if err != nil {
-			return ctrl.Result{}, err // 전이 가능(ShardRange 부재 등) — backoff requeue.
-		}
-		if failure != "" {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = failure
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // 복사 Job 대기.
-		}
-		// 복사 완료 → 아래 nextPhase 가 CDCCatchup 으로 전이.
-	}
-
-	// CDCCatchup phase (online): 논리복제로 라이브 쓰기를 따라잡고, 거의 catch-up 되면
-	// write-block 을 켠 뒤 최종 drain·정리한다(reconcileCDC). 완료 전엔 전이하지 않는다.
-	// offline 모드는 no-op(아래 nextPhase 가 즉시 Cutover 로).
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCDCCatchup && ssj.Spec.Online {
-		done, failure, err := r.reconcileCDC(ctx, &ssj)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if failure != "" {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = failure
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // CDC catch-up 대기.
-		}
-		// CDC 완료(write-block 켜짐) → nextPhase 가 Cutover 로.
-	}
-
-	// Cutover phase: 라우팅 전환 직전 write-block 을 켠다(라우터가 쓰기 거부, 읽기는 통과) —
-	// RoutingUpdate 가 ranges 를 flip 하고 동시에 write-block 을 해제한다. forward-only(비가역)는
-	// nextPhase 가 Failed 로 막으므로 write-block 을 켜지 않는다.
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCutover && !ssj.Spec.AllowForwardOnly {
-		if err := r.setWriteBlock(ctx, &ssj, true); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseRoutingUpdate {
-		if err := r.applyRouting(ctx, &ssj); err != nil {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = err.Error()
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
-		}
-	}
 
 	// Cleanup phase: cutover·라우팅 전환 후 source 에서 이동분(각 target 키)을 삭제하는 Job 을
 	// 띄우고 완료를 기다린다. 라우팅이 이미 target 으로 갔으므로 안전(이동분은 더는 source 가
 	// 서빙하지 않음). 완료 전엔 전이하지 않는다.
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhaseCleanup {
-		done, failure, err := r.reconcileCleanup(ctx, &ssj)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if failure != "" {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = failure
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil // 삭제 Job 대기.
-		}
-		// 정리 완료 → 아래 nextPhase 가 Completed 로 전이.
+	case postgresv1alpha1.ShardSplitPhaseCleanup:
+		return r.jobPhase(ctx, ssj, r.reconcileCleanup)
+
+	case postgresv1alpha1.ShardSplitPhasePromote:
+		return r.promotePhase(ctx, ssj)
+	}
+	return ctrl.Result{}, stepAdvance, nil
+}
+
+// bootstrapPhase 는 target shard 의 실 K8s 자원 (ConfigMap + headless Service +
+// StatefulSet) 을 격리 식별로 생성한다 (ADR-0027). 가역 (rollback = target 자원
+// delete). 실패 시 Failed 로 종료 — 다음 phase (InitialCopy) 가 target 부재로
+// 진행 불가하므로 fail-fast.
+func (r *ShardSplitJobReconciler) bootstrapPhase(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (ctrl.Result, phaseStep, error) {
+	if err := r.reconcileBootstrapTargets(ctx, ssj); err != nil {
+		return r.failPhase(ctx, ssj, err.Error())
 	}
 
-	if ssj.Status.Phase == postgresv1alpha1.ShardSplitPhasePromote {
-		ready, reason, err := r.promotePreconditionsMet(ctx, &ssj)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if !ready {
-			logger.Info("ShardSplitJob Promote precondition not met", "reason", reason)
-			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
-		}
-		if err := r.reconcilePromote(ctx, &ssj); err != nil {
-			ssj.Status.Phase = postgresv1alpha1.ShardSplitPhaseFailed
-			ssj.Status.FailureReason = err.Error()
-			now := metav1.Now()
-			ssj.Status.CompletedAt = &now
-			ssj.Status.ObservedGeneration = ssj.Generation
-			_ = r.Status().Update(ctx, &ssj)
-			return ctrl.Result{}, nil
-		}
+	// #B-28: target StatefulSet 을 upsert 했다고 곧장 InitialCopy 로 넘어가면, copy Job 이
+	// target pod 부팅(및 headless DNS 등록) 전에 실행돼 "no such host" 로 실패한다(E-1 에서
+	// 수동 "target Ready 후 재적용" 으로 우회했던 race). target pod 가 Ready 될 때까지
+	// Bootstrap 에 머물며 requeue 한다 — nextPhase 전이 게이트.
+	ready, err := r.bootstrapTargetsReady(ctx, ssj)
+	if err != nil {
+		return ctrl.Result{}, stepReturn, err
 	}
+	if !ready {
+		return ctrl.Result{RequeueAfter: splitBootstrapPoll}, stepReturn, nil
+	}
+	return ctrl.Result{}, stepAdvance, nil
+}
 
-	next, failure := r.nextPhase(&ssj)
+// jobPhase 는 Job 기반 phase 작업을 돌린다. 오류는 backoff requeue(ShardRange 부재 등
+// 전이 가능), 실패 사유는 Failed, 미완료는 poll requeue, 완료면 전이로 간다.
+func (r *ShardSplitJobReconciler) jobPhase(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob, work splitJobWork) (ctrl.Result, phaseStep, error) {
+	done, failure, err := work(ctx, ssj)
+	if err != nil {
+		return ctrl.Result{}, stepReturn, err
+	}
+	if failure != "" {
+		return r.failPhase(ctx, ssj, failure)
+	}
+	if !done {
+		return ctrl.Result{RequeueAfter: splitJobPoll}, stepReturn, nil
+	}
+	return ctrl.Result{}, stepAdvance, nil
+}
+
+// promotePhase 는 선결 조건(source fence·target Ready)이 충족되면 target shard 신원을 채택한다.
+func (r *ShardSplitJobReconciler) promotePhase(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (ctrl.Result, phaseStep, error) {
+	ready, reason, err := r.promotePreconditionsMet(ctx, ssj)
+	if err != nil {
+		return ctrl.Result{}, stepReturn, err
+	}
+	if !ready {
+		log.FromContext(ctx).Info("ShardSplitJob Promote precondition not met", "reason", reason)
+		return ctrl.Result{RequeueAfter: splitJobPoll}, stepReturn, nil
+	}
+	if err := r.reconcilePromote(ctx, ssj); err != nil {
+		return r.failPhase(ctx, ssj, err.Error())
+	}
+	return ctrl.Result{}, stepAdvance, nil
+}
+
+// advancePhase 는 nextPhase 로 전이해 시각·사유를 기록하고 저장한다. 종료 phase 가
+// 아니면 즉시 다음 단계로 requeue 한다.
+func (r *ShardSplitJobReconciler) advancePhase(ctx context.Context, ssj *postgresv1alpha1.ShardSplitJob) (ctrl.Result, error) {
+	next, failure := r.nextPhase(ssj)
 	if next == ssj.Status.Phase {
 		return ctrl.Result{}, nil
 	}
@@ -262,21 +276,20 @@ func (r *ShardSplitJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if next == postgresv1alpha1.ShardSplitPhaseFailed {
 		ssj.Status.FailureReason = failure
 	}
-	if next == postgresv1alpha1.ShardSplitPhaseCompleted ||
-		next == postgresv1alpha1.ShardSplitPhaseFailed {
+	terminal := next == postgresv1alpha1.ShardSplitPhaseCompleted ||
+		next == postgresv1alpha1.ShardSplitPhaseFailed
+	if terminal {
 		now := metav1.Now()
 		ssj.Status.CompletedAt = &now
 	}
 	ssj.Status.Phase = next
 	ssj.Status.ObservedGeneration = ssj.Generation
 
-	logger.Info("ShardSplitJob phase 전이", "name", ssj.Name, "phase", next)
-	if err := r.Status().Update(ctx, &ssj); err != nil {
+	log.FromContext(ctx).Info("ShardSplitJob phase 전이", "name", ssj.Name, "phase", next)
+	if err := r.Status().Update(ctx, ssj); err != nil {
 		return ctrl.Result{}, err
 	}
-	// 종료 phase 가 아니면 즉시 다음 단계로.
-	if next == postgresv1alpha1.ShardSplitPhaseCompleted ||
-		next == postgresv1alpha1.ShardSplitPhaseFailed {
+	if terminal {
 		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{Requeue: true}, nil

@@ -111,87 +111,35 @@ func tokenize(s string) []token {
 	for i < n {
 		c := s[i]
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case isSpace(c):
 			i++
-		case c == '-' && i+1 < n && s[i+1] == '-': // 라인 주석
-			for i < n && s[i] != '\n' {
-				i++
-			}
-		case c == '/' && i+1 < n && s[i+1] == '*': // 블록 주석
-			i += 2
-			for i+1 < n && (s[i] != '*' || s[i+1] != '/') {
-				i++
-			}
-			i += 2
-			if i > n {
-				i = n
-			}
+		case isCommentStart(s, i):
+			i = skipComment(s, i)
 		case c == '\'': // 문자열 리터럴 ('' 이스케이프)
-			i++
-			var b strings.Builder
-			for i < n {
-				if s[i] == '\'' {
-					if i+1 < n && s[i+1] == '\'' {
-						b.WriteByte('\'')
-						i += 2
-						continue
-					}
-					i++ // 닫는 따옴표
-					break
-				}
-				b.WriteByte(s[i])
-				i++
-			}
-			toks = append(toks, token{tokStr, b.String()})
+			text, next := scanQuoted(s, i)
+			toks = append(toks, token{tokStr, text})
+			i = next
 		case c == '"': // 따옴표 식별자
-			i++
-			var b strings.Builder
-			for i < n {
-				if s[i] == '"' {
-					if i+1 < n && s[i+1] == '"' {
-						b.WriteByte('"')
-						i += 2
-						continue
-					}
-					i++
-					break
-				}
-				b.WriteByte(s[i])
-				i++
-			}
-			toks = append(toks, token{tokIdent, b.String()})
+			text, next := scanQuoted(s, i)
+			toks = append(toks, token{tokIdent, text})
+			i = next
 		case c == '$': // dollar-quote ($$...$$ / $tag$...$tag$) 또는 $1 파라미터
-			if inner, end, ok := dollarQuoted(s, i); ok {
-				// dollar-quote 본문은 하나의 문자열 리터럴 — 내부 텍스트가 식별자/predicate
-				// 로 새어나와 false-match 되는 것을 막는다.
-				toks = append(toks, token{tokStr, inner})
-				i = end
-			} else {
-				toks = append(toks, token{tokSym, "$"}) // $1 등 파라미터/stray.
-				i++
-			}
+			tok, next := scanDollar(s, i)
+			toks = append(toks, tok)
+			i = next
 		case isIdentStart(c):
-			j := i + 1
-			for j < n && isIdentPart(s[j]) {
-				j++
-			}
+			j := scanWhile(s, i+1, isIdentPart)
 			toks = append(toks, token{tokIdent, s[i:j]})
 			i = j
-		case c >= '0' && c <= '9':
-			j := i + 1
-			for j < n && (s[j] >= '0' && s[j] <= '9' || s[j] == '.') {
-				j++
-			}
+		case isDigit(c):
+			j := scanWhile(s, i+1, isNumPart)
 			toks = append(toks, token{tokNum, s[i:j]})
 			i = j
-		case c == '(' || c == ')' || c == ',' || c == ';' || c == '.':
+		case isPunct(c):
 			toks = append(toks, token{tokSym, string(c)})
 			i++
 		default: // 연산자 문자 묶음 (=, <=, >=, != 등)
-			j := i
-			for j < n && isOpChar(s[j]) {
-				j++
-			}
+			j := scanWhile(s, i, isOpChar)
 			if j == i {
 				j = i + 1 // 미지 단일 문자
 			}
@@ -200,6 +148,84 @@ func tokenize(s string) []token {
 		}
 	}
 	return toks
+}
+
+// scanWhile 은 s[i:] 에서 ok 를 만족하는 마지막 바이트 다음 인덱스를 반환한다.
+func scanWhile(s string, i int, ok func(byte) bool) int {
+	for i < len(s) && ok(s[i]) {
+		i++
+	}
+	return i
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func isNumPart(c byte) bool {
+	return isDigit(c) || c == '.'
+}
+
+func isPunct(c byte) bool {
+	return c == '(' || c == ')' || c == ',' || c == ';' || c == '.'
+}
+
+// isCommentStart 는 s[i:] 가 라인 주석(`--`) 또는 블록 주석(`/*`) 으로 시작하는지 본다.
+func isCommentStart(s string, i int) bool {
+	if i+1 >= len(s) {
+		return false
+	}
+	return s[i] == '-' && s[i+1] == '-' || s[i] == '/' && s[i+1] == '*'
+}
+
+// skipComment 는 s[i:] 의 주석을 건너뛴 다음 인덱스를 반환한다. 라인 주석은 개행 앞에서,
+// 미종료 블록 주석은 끝에서 멈춘다.
+func skipComment(s string, i int) int {
+	n := len(s)
+	if s[i] == '-' {
+		return scanWhile(s, i, func(c byte) bool { return c != '\n' })
+	}
+	i += 2
+	for i+1 < n && (s[i] != '*' || s[i+1] != '/') {
+		i++
+	}
+	return min(i+2, n)
+}
+
+// scanQuoted 는 s[i] 의 따옴표로 둘러싼 본문을 언쿼트해 반환한다. 같은 따옴표 두 개는
+// 따옴표 하나로 이스케이프되고, 미종료면 끝까지 본문이다. 반환 인덱스는 닫는 따옴표 다음.
+func scanQuoted(s string, i int) (string, int) {
+	quote, n := s[i], len(s)
+	i++
+	var b strings.Builder
+	for i < n {
+		if s[i] != quote {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if i+1 < n && s[i+1] == quote {
+			b.WriteByte(quote)
+			i += 2
+			continue
+		}
+		return b.String(), i + 1
+	}
+	return b.String(), i
+}
+
+// scanDollar 는 s[i]=='$' 에서 dollar-quote 본문 또는 `$` 기호 토큰을 낸다.
+func scanDollar(s string, i int) (token, int) {
+	if inner, end, ok := dollarQuoted(s, i); ok {
+		// dollar-quote 본문은 하나의 문자열 리터럴 — 내부 텍스트가 식별자/predicate
+		// 로 새어나와 false-match 되는 것을 막는다.
+		return token{tokStr, inner}, end
+	}
+	return token{tokSym, "$"}, i + 1 // $1 등 파라미터/stray.
 }
 
 func isIdentStart(c byte) bool {

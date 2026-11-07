@@ -126,7 +126,29 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 	}
 	// 3번째 샤드 (index=2) 만 Primary 장애 주입
 	shards[failedShardIndex] = makeFailedShard("shard-2")
+	logInitialShards(t, shards)
 
+	// ── 단계 2~3: 장애 감지 순회 + shard-2 장애 상세 ─────────────────────────────
+	decisions := detectShardFailures(t, shards, failedShardIndex)
+	d2 := decisions[failedShardIndex]
+	checkShard2Decision(t, d2)
+
+	// ── 단계 4: Promotion Plan 생성 + 실행 ───────────────────────────────────────
+	plan := promoteShard2(t, d2)
+
+	// ── 단계 5: 복구 후 상태 갱신 ────────────────────────────────────────────────
+	t.Logf("\n=== [단계 5] 복구 후 상태 갱신 ===")
+	// instance manager 가 pg_ctl promote 완료 후 annotation 을 갱신하는 것을 시뮬레이션
+	shards[failedShardIndex] = applyPromotion(shards[failedShardIndex], plan)
+	checkShard2Recovered(t, shards[failedShardIndex], d2)
+
+	// ── 단계 6: 복구 후 전체 재검사 ─────────────────────────────────────────────
+	checkAllRecovered(t, shards)
+}
+
+// logInitialShards 는 단계 1 초기 상태를 기록한다.
+func logInitialShards(t *testing.T, shards []postgresv1alpha1.ShardStatus) {
+	t.Helper()
 	t.Logf("=== [단계 1] 초기 상태 ===")
 	for _, s := range shards {
 		if s.Primary != nil {
@@ -136,10 +158,13 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 			t.Logf("  %-10s  primary=<nil>  replicas=%d", s.Name, len(s.Replicas))
 		}
 	}
+}
 
-	// ── 단계 2: 5개 샤드 전체 장애 감지 순회 ──────────────────────────────────
+// detectShardFailures 는 단계 2 — 전 샤드를 순회해 failedIndex 샤드만 장애인지 검증한다.
+func detectShardFailures(t *testing.T, shards []postgresv1alpha1.ShardStatus, failedIndex int) []Decision {
+	t.Helper()
 	t.Logf("\n=== [단계 2] 장애 감지 순회 ===")
-	decisions := make([]Decision, totalShards)
+	decisions := make([]Decision, len(shards))
 	failedCount := 0
 
 	for i, shard := range shards {
@@ -163,7 +188,7 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 
 	// 검증: 나머지 4개 샤드는 정상
 	for i, d := range decisions {
-		if i == failedShardIndex {
+		if i == failedIndex {
 			if !d.Failed {
 				t.Errorf("shard-%d 는 장애여야 함", i)
 			}
@@ -173,10 +198,13 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 			}
 		}
 	}
+	return decisions
+}
 
-	// ── 단계 3: shard-2 장애 상세 검증 ──────────────────────────────────────────
+// checkShard2Decision 은 단계 3 — shard-2 장애 사유와 lag 최소 복구 후보를 검증한다.
+func checkShard2Decision(t *testing.T, d2 Decision) {
+	t.Helper()
 	t.Logf("\n=== [단계 3] shard-2 장애 상세 ===")
-	d2 := decisions[failedShardIndex]
 
 	if d2.Reason != ReasonPrimaryNotReady {
 		t.Errorf("Reason = %q, 기대값 = %q", d2.Reason, ReasonPrimaryNotReady)
@@ -191,8 +219,11 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 	t.Logf("  장애 이유: %s", d2.Reason)
 	t.Logf("  메시지: %s", d2.Message)
 	t.Logf("  복구 후보: %s (lag=%d bytes)", d2.PromotionCandidate.Pod, d2.PromotionCandidate.LagBytes)
+}
 
-	// ── 단계 4: Promotion Plan 생성 + 실행 ───────────────────────────────────────
+// promoteShard2 는 단계 4 — 승격을 실행하고 plan 의 4단계 순서를 검증한다.
+func promoteShard2(t *testing.T, d2 Decision) PromotionPlan {
+	t.Helper()
 	t.Logf("\n=== [단계 4] Promotion Plan 생성 및 실행 ===")
 	promoter := &recordingPromoter{}
 
@@ -227,13 +258,13 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 			t.Errorf("Steps[%d] = %q, 기대값 = %q", j, plan.Steps[j], want)
 		}
 	}
+	return plan
+}
 
-	// ── 단계 5: 복구 후 상태 갱신 ────────────────────────────────────────────────
-	t.Logf("\n=== [단계 5] 복구 후 상태 갱신 ===")
-	// instance manager 가 pg_ctl promote 완료 후 annotation 을 갱신하는 것을 시뮬레이션
-	shards[failedShardIndex] = applyPromotion(shards[failedShardIndex], plan)
-	recovered := shards[failedShardIndex]
-
+// checkShard2Recovered 는 단계 5 — 새 Primary 가 승격 후보이고 옛 Primary 가 Replica 로
+// 재합류했는지 검증한다.
+func checkShard2Recovered(t *testing.T, recovered postgresv1alpha1.ShardStatus, d2 Decision) {
+	t.Helper()
 	t.Logf("  새 Primary: %s (ready=%v)", recovered.Primary.Pod, recovered.Primary.Ready)
 	t.Logf("  Replica 목록 (%d개):", len(recovered.Replicas))
 	for _, r := range recovered.Replicas {
@@ -263,8 +294,11 @@ func TestShard5_Shard2PrimaryFailureAndRecovery(t *testing.T) {
 	if !oldPrimaryFound {
 		t.Errorf("옛 Primary %s 가 Replica 목록에 없음 — rejoin 누락", oldPrimaryPod)
 	}
+}
 
-	// ── 단계 6: 복구 후 전체 재검사 ─────────────────────────────────────────────
+// checkAllRecovered 는 단계 6 — 복구 후 전 샤드가 정상인지 재검사한다.
+func checkAllRecovered(t *testing.T, shards []postgresv1alpha1.ShardStatus) {
+	t.Helper()
 	t.Logf("\n=== [단계 6] 복구 후 전체 재검사 ===")
 	postRecoveryFailed := 0
 	for _, shard := range shards {
