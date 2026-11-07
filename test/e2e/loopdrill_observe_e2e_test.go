@@ -122,6 +122,7 @@ type member struct {
 	Pod         string
 	UID         string
 	Node        string
+	PodIP       string
 	ContainerID string
 	Restarts    int32
 	Ready       bool
@@ -178,6 +179,7 @@ type podJSON struct {
 	} `json:"spec"`
 	Status struct {
 		Phase      string `json:"phase"`
+		PodIP      string `json:"podIP"`
 		Conditions []struct {
 			Type               string    `json:"type"`
 			Status             string    `json:"status"`
@@ -263,6 +265,7 @@ func probeCluster() (observation, error) {
 			Pod:         p.Metadata.Name,
 			UID:         p.Metadata.UID,
 			Node:        p.Spec.NodeName,
+			PodIP:       p.Status.PodIP,
 			Ready:       p.ready(),
 			ReadySince:  p.readySince(),
 			Terminating: p.Metadata.DeletionTimestamp != nil,

@@ -57,6 +57,12 @@ func TestLoopDrillBudgetsCoverOperator(t *testing.T) {
 		t.Errorf("StandbyFreeze = %s < wal_sender_timeout + Stale 판정 + 전파 + 재큐 %s", loopdrill.StandbyFreeze, frozenUntilStop)
 	}
 
+	// S6b — 얼린 primary 는 감지 · 디바운스 · 재큐 · 승격 exec 가 끝날 때까지 얼어 있어야 failover 가 선다(ADR-0036 §B)
+	promotedBy := statusStaleThresh + failoverDebounceThreshold + 2*statusPollInterval + promotionExecBudget
+	if loopdrill.PrimaryFreezeHold < promotedBy {
+		t.Errorf("PrimaryFreezeHold = %s < 감지 + 디바운스 + 재큐 + 승격 exec %s", loopdrill.PrimaryFreezeHold, promotedBy)
+	}
+
 	// S3·S4·S6 정지는 하트비트 끊김 문턱을 넘어야 관측자가 본다
 	if loopdrill.FaultPause <= statusStaleThresh {
 		t.Errorf("FaultPause = %s ≤ statusStaleThresh %s", loopdrill.FaultPause, statusStaleThresh)

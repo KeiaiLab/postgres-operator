@@ -33,7 +33,7 @@ const (
 	ScenarioS5  Scenario = "S5"  // standby 워커 docker stop(nodes 권한은 차트 그대로)
 	ScenarioS5a Scenario = "S5a" // nodes 규칙을 뗀 뒤 S5 — 정지 0 · NodeReadDenied · api_read_denied_total
 	ScenarioS6  Scenario = "S6"  // standby postmaster SIGSTOP
-	ScenarioS6b Scenario = "S6b" // standby primary_conninfo 를 무효 호스트로 → DetachLead 뒤 primary 삭제
+	ScenarioS6b Scenario = "S6b" // standby 넷ns 에서 primary IP 차단 → DetachLead 뒤 primary 트리 SIGSTOP
 	ScenarioS7  Scenario = "S7"  // S6 을 예산+1회
 	ScenarioS8  Scenario = "S8"  // 템플릿 변경 뒤 첫 새 replica postmaster SIGSTOP — 롤아웃 막힘·회복
 	ScenarioS9  Scenario = "S9"  // primary 워커 docker stop(> NodeDeathBound)
@@ -264,6 +264,7 @@ func ExpectFor(scn Scenario, mode Mode, replicas int) Expect {
 		exp.DeniedReads = true
 	case ScenarioS6b:
 		exp.DetachedData = true
+		exp.PromotionsRequired = 1 // 승격 0 은 유발이 무효다(ADR-0036 §B)
 	case ScenarioS7:
 		exp.BudgetExhaust = true
 	case ScenarioS8:
@@ -274,7 +275,7 @@ func ExpectFor(scn Scenario, mode Mode, replicas int) Expect {
 	return exp
 }
 
-// promotionOf 는 시나리오의 승격 종류다(설계 §3.12 J3 — S1–S3·S6b·S9 ≤ 1 · S0·S8 = 1 · 그 밖 0).
+// promotionOf 는 시나리오의 승격 종류다(설계 §3.12 J3 — S1–S3·S9 ≤ 1 · S0·S6b·S8 = 1 · 그 밖 0).
 func promotionOf(scn Scenario) Promotion {
 	switch scn {
 	case ScenarioS1, ScenarioS2, ScenarioS3, ScenarioS6b, ScenarioS9:

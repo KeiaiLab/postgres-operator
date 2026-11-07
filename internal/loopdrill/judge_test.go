@@ -104,6 +104,7 @@ func TestPromotionsJudge(t *testing.T) {
 			a.Timeline = []TimelineMark{{At: at(time.Minute), Timeline: 5}, {At: at(12 * time.Minute), Timeline: 6, Primary: "p-1"}}
 		}},
 		{"계획 switchover 0", ScenarioS8, func(_, a *ClusterSnap) { a.Timeline = a.Timeline[:1] }},
+		{"S6b 승격 0(유발 무효)", ScenarioS6b, func(_, a *ClusterSnap) { a.Timeline = a.Timeline[:1] }},
 		{"타임라인 미관측", ScenarioS1, func(_, a *ClusterSnap) { a.Timeline = nil }},
 		{"유발 전 타임라인 미관측", ScenarioS1, func(b, a *ClusterSnap) {
 			b.Timeline = nil
@@ -249,7 +250,7 @@ func TestExpectFor(t *testing.T) {
 		ScenarioS4: {Promotion: PromotionNone, Budget: 2, Members: members, GaugeRequired: true, GapBound: ReplicaGapBudget, ConvergeWithin: ConvergeBound},
 		ScenarioS5a: {Promotion: PromotionNone, Budget: 2, Members: members, GaugeRequired: true, DeniedReads: true,
 			GapBound: ReplicaGapBudget, ConvergeWithin: ConvergeBound},
-		ScenarioS6b: {Promotion: PromotionFailover, PromotionsAllowed: 1, Budget: 2, Members: members, GaugeRequired: true,
+		ScenarioS6b: {Promotion: PromotionFailover, PromotionsAllowed: 1, PromotionsRequired: 1, Budget: 2, Members: members, GaugeRequired: true,
 			GapBound: FailoverGapBound, LongGaps: 1, LossAllowed: 1, ConvergeWithin: ConvergeBound, DetachedData: true},
 		ScenarioS7: {Promotion: PromotionNone, BudgetExhaust: true, Budget: 2, Members: members, GaugeRequired: true,
 			GapBound: ReplicaGapBudget, ConvergeWithin: ConvergeBound},
@@ -339,6 +340,7 @@ func TestWindowsCoverSpec(t *testing.T) {
 		{"SwitchoverBudget", SwitchoverBudget, 100 * time.Second},
 		{"PromotionBound", PromotionBound, 70 * time.Second},
 		{"DetachLead", DetachLead, time.Minute},
+		{"PrimaryFreezeHold", PrimaryFreezeHold, 130 * time.Second},
 		{"RolloutBound(3)", RolloutBound(fixtureMembers), 41*time.Minute + 40*time.Second},
 		{"WriteGapBudget", WriteGapBudget, StatusStaleThresh},
 		{"WriteProbeInterval", WriteProbeInterval, StatusPollInterval},
@@ -355,6 +357,9 @@ func TestWindowsCoverSpec(t *testing.T) {
 	// 유지 시간은 그 시나리오가 부르는 판정 문턱을 넘어야 한다
 	if NodeDeathHold <= NodeDeathBound || RolloutBlockHold <= MemberConvergeBudget || DetachLead <= RetargetBound {
 		t.Fatal("S9·S8·S6b 유지가 문턱을 넘지 않는다")
+	}
+	if PrimaryFreezeHold <= PromotionBound {
+		t.Fatal("S6b primary 정지가 승격 경계를 넘지 않는다")
 	}
 	if !slices.IsSorted([]time.Duration{ReplicaGapBudget, WriteGapBudget, FailoverGapBound, NodeDeathGapBound, EmergencyGapBound}) {
 		t.Fatal("쓰기 공백 상한 순서가 뒤집혔다")

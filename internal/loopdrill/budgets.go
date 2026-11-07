@@ -110,8 +110,11 @@ const (
 	// RejoinBound 는 J9 — 승격부터 생존 standby 가 새 primary 그래프에 붙기까지의 상한.
 	RejoinBound = RetargetBound + 2*StatusPollInterval
 
-	// DetachLead 는 S6b — standby 를 끊고 primary 를 지우기까지(설계 60 s = 2 × memberRetargetAfter).
+	// DetachLead 는 S6b — standby 를 끊고 primary 를 얼리기까지(설계 60 s = 2 × memberRetargetAfter).
 	DetachLead = 2 * RetargetBound
+
+	// PrimaryFreezeHold 는 S6b — primary 프로세스 트리를 세워 두는 시간. 승격 exec 가 끝날 때까지 얼어 있게(ADR-0036 §B).
+	PrimaryFreezeHold = PromotionBound + PromotionExecBudget
 
 	// NodeDeathBound 는 노드 사망에서 승격까지의 예상(설계 §3.3 = node-monitor-grace + 디바운스 + statusPollInterval).
 	NodeDeathBound = NodeMonitorGrace + DebounceBound + StatusPollInterval
